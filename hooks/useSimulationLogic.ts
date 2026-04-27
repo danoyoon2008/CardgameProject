@@ -1,7 +1,7 @@
 // hooks/useSimulationLogic.ts
 import { useState, useEffect, useRef } from "react";
 import { CardRow, FieldCard } from "../types/game";
-import { applyPostAttackSkills, getActiveStatuses } from "../utils/cardskills";
+import { applyPostAttackSkills, getActiveStatuses, isTaunting, hasTauntUnit } from "../utils/cardskills";
 
 export interface PlayerState {
   hp: number;
