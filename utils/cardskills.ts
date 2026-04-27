@@ -5,6 +5,8 @@ import { FieldCard } from "../types/game";
 export interface PostAttackContext {
   damageDealt: number; // 입힌 피해량
   targetDestroyed?: boolean; // 공격한 타겟이 파괴되었는지 여부
+  applyFieldHeal?: (amt: number) => void;
+  applyFieldBuff?: (key: string) => void;
 }
 
 // 2. 카드별 공격 후 스킬 로직 사전
@@ -35,7 +37,8 @@ export const applyPostAttackSkills = (attackerCard: FieldCard, context: PostAtta
   const skillFunction = postAttackRegistry[attackerCard.name];
   
   if (skillFunction) {
-    return skillFunction(attackerCard, context);
+    const result = skillFunction(attackerCard, context);
+    return result;
   }
   
   return {}; 
