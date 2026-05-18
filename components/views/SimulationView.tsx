@@ -1,10 +1,157 @@
 // components/views/SimulationView.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
 import { CardRow, FieldCard } from "../../types/game";
-import { applyPostAttackSkills, getActiveStatuses } from "../../utils/cardskills";
+import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
+import {
+  createSimulationStatsInstanceId,
+  emptyUnitCombatRow,
+  formatGameStatInteger,
+  patchManyUnitCombatStats,
+} from "../../types/gameStats";
+import {
+  applyPostAttackSkills,
+  getActiveStatuses,
+  parseAttack,
+  validateAttack,
+  isSilenced,
+  isStunned,
+  isTaunting,
+} from "../../utils/cardskills";
+import {
+  UNIT,
+  PENDING_SKILL,
+  MOMO_SKILL_HEAL_AMOUNT,
+  BATTLE_MSG,
+  GHOSTONE_ID,
+  PHILIP_ID,
+  CHEOLGIBYEONG_ID,
+  DIAGO_ID,
+  IRON_KIWI_ID,
+  MORNING_MOOD_ID,
+  STARTING_TREE_ID,
+  PYRED_ID,
+  RYEOMCHO_ID,
+  DARK_KNIGHT_ID,
+  DARK_KNIGHT_GAUGE_CAP,
+  YORIN_STATUS_BADGE,
+  DEBUFF_IMMUNITY_BADGE,
+  MAXELLAND_ID,
+  MAXELLAND_TENACITY_GAUGE_CAP,
+  applyAttackerOutgoingBuffDamageModsUnlessCallieBanned,
+  resolveFieldUnitSimulationBaseAtkRaw,
+  bumpMaxellandTenacityGaugeOnEnemyKill,
+  applyIncomingDefenseDamage,
+  MARY_ID,
+  maryDefenseBuffActive,
+  PAKKI_ID,
+  scalePakkiOutgoingHit,
+  canApplyPakkiKillDebuff,
+  stripPakkiDebuffUnderImmunityOnClonedFields,
+  PAKKI_ATTACK_DEBUFF_BADGE,
+  getDarkKnightYorinAtkBonus,
+  getMaxellandTenacityAtkBonus,
+  isMaxellandTenacityStatusBadge,
+  darkKnightSoulGaugeFull,
+  maxellandTenacityGaugeFull,
+  fieldGrantsFocusedFireMultihitExemption,
+  getMorningMoodDeathAllyHeal,
+  hasMorningMoodAttackAura,
+  hasPyredAttackAura,
+  getStartingTreeAllyHealOnDamaged,
+  isRyeomcho,
+  isRanigo,
+  RANIGO_ALLY_BASIC_HEAL_AMOUNT,
+  elixir5StunTargetPatch,
+  applyEndTurnStunTickToFieldUnit,
+  applyEndTurnIversonWaitTickToFieldUnit,
+  IVERSON_ID,
+  IVERSON_SUMMON_WAIT_END_TURNS,
+  IVERSON_NEAREST_ENEMY_MSG,
+  getIversonClosestEnemyTargetSlots,
+  iversonWaitGaugeFill01,
+  isIversonAttackLocked,
+  iversonLiberationLabel,
+  MAENGSUGYEON_PO_ID,
+  canEnemyFieldSourceTargetMaengsugyeonPo,
+  useGeunyangMojaHitFlame,
+  useDiagoHitFlame,
+  useMomoHitFlame,
+  useGhostoneClawHit,
+  useIversonClawHit,
+  useEristinaHitLine,
+  EONDEOK_SPELL_ID,
+  EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
+  applyEndTurnEondeokSilenceTickToFieldUnit,
+  isEondeokSilenceActive,
+  BEONGGAE_SPELL_ID,
+  applyBeonggaeLightningToFieldUnit,
+  isBeonggaeValidTargetUnit,
+  SOMYEOL_SPELL_ID,
+  isOrietChosangSpellCard,
+  ORIET_CHOSANG_HP_BARRIER_AMOUNT,
+  splitDamageThroughHpBarrier,
+  hpBarrierPatchFromRemaining,
+  BANG_EOMAK_SPELL_ID,
+  BANG_EOMAK_DEFENSE_BADGE,
+  BANG_EOMAK_DEFENSE_INITIAL_END_TURN_TICKS,
+  getActiveBangEomakDefenseTicksFromField,
+  CHEOLBYEOK_SPELL_ID,
+  CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS,
+  getActiveCheolbyeokInvulnTicksFromField,
+  isInvulnerableFromBaekseuOrCheolbyeok,
+  applyEndTurnToSpellStack,
+  appendSpellToStack,
+  rotateSpellStackTopToBottom,
+  normalizeSpellStack,
+  getTopSpellFromField,
+  isJipjungSagyeokSpellCard,
+  BUFF_BAN_BADGE,
+  callieBuffBanSuppressesBuffsForVictim,
+  getKalliVsDefenseTypePureBonus,
+  kalliBasicAttackSkipsTargetMitigationVsDefenseType,
+  startingHeraldBasicAttackIgnoresTauntTargetingRestrictions,
+  applyEndTurnBaekseuInvulnTickToFieldUnit,
+  isBaekseuInvulnerable,
+  resolveBaekseuFatalDamage,
+  stripBaekseuHarmfulEffectsForInvuln,
+  BAEKSEU_INVULN_BADGE,
+  applyBaekseuInvulnThresholdExecutePass,
+  cleanupSimulationUnitDeath,
+  isBaekseuLastStandExecuteAuraActiveOnUnit,
+  fieldHasBaekseuLastStandExecuteAura,
+  isLibuty,
+  LIBUTY_BASIC_AOE_DAMAGE,
+  LIBUTY_REFLECT_PURE_DAMAGE,
+  computeLibutyReflectPureDamageOnAggressor,
+  applyLibutyReflectPatchToAggressorCard,
+} from "../../utils/battle";
+import "./simulation-combat-flash.css";
+import "./simulation-stun-swirl.css";
+import "./simulation-iverson-wait-aura.css";
+import { STUN_SPIRAL_PATH_D } from "./stunSpiralPath";
+
+function migratePlayerFieldSpellStack(field: {
+  is: FieldCard | null;
+  m: FieldCard | null;
+  os: FieldCard | null;
+  spell?: FieldCard | null;
+  spellStack?: FieldCard[] | null;
+}): {
+  is: FieldCard | null;
+  m: FieldCard | null;
+  os: FieldCard | null;
+  spellStack: FieldCard[];
+} {
+  return {
+    is: field.is,
+    m: field.m,
+    os: field.os,
+    spellStack: normalizeSpellStack(field),
+  };
+}
 
 interface PlayerState {
   hp: number;
@@ -17,7 +164,7 @@ interface PlayerState {
     is: FieldCard | null;
     m: FieldCard | null;
     os: FieldCard | null;
-    spell: FieldCard | null;
+    spellStack: FieldCard[];
   };
 }
 
@@ -36,6 +183,25 @@ interface SimulationState {
   rewindCards: CardRow[];
   playerA: PlayerState;
   playerB: PlayerState;
+  /** 필드 유닛 인스턴스별 전투 통계 */
+  unitCombatStats: Record<string, UnitCombatStatsRow>;
+  /** 통계 모달 표시 순서(소환 순) */
+  unitStatsOrder: string[];
+  /** 마법 카드 필드 배치 기록(통계 UI용 플레이스홀더) */
+  spellDeployLog: SpellDeployPlaceholderRow[];
+  /** No.51 심판 — 패 6장 만석 시 덱에서 뽑은 1장이 중앙에서 대기(손패 교체 또는 리와인드로 처리) */
+  simpanHandChoice: { player: "A" | "B"; pendingCard: CardRow } | null;
+  simpanHandChoiceQueue: { player: "A" | "B"; pendingCard: CardRow }[];
+  /** 패 5장 이하일 때 1.75초 중앙 프리뷰 후 자동 합류(심판 덱 드로우 / 일반 덱 드로우 공통) */
+  simpanPeekReveal: {
+    player: "A" | "B";
+    pendingCard: CardRow;
+    /** 생략·"simpan" = 심판, "draw" = 턴당 일반 덱 드로우 연출 */
+    peekKind?: "simpan" | "draw";
+  } | null;
+  simpanPeekQueue: { player: "A" | "B"; pendingCard: CardRow }[];
+  /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
+  simpanPeekTick: number;
 }
 
 interface SimulationViewProps {
@@ -45,13 +211,389 @@ interface SimulationViewProps {
   onOpenDetail?: (card: CardRow) => void;
 }
 
+/** 게임 통계 모달 — 유닛 표 정렬 키 */
+type GameStatsUnitSortKey =
+  | "default"
+  | "name"
+  | "summonedTurn"
+  | "damageDealt"
+  | "kills"
+  | "damageTaken"
+  | "selfHeal"
+  | "allyHealGiven"
+  | "damageMitigated";
+
+function compareUnitCombatStatsDesc(
+  a: UnitCombatStatsRow,
+  b: UnitCombatStatsRow,
+  key: Exclude<GameStatsUnitSortKey, "default">
+): number {
+  switch (key) {
+    case "name":
+      return a.cardName.localeCompare(b.cardName, "ko");
+    case "summonedTurn": {
+      const pa = a.summonedTurn.split("-");
+      const pb = b.summonedTurn.split("-");
+      const ta = parseInt(pa[0] ?? "0", 10) || 0;
+      const tb = parseInt(pb[0] ?? "0", 10) || 0;
+      if (ta !== tb) return tb - ta;
+      return (pb[1] ?? "").localeCompare(pa[1] ?? "");
+    }
+    case "damageDealt":
+      return b.damageDealt - a.damageDealt;
+    case "kills":
+      return b.kills - a.kills;
+    case "damageTaken":
+      return b.damageTaken - a.damageTaken;
+    case "selfHeal":
+      return b.selfHeal - a.selfHeal;
+    case "allyHealGiven":
+      return b.allyHealGiven - a.allyHealGiven;
+    case "damageMitigated":
+      return b.damageMitigated - a.damageMitigated;
+    default:
+      return 0;
+  }
+}
+
+/** HTML5 DnD 대신 포인터로 손패 카드를 필드에 올릴 때 */
+type HandDragState = {
+  player: "A" | "B";
+  cardIndex: number;
+  card: CardRow;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  clientX: number;
+  clientY: number;
+  pointerId: number;
+  opponentCardFlipped: boolean;
+};
+
+/** 심판 피크(패 5장 이하) — 중앙에서 패 빈 슬롯으로 이동하는 시각 연출 */
+type SimpanPeekFlyVisualState = {
+  player: "A" | "B";
+  pendingCard: CardRow;
+  from: { x: number; y: number; w: number; h: number };
+  to: { x: number; y: number; w: number; h: number };
+  /** 0: 시작 위치 고정, 1: 목적지로 전환(전환 CSS 적용) */
+  phase: 0 | 1;
+};
+
+const SIMPAN_PEEK_HAND_FLY_MS = 600;
+
+function isSpellCardRow(row: CardRow): boolean {
+  const typeStr = String(row.type || "").toLowerCase();
+  const categoryStr = String(row.category || "").toLowerCase();
+  return (
+    typeStr.includes("spell") ||
+    typeStr.includes("스펠") ||
+    typeStr.includes("마법") ||
+    categoryStr.includes("spell") ||
+    categoryStr.includes("스펠") ||
+    categoryStr.includes("마법")
+  );
+}
+
+/** 스펠 No.7 언덕! / No.19 번개 / No.31 소멸 — 적 유닛 슬롯에 드래그하여 발동 */
+function isEnemyUnitDragTargetSpell(row: CardRow): boolean {
+  return (
+    isSpellCardRow(row) &&
+    (row.name === EONDEOK_SPELL_ID || row.name === BEONGGAE_SPELL_ID || row.name === SOMYEOL_SPELL_ID)
+  );
+}
+
+/** 마주보는 슬롯에 상대 필립이 살아 있으면 true (패시브 시각용) */
+function oppSlotHasLivePhilip(sim: SimulationState, player: "A" | "B", slot: "is" | "m" | "os"): boolean {
+  const opp = player === "A" ? "B" : "A";
+  const f = opp === "A" ? sim.playerA.field : sim.playerB.field;
+  return f[slot]?.name === PHILIP_ID;
+}
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+type CombatDamagePopupExtras = {
+  dkFullGaugeNavyDamageText?: true;
+  maxellandFullGaugeVictimDamageOutline?: true;
+  /** 캘리 vs [방어형] — 추가 고정 피해 포함 시 밝은 회색 플로팅 */
+  kalliVsDefensePureDamageText?: true;
+};
+
+function mergeKalliPureDamageFloat(
+  kalliPureAmount: number,
+  base?: CombatDamagePopupExtras
+): CombatDamagePopupExtras | undefined {
+  if (kalliPureAmount <= 0) return base;
+  if (!base) return { kalliVsDefensePureDamageText: true };
+  return { ...base, kalliVsDefensePureDamageText: true };
+}
+
+type CombatPopupEntry =
+  | {
+      id: number;
+      kind: "damage";
+      amount: number;
+      dkFullGaugeNavyDamageText?: true;
+      maxellandFullGaugeVictimDamageOutline?: true;
+      kalliVsDefensePureDamageText?: true;
+    }
+  | { id: number; kind: "heal"; amount: number }
+  | { id: number; kind: "banjitgoriBuff"; lines: readonly string[] }
+  | { id: number; kind: "limeBubbleBuff"; lines: readonly string[] }
+  | { id: number; kind: "cheolgibyeongPassiveFloat"; lines: readonly string[] }
+  | { id: number; kind: "ryeomchoPassiveFloat"; lines: readonly string[] }
+  | { id: number; kind: "ironKiwiPassiveFloat"; lines: readonly string[] }
+  /**
+   * 시스템 메시지: 슬롯 위 짧은 안내 플로팅(렴초 최대 체력, 토큰 부족 등).
+   * 표시는 `renderCombatPopups`의 `infoFloatBaseText`(흰색 일반 텍스트) + `damageFloat` 애니, 지속은 보통 `INFO_FLOAT_MS`.
+   * 발행은 `pushInfoFloat(slotKey, text, durationMs, tone?)` — `tone` 생략 시 흰색, `"executeGray"` 시 백스 처형용 회색.
+   * 동일 슬롯에 같은 `text`가 이미 떠 있으면 `pushInfoFloat`가 기존 항목을 즉시 제거한 뒤 새로 연다.
+   */
+  | { id: number; kind: "infoFloat"; text: string; durationMs: number; tone?: "executeGray" };
+
+/**
+ * 카드 섬광 레이어(z-22) — 플로팅 숫자 종류와 별개로 플래시만 구분.
+ * 능력 발동 이펙트: 카드 테두리 밖까지 이어지는 정사각형 형태 짧은 명멸.
+ * — ghostoneKill(고스톤 처치), philipSummon(필립 소환·패시브 맺음),
+ * — cheolgibyeongSummon(철기병 소환 및 같은 진영 아군 지연 연출 재사용),
+ * — ryeomchoSummon(렴초 소환 — 철기병과 동일 규격·아군 지연, 베이지 톤),
+ * — diagoSummon(다이아고 소환 — 철기병과 동형 연출·연두 톤, 아군 전원 동시 발동),
+ * — geomeunHwangjeSummon(검은 황제 소환 — 다이아고와 동형·회색 톤, 아군 전원 동시),
+ * — ironKiwiSummon(아이언 키위 소환 — 동형·매우 밝은 회색, 아군 전원 동시 발동),
+ * — pyredSummon(파이레드 필드 패시브 연동 — 붉은 능력 발동 이펙트),
+ * — morningMoodSummon(모닝 무드 필드 패시브 연동 — 연두 능력 발동 이펙트),
+ * — startingTreeSummon(시작의 나무 필드 패시브 연동 — 녹색 능력 발동 이펙트),
+ * — iversonAttackReady(아이버슨 소환 대기 종료 — 짙은 녹색 능력 발동 이펙트),
+ * — eristinaBanjitgori(에리스티나 반짓고리 연결),
+ * — limeBubbleShield(라임「방울 보호막」연결 — 밝은 하늘색 섬광),
+ * — darkKnightKill(다크나이트 적 유닛 처치·인디고).
+ * — maxellandKill(맥셀렌드 적 유닛 처치·붉은 능력 발동 이펙트, 처치자·피해자 동시).
+ * — darkKnightFullSoulHit(소울 만축 기본 공격 적중 시 윤곽 인디고 명멸).
+ * — maxellandFullGaugeStrike([투지] 만축 기본 공격 적중 — 다크나이트 만축 타격과 동형·주황색).
+ * — maryDefenseBuff(메리 [방어력 +400] 패시브 발동/재발동 시 — 아이언 키위와 동형의 밝은 회색 명멸).
+ * — pakkiDeathCurse(패키 처치 시 — 필립 소환과 동형 능력 발동 명멸·노랑·주황만 다름; 대상은 붉은 피격 대신 즉시, 처치자는 저주 부여 시).
+ * — eondeokSpell(스펠 No.7 언덕! 적 유닛 적중 — 밝은 하늘·시안 능력 발동 이펙트).
+ * — beonggaeSpell(스펠 No.19 번개 적 유닛 적중 — 파랑 능력 발동 이펙트).
+ * — somyeolSpellErase(스펠 No.31 소멸 — 적 즉시 제거, 고스톤 처치와 동형 규격·파랑·시안).
+ * — danhaMagicHook(단하「마법의 갈고리」— 고스톤 처치와 동형·하늘색).
+ * — superGreenKingSpellBreaker(슈퍼 그린킹「주문 파괴자」— 고스톤 처치와 동형 규격·녹색; 스펠 칸은 가로 타원 전용 레이어).
+ * — kalliBuffBan(캘리 [버프 금지] 부여 — 고스톤 능력 발동과 동형·밝은 회색).
+ * (damage / heal / philipBasicHit / cheolgibyeongBasicHit 는 동형이 아님.)
+ */
+type FlashOverlayKind =
+  | "damage"
+  | "heal"
+  | "ghostoneKill"
+  | "philipSummon"
+  | "cheolgibyeongSummon"
+  | "ryeomchoSummon"
+  | "diagoSummon"
+  | "geomeunHwangjeSummon"
+  | "ironKiwiSummon"
+  | "pyredSummon"
+  | "morningMoodSummon"
+  | "startingTreeSummon"
+  | "iversonAttackReady"
+  | "philipBasicHit"
+  | "cheolgibyeongBasicHit"
+  | "eristinaBanjitgori"
+  | "limeBubbleShield"
+  | "darkKnightKill"
+  | "maxellandKill"
+  | "darkKnightFullSoulHit"
+  | "maxellandFullGaugeStrike"
+  | "maryDefenseBuff"
+  | "pakkiDeathCurse"
+  | "eondeokSpell"
+  | "spellBangEomakAllyPulse"
+  | "spellJipjungAllyPulse"
+  | "spellCheolbyeokAllyPulse"
+  | "orietShieldAllyPulse"
+  | "beonggaeSpell"
+  | "somyeolSpellErase"
+  | "danhaMagicHook"
+  | "superGreenKingSpellBreaker"
+  | "kalliBuffBan";
+
+/** 플래시 오버레이 메타(슬롯당 1개) */
+type FlashOverlayEntry = {
+  kind: FlashOverlayKind;
+  id: number;
+};
+
+const getHealFromSkillUpdates = (before: FieldCard, updates: Partial<FieldCard>): number => {
+  if (updates.currentHp === undefined) return 0;
+  return Math.max(0, Number(updates.currentHp) - before.currentHp);
+};
+
+/** 패에 새로 들어온 카드 — 상세 보기 전까지 손패에 얇은 흰색 외곽 글로우(시뮬 전용 메타) */
+const PP_SIM_HAND_NEW_GLOW = "__ppSimHandNewGlow";
+
+function markPpSimHandNewGlow(card: CardRow, token: string): CardRow {
+  return { ...card, [PP_SIM_HAND_NEW_GLOW]: token };
+}
+
+function stripPpSimHandNewGlow(card: CardRow): CardRow {
+  const raw = card as CardRow & Record<string, unknown>;
+  if (typeof raw[PP_SIM_HAND_NEW_GLOW] !== "string") return card;
+  const next = { ...raw };
+  delete next[PP_SIM_HAND_NEW_GLOW];
+  return next as CardRow;
+}
+
+function ppSimHandNewGlowToken(card: CardRow): string | undefined {
+  const v = (card as CardRow & Record<string, unknown>)[PP_SIM_HAND_NEW_GLOW];
+  return typeof v === "string" ? v : undefined;
+}
+
+function clearPpSimHandNewGlowInStateByToken(prev: SimulationState, token: string): SimulationState {
+  const mapHand = (hand: CardRow[]) =>
+    hand.map(c => (ppSimHandNewGlowToken(c) === token ? stripPpSimHandNewGlow(c) : c));
+  return {
+    ...prev,
+    playerA: { ...prev.playerA, hand: mapHand(prev.playerA.hand) },
+    playerB: { ...prev.playerB, hand: mapHand(prev.playerB.hand) },
+  };
+}
+
+function fieldHasLiveSimpan(field: PlayerState["field"]): boolean {
+  return (["is", "m", "os"] as const).some(k => {
+    const u = field[k];
+    return !!u && u.name === UNIT.SIMPAN && (u.currentHp ?? 0) > 0;
+  });
+}
+
+function promoteSimpanAfterClearChoice(prev: SimulationState): SimulationState {
+  const q = [...(prev.simpanHandChoiceQueue ?? [])];
+  let next: SimulationState;
+  if (q.length === 0) {
+    next = { ...prev, simpanHandChoice: null, simpanHandChoiceQueue: [] };
+  } else {
+    const [head, ...tail] = q;
+    next = { ...prev, simpanHandChoice: head, simpanHandChoiceQueue: tail };
+  }
+  return primeSimpanPeekReveal(next);
+}
+
+function primeSimpanPeekReveal(s: SimulationState): SimulationState {
+  if (s.simpanHandChoice || s.simpanPeekReveal) return s;
+  const pq = [...(s.simpanPeekQueue ?? [])];
+  if (pq.length === 0) return s;
+  const [head, ...tail] = pq;
+  return {
+    ...s,
+    simpanPeekReveal: { player: head.player, pendingCard: head.pendingCard, peekKind: "simpan" },
+    simpanPeekQueue: tail,
+    simpanPeekTick: (s.simpanPeekTick ?? 0) + 1,
+  };
+}
+
+function mergeOnePlayerSimpanDraw(s: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
+  const field = playerLetter === "A" ? s.playerA.field : s.playerB.field;
+  if (!fieldHasLiveSimpan(field)) return s;
+  if (s.deckCards.length === 0) return s;
+
+  const deck = [...s.deckCards];
+  const drawn = deck.pop()!;
+  const ps = playerLetter === "A" ? s.playerA : s.playerB;
+  const handLen = ps.hand.length;
+  const base: SimulationState = { ...s, deckCards: deck };
+  const key = playerLetter === "A" ? "playerA" : "playerB";
+
+  if (handLen < 6) {
+    const peekEntry = { player: playerLetter, pendingCard: drawn };
+    return {
+      ...base,
+      [key]: ps,
+      simpanPeekQueue: [...(s.simpanPeekQueue ?? []), peekEntry],
+    };
+  }
+
+  const entry = { player: playerLetter, pendingCard: drawn };
+  if (s.simpanHandChoice) {
+    return {
+      ...base,
+      simpanHandChoice: s.simpanHandChoice,
+      simpanHandChoiceQueue: [...(s.simpanHandChoiceQueue ?? []), entry],
+      [key]: ps,
+    };
+  }
+  return {
+    ...base,
+    simpanHandChoice: entry,
+    simpanHandChoiceQueue: s.simpanHandChoiceQueue ?? [],
+    [key]: ps,
+  };
+}
+
+function applySimpanForBothPlayersAfterSpell(s: SimulationState, nextGlowToken: () => string): SimulationState {
+  let out = s;
+  out = mergeOnePlayerSimpanDraw(out, "A", nextGlowToken);
+  out = mergeOnePlayerSimpanDraw(out, "B", nextGlowToken);
+  return primeSimpanPeekReveal(out);
+}
 
 export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpenDetail }: SimulationViewProps) {
   const [state, setState] = useState<SimulationState | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
+  const [isGameStatsOpen, setIsGameStatsOpen] = useState(false);
+  const [gameStatsUnitSortKey, setGameStatsUnitSortKey] = useState<GameStatsUnitSortKey>("default");
+  const [gameStatsTeamSplit, setGameStatsTeamSplit] = useState(false);
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false);
+
+  const ppSimHandGlowSeqRef = useRef(0);
+  const nextPpSimHandGlowToken = () => {
+    ppSimHandGlowSeqRef.current += 1;
+    return `pp-hng-${ppSimHandGlowSeqRef.current}`;
+  };
+
+  const openHandCardCodexDetail = useCallback(
+    (card: CardRow) => {
+      const tok = ppSimHandNewGlowToken(card);
+      if (tok) {
+        setState(prev => (prev ? clearPpSimHandNewGlowInStateByToken(prev, tok) : prev));
+      }
+      onOpenDetail?.(stripPpSimHandNewGlow(card));
+    },
+    [onOpenDetail]
+  );
+
+  const finalizeSpellWithSimpan = (r: SimulationState) => applySimpanForBothPlayersAfterSpell(r, nextPpSimHandGlowToken);
+
+  const dismissSimpanViaRewind = () => {
+    setState(prev => {
+      if (!prev?.simpanHandChoice) return prev;
+      const { pendingCard } = prev.simpanHandChoice;
+      return promoteSimpanAfterClearChoice({
+        ...prev,
+        rewindCards: [...prev.rewindCards, pendingCard],
+        simpanHandChoice: null,
+      });
+    });
+  };
+
+  const resolveSimpanHandPick = (player: "A" | "B", handIndex: number) => {
+    setState(prev => {
+      if (!prev) return prev;
+      if (!prev.simpanHandChoice || prev.simpanHandChoice.player !== player) return prev;
+      if (handIndex < 0 || handIndex > 5) return prev;
+      const ps = player === "A" ? prev.playerA : prev.playerB;
+      if (ps.hand.length !== 6) return prev;
+      const hand = [...ps.hand];
+      const discarded = hand[handIndex];
+      const pending = stripPpSimHandNewGlow(prev.simpanHandChoice.pendingCard);
+      hand[handIndex] = markPpSimHandNewGlow(pending, nextPpSimHandGlowToken());
+      const base: SimulationState = {
+        ...prev,
+        rewindCards: [...prev.rewindCards, discarded],
+        simpanHandChoice: null,
+        [player === "A" ? "playerA" : "playerB"]: { ...ps, hand },
+      };
+      return promoteSimpanAfterClearChoice(base);
+    });
+  };
   
   const [isInitializing, setIsInitializing] = useState(false);
   const [coinTossDisplay, setCoinTossDisplay] = useState<"A" | "B" | "FLIPPING" | null>(null);
@@ -62,10 +604,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   
   const [pendingSecondaryAttack, setPendingSecondaryAttack] = useState<{
     attackerPlayer: "A" | "B";
-    attackerSlotName: "is" | "m" | "os"; 
+    attackerSlotName: "is" | "m" | "os";
     damage: number;
     hitsRemaining: number;
     hitTargets: string[];
+    /** 라니고 연쇄: 같은 진영 아군만 추가 지정, 피해 대신 고정 회복 */
+    allyHealOnly?: boolean;
   } | null>(null);
 
   const [pendingAttackSelection, setPendingAttackSelection] = useState<{
@@ -74,6 +618,13 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     primary: string;
     secondary: string;
     position: { x: number; y: number }; 
+  } | null>(null);
+
+  /** 리부티 기본 공격 — '모든 적 공격' 확인 팝업(다이아고식 이중 선택창과 동일 레이아웃·단일 버튼) */
+  const [pendingLibutyAllEnemiesAttack, setPendingLibutyAllEnemiesAttack] = useState<{
+    player: "A" | "B";
+    slot: "is" | "m" | "os";
+    position: { x: number; y: number };
   } | null>(null);
   
   const [pendingSkill, setPendingSkill] = useState<{
@@ -86,8 +637,1617 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const [isRewindModalOpen, setIsRewindModalOpen] = useState(false);
   
   const [winner, setWinner] = useState<"A" | "B" | null>(null);
-  
+
+  const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
+  const activeHandDragRef = useRef<HandDragState | null>(null);
+  const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
+  const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
+  const simpanPeekCardMeasureRef = useRef<HTMLDivElement | null>(null);
+  const handSlotOuterRefsA = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
+  const handSlotOuterRefsB = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
+  const simpanPeekRevealTimerRef = useRef<number | null>(null);
+  /** 동일 피크에 대해 타임아웃·클릭 스킵이 중복 실행되지 않도록 */
+  const simpanPeekRevealTransitionStartedRef = useRef(false);
+  const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
+  const simulationStateRef = useRef<SimulationState | null>(null);
+  const winnerStateRef = useRef<"A" | "B" | null>(null);
+
+  useEffect(() => {
+    simulationStateRef.current = state;
+    winnerStateRef.current = winner;
+  }, [state, winner]);
+
+  /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸 적 유닛 / 자기 스펠칸(방어막 등) */
+  const resolveHandDragHoverFieldKey = (clientX: number, clientY: number): string | null => {
+    const drag = activeHandDragRef.current;
+    const snap = simulationStateRef.current;
+    if (!drag || !snap || winnerStateRef.current) return null;
+
+    const under = document.elementFromPoint(clientX, clientY);
+    const drop = under?.closest("[data-field-drop]") as HTMLElement | null | undefined;
+    if (!drop) return null;
+    const targetPlayer = drop.dataset.fieldPlayer as "A" | "B" | undefined;
+    const slot = drop.dataset.fieldSlot as "is" | "m" | "os" | "spell" | undefined;
+    if (!targetPlayer || !slot) return null;
+
+    if (isEnemyUnitDragTargetSpell(drag.card)) {
+      if (slot === "spell" || snap.currentTurn !== drag.player) return null;
+      const opp = drag.player === "A" ? "B" : "A";
+      if (targetPlayer !== opp) return null;
+      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+      const u = field[slot as "is" | "m" | "os"];
+      if (!u) return null;
+      if (drag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(u)) return null;
+      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+      const cost = Number(drag.card.cost) || 0;
+      if (tokens < cost) return null;
+      return `${targetPlayer}-${slot}`;
+    }
+
+    if (
+      isSpellCardRow(drag.card) &&
+      isOrietChosangSpellCard(drag.card) &&
+      snap.currentTurn === drag.player &&
+      targetPlayer === drag.player &&
+      (slot === "is" || slot === "m" || slot === "os")
+    ) {
+      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+      const u = field[slot];
+      if (!u || (u.currentHp ?? 0) <= 0) return null;
+      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+      const cost = Number(drag.card.cost) || 0;
+      if (tokens < cost) return null;
+      return `${targetPlayer}-${slot}`;
+    }
+
+    if (
+      isSpellCardRow(drag.card) &&
+      snap.currentTurn === drag.player &&
+      targetPlayer === drag.player &&
+      slot === "spell"
+    ) {
+      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+      if (isEnemyUnitDragTargetSpell(drag.card)) return null;
+      if (isOrietChosangSpellCard(drag.card)) return null;
+      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+      const cost = Number(drag.card.cost) || 0;
+      if (tokens < cost) return null;
+      return `${targetPlayer}-spell`;
+    }
+
+    if (snap.currentTurn !== drag.player) return null;
+    if (isSpellCardRow(drag.card)) return null;
+    if (slot === "spell") return null;
+    if (targetPlayer !== drag.player) return null;
+
+    const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    if (field[slot as "is" | "m" | "os"] !== null) return null;
+
+    const tokens = targetPlayer === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(drag.card.cost) || 0;
+    if (tokens < cost) return null;
+
+    return `${targetPlayer}-${slot}`;
+  };
+
+  const syncHandDragHover = (clientX: number, clientY: number) => {
+    const next = resolveHandDragHoverFieldKey(clientX, clientY);
+    setHandDragHoverSlotKey(prev => (prev === next ? prev : next));
+  };
+
+  const combatPopupIdRef = useRef(0);
+  const [combatPopups, setCombatPopups] = useState<Record<string, CombatPopupEntry[]>>({});
+  const [flashOverlay, setFlashOverlay] = useState<Record<string, FlashOverlayEntry>>({});
+  const flashOverlaySeqRef = useRef(0);
+  const flashClearTimeoutsRef = useRef<Record<string, number>>({});
+  const maryDefenseBuffPrevBySlotRef = useRef<Record<string, boolean>>({});
+  const prevCallieBuffBanBySlotRef = useRef<Record<string, boolean>>({});
+  const prevIversonSummonWaitTicksBySlotRef = useRef<Record<string, number | undefined>>({});
+  const lastDarkKnightSoulGaugeBySlotRef = useRef<Record<string, number>>({});
+  /** 슬롯마다 충전 명멸 재생용 카운터(`key` 증가 → 애니 재트리거) */
+  const [darkKnightGaugeChargePulseBySlot, setDarkKnightGaugeChargePulseBySlot] = useState<Record<string, number>>({});
+  const lastMaxellandTenacityGaugeBySlotRef = useRef<Record<string, number>>({});
+  const [maxellandGaugeChargePulseBySlot, setMaxellandGaugeChargePulseBySlot] = useState<Record<string, number>>({});
+  /** 철기병·렴초·다이아고 등 배치 후 아군에 퍼지는 이펙트 지연 타이머 (초기화 시 일괄 취소) */
+  const cheolgibyeongAllyFlashDelayTimeoutsRef = useRef<number[]>([]);
+  const {
+    trigger: triggerGeunyangMojaHitFlame,
+    renderOverlay: renderGeunyangMojaHitFlameOverlay,
+    clearAll: clearGeunyangMojaHitFlame,
+  } = useGeunyangMojaHitFlame();
+  const {
+    trigger: triggerDiagoHitFlame,
+    renderOverlay: renderDiagoHitFlameOverlay,
+    clearAll: clearDiagoHitFlame,
+  } = useDiagoHitFlame();
+  const {
+    trigger: triggerMomoHitFlame,
+    renderOverlay: renderMomoHitFlameOverlay,
+    clearAll: clearMomoHitFlame,
+  } = useMomoHitFlame();
+  const {
+    trigger: triggerGhostoneClawHit,
+    renderOverlay: renderGhostoneClawHitOverlay,
+    clearAll: clearGhostoneClawHit,
+  } = useGhostoneClawHit();
+  const {
+    trigger: triggerIversonClawHit,
+    renderOverlay: renderIversonClawHitOverlay,
+    clearAll: clearIversonClawHit,
+  } = useIversonClawHit();
+  const {
+    trigger: triggerEristinaHitLine,
+    renderOverlay: renderEristinaHitLineOverlay,
+    clearAll: clearEristinaHitLine,
+  } = useEristinaHitLine();
+
+  useEffect(() => {
+    if (!state) return;
+    const refMap = lastDarkKnightSoulGaugeBySlotRef.current;
+    const bumped: string[] = [];
+    const consider = (slotKey: string, card: FieldCard | null) => {
+      if (!card || card.name !== DARK_KNIGHT_ID) {
+        delete refMap[slotKey];
+        return;
+      }
+      const g = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
+      const prevG = refMap[slotKey];
+      refMap[slotKey] = g;
+      if (prevG !== undefined && g > prevG) bumped.push(slotKey);
+    };
+    consider("A-is", state.playerA.field.is);
+    consider("A-m", state.playerA.field.m);
+    consider("A-os", state.playerA.field.os);
+    consider("B-is", state.playerB.field.is);
+    consider("B-m", state.playerB.field.m);
+    consider("B-os", state.playerB.field.os);
+    if (bumped.length === 0) return;
+    setDarkKnightGaugeChargePulseBySlot(prev => {
+      const next = { ...prev };
+      for (const k of bumped) next[k] = (prev[k] ?? 0) + 1;
+      return next;
+    });
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    const refMap = lastMaxellandTenacityGaugeBySlotRef.current;
+    const bumped: string[] = [];
+    const consider = (slotKey: string, card: FieldCard | null) => {
+      if (!card || card.name !== MAXELLAND_ID) {
+        delete refMap[slotKey];
+        return;
+      }
+      const g = Math.max(0, Math.min(MAXELLAND_TENACITY_GAUGE_CAP, card.maxellandTenacityGauge ?? 0));
+      const prevG = refMap[slotKey];
+      refMap[slotKey] = g;
+      if (prevG !== undefined && g > prevG) bumped.push(slotKey);
+    };
+    consider("A-is", state.playerA.field.is);
+    consider("A-m", state.playerA.field.m);
+    consider("A-os", state.playerA.field.os);
+    consider("B-is", state.playerB.field.is);
+    consider("B-m", state.playerB.field.m);
+    consider("B-os", state.playerB.field.os);
+    if (bumped.length === 0) return;
+    setMaxellandGaugeChargePulseBySlot(prev => {
+      const next = { ...prev };
+      for (const k of bumped) next[k] = (prev[k] ?? 0) + 1;
+      return next;
+    });
+  }, [state]);
+
   const initialized = useRef(false);
+
+  const COMBAT_POPUP_MS = 1400;
+  const BANJITGORI_BUFF_FLOAT_MS = 2000;
+  const POPUP_ROW_STEP = 40;
+  const POPUP_DAMAGE_HEAL_GAP = 12;
+  /** 플로팅 숫자·문구 세로 기준 — 카드 상단 밖이 아니라 높이의 이 비율(중앙보다 약간 위) */
+  const COMBAT_POPUP_VERTICAL_ANCHOR_PCT = 43;
+  /** 앵커에서 첫 줄까지 살짝 위로(구 -10px 역할) */
+  const COMBAT_POPUP_FIRST_ROW_OFFSET_PX = 10;
+  const BANJITGORI_BUFF_FLOAT_LINES: readonly string[] = ["[도발]", "[피해감소 25%]"];
+  const LIME_BUBBLE_BUFF_FLOAT_MS = 2000;
+  const LIME_BUBBLE_BUFF_FLOAT_LINES: readonly string[] = ["[방어력 +200]"];
+  /** 철기병 패시브 안내(도발·방어) — 에리스티나 반짓고리와 동형 레이아웃, 회색·더 짧게 */
+  const CHEOLGIBYEONG_PASSIVE_FLOAT_LINES: readonly string[] = ["[도발]", "[방어력 +200]"];
+  const CHEOLGIBYEONG_PASSIVE_FLOAT_MS = 2200;
+  /** 아이언 키위 배치 플로팅 — 지속·애니는 철기병 패시브(도발 줄)와 동일 */
+  const IRON_KIWI_PASSIVE_FLOAT_LINES: readonly string[] = [DEBUFF_IMMUNITY_BADGE];
+  /** 렴초 필드 배치 시 [도발] — 지속은 철기병 패시브 플로팅과 동일 */
+  const RYEOMCHO_PASSIVE_FLOAT_LINES: readonly string[] = ["[도발]"];
+  /** 시스템 메시지 기본 지속(ms) — `pushInfoFloat`와 함께 사용 */
+  const INFO_FLOAT_MS = 2900;
+  /** 철기병 본인 이펙트 후, 같은 진영 나머지 아군 이펙트까지 간격(ms) */
+  const CHEOLGIBYEONG_ALLY_ABILITY_FLASH_DELAY_MS = 700;
+const ATTACK_DISABLED_UNITS = new Set(["모닝 무드", "시작의 나무", "전설의 검"]);
+
+const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
+  !!card && ATTACK_DISABLED_UNITS.has(String(card.name ?? ""));
+
+  const FLASH_CLEAR_MS: Record<FlashOverlayKind, number> = {
+    damage: 700,
+    heal: 700,
+    // 능력 발동 이펙트(정사각 명멸) 유지 시간 — 고스톤·필립·철기병·렴초·다이아고·에리스티나
+    ghostoneKill: 820,
+    philipSummon: 820,
+    cheolgibyeongSummon: 820,
+    ryeomchoSummon: 820,
+    diagoSummon: 820,
+    geomeunHwangjeSummon: 820,
+    ironKiwiSummon: 820,
+    pyredSummon: 820,
+    morningMoodSummon: 820,
+    startingTreeSummon: 820,
+    iversonAttackReady: 820,
+    eristinaBanjitgori: 820,
+    limeBubbleShield: 820,
+    darkKnightKill: 820,
+    maxellandKill: 820,
+    darkKnightFullSoulHit: 740,
+    maxellandFullGaugeStrike: 740,
+    maryDefenseBuff: 820,
+    pakkiDeathCurse: 820,
+    eondeokSpell: 820,
+    spellBangEomakAllyPulse: 820,
+    spellJipjungAllyPulse: 820,
+    spellCheolbyeokAllyPulse: 820,
+    orietShieldAllyPulse: 820,
+    beonggaeSpell: 1500,
+    somyeolSpellErase: 820,
+    philipBasicHit: 700,
+    cheolgibyeongBasicHit: 700,
+    danhaMagicHook: 820,
+    superGreenKingSpellBreaker: 820,
+    kalliBuffBan: 820,
+  };
+
+  const triggerCardFlash = (slotKey: string, kind: FlashOverlayKind) => {
+    const prevT = flashClearTimeoutsRef.current[slotKey];
+    if (prevT) window.clearTimeout(prevT);
+    const id = ++flashOverlaySeqRef.current;
+    setFlashOverlay(f => ({ ...f, [slotKey]: { kind, id } }));
+    flashClearTimeoutsRef.current[slotKey] = window.setTimeout(() => {
+      setFlashOverlay(f => {
+        const next = { ...f };
+        delete next[slotKey];
+        return next;
+      });
+      delete flashClearTimeoutsRef.current[slotKey];
+    }, FLASH_CLEAR_MS[kind]);
+  };
+
+  useEffect(() => {
+    if (!state) return;
+    const slots = ["A-is", "A-m", "A-os", "B-is", "B-m", "B-os"] as const;
+    const prevMap = maryDefenseBuffPrevBySlotRef.current;
+    for (const key of slots) {
+      const [p, s] = key.split("-") as ["A" | "B", "is" | "m" | "os"];
+      const card = (p === "A" ? state.playerA : state.playerB).field[s];
+      const now =
+        !!card &&
+        card.name === MARY_ID &&
+        maryDefenseBuffActive(card, state.playerA.field, state.playerB.field, key);
+      const prev = prevMap[key];
+      if (now && !prev) {
+        triggerCardFlash(key, "maryDefenseBuff");
+      }
+      prevMap[key] = now;
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (!state || !pendingSkill || pendingSkill.name !== PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER) return;
+    const { player, slot } = pendingSkill;
+    const f = player === "A" ? state.playerA.field : state.playerB.field;
+    const u = f[slot as "is" | "m" | "os"];
+    if (!u || u.name !== UNIT.SUPER_GREEN_KING) {
+      setPendingSkill(null);
+    }
+  }, [state, pendingSkill]);
+
+  useEffect(() => {
+    if (!state) return;
+    const slots = ["A-is", "A-m", "A-os", "B-is", "B-m", "B-os"] as const;
+    const prevMap = prevCallieBuffBanBySlotRef.current;
+    for (const key of slots) {
+      const [p, s] = key.split("-") as ["A" | "B", "is" | "m" | "os"];
+      const card = (p === "A" ? state.playerA : state.playerB).field[s];
+      const now =
+        !!card &&
+        callieBuffBanSuppressesBuffsForVictim(p, s, state.playerA.field, state.playerB.field);
+      const prev = prevMap[key];
+      if (now && !prev) {
+        triggerCardFlash(key, "kalliBuffBan");
+      }
+      prevMap[key] = now;
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    const slots = ["A-is", "A-m", "A-os", "B-is", "B-m", "B-os"] as const;
+    const refMap = prevIversonSummonWaitTicksBySlotRef.current;
+    for (const key of slots) {
+      const [p, s] = key.split("-") as ["A" | "B", "is" | "m" | "os"];
+      const card = (p === "A" ? state.playerA.field : state.playerB.field)[s];
+      const prev = refMap[key];
+      if (card?.name === IVERSON_ID) {
+        const cur = card.iversonSummonWaitEndTurnTicksRemaining;
+        if (prev === 1 && cur === undefined) {
+          triggerCardFlash(key, "iversonAttackReady");
+        }
+        refMap[key] = cur;
+      } else {
+        delete refMap[key];
+      }
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const nextA = { ...prev.playerA.field };
+      const nextB = { ...prev.playerB.field };
+      const changed = stripPakkiDebuffUnderImmunityOnClonedFields(nextA, nextB);
+      if (!changed) return prev;
+      return {
+        ...prev,
+        playerA: { ...prev.playerA, field: nextA },
+        playerB: { ...prev.playerB, field: nextB },
+      };
+    });
+  }, [state]);
+
+  const baekseuExecuteFieldsSig = useMemo(() => {
+    if (!state) return "";
+    const u = (c: FieldCard | null) =>
+      c
+        ? `${c.currentHp};${Number(c.hp) || 0};${c.baekseuInvulnerableEndTurnTicksRemaining ?? 0};${c.baekseuLastStandUsed ? 1 : 0}`
+        : "x";
+    const pack = (f: (typeof state)["playerA"]["field"]) =>
+      [u(f.is), u(f.m), u(f.os)].join("/");
+    return `${pack(state.playerA.field)}|${pack(state.playerB.field)}`;
+  }, [state?.playerA.field, state?.playerB.field]);
+
+  const gameStatsDisplayUnitRows = useMemo((): UnitCombatStatsRow[] => {
+    if (!state) return [];
+    const withIdx = state.unitStatsOrder
+      .map((id, idx) => {
+        const row = state.unitCombatStats[id];
+        if (!row) return null;
+        return { row, idx };
+      })
+      .filter((x): x is { row: UnitCombatStatsRow; idx: number } => x !== null);
+
+    const useCustomSort = gameStatsUnitSortKey !== "default";
+    const cmpIdx = (x: { row: UnitCombatStatsRow; idx: number }, y: { row: UnitCombatStatsRow; idx: number }) =>
+      x.idx - y.idx;
+    const cmpStat = (x: { row: UnitCombatStatsRow; idx: number }, y: { row: UnitCombatStatsRow; idx: number }) =>
+      compareUnitCombatStatsDesc(x.row, y.row, gameStatsUnitSortKey as Exclude<GameStatsUnitSortKey, "default">);
+
+    if (gameStatsTeamSplit) {
+      const aSide = withIdx.filter(x => x.row.player === "A");
+      const bSide = withIdx.filter(x => x.row.player === "B");
+      const sortBlock = (block: typeof aSide) =>
+        [...block].sort(useCustomSort ? cmpStat : cmpIdx);
+      return [...sortBlock(aSide), ...sortBlock(bSide)].map(x => x.row);
+    }
+
+    const merged = [...withIdx].sort(useCustomSort ? cmpStat : cmpIdx);
+    return merged.map(x => x.row);
+  }, [state, gameStatsUnitSortKey, gameStatsTeamSplit]);
+
+  /** 이름 제외 수치 열 — 동점이면 모두 강조, 전원 0이면 강조 없음 */
+  const gameStatsNumericColumnMax = useMemo(() => {
+    const rows = gameStatsDisplayUnitRows;
+    if (rows.length === 0) return null;
+    const f = formatGameStatInteger;
+    return {
+      damageDealt: Math.max(...rows.map(r => f(r.damageDealt))),
+      kills: Math.max(...rows.map(r => r.kills)),
+      damageTaken: Math.max(...rows.map(r => f(r.damageTaken))),
+      selfHeal: Math.max(...rows.map(r => f(r.selfHeal))),
+      allyHealGiven: Math.max(...rows.map(r => f(r.allyHealGiven))),
+      damageMitigated: Math.max(...rows.map(r => f(r.damageMitigated))),
+    };
+  }, [gameStatsDisplayUnitRows]);
+
+  useEffect(() => {
+    if (!state || winner || isInitializing) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const r = applyBaekseuInvulnThresholdExecutePass(prev.playerA, prev.playerB, prev.globalTurnCount);
+      if (r.rewindAdds.length === 0) return prev;
+      window.setTimeout(() => {
+        r.flashSlotKeys.forEach(k => {
+          triggerCardFlash(k, "kalliBuffBan");
+          pushInfoFloat(k, "처형", INFO_FLOAT_MS, "executeGray");
+        });
+        r.baekseuSourceFlashSlotKeys.forEach(k => triggerCardFlash(k, "kalliBuffBan"));
+      }, 0);
+      return {
+        ...prev,
+        playerA: r.playerA,
+        playerB: r.playerB,
+        rewindCards: [...prev.rewindCards, ...r.rewindAdds],
+      };
+    });
+  }, [baekseuExecuteFieldsSig, winner, isInitializing]);
+
+  const pushCombatPopup = (
+    slotKey: string,
+    kind: "damage" | "heal",
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    if (amount <= 0) return;
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry =
+      kind === "damage"
+        ? {
+            id,
+            kind,
+            amount,
+            ...(damageExtras?.dkFullGaugeNavyDamageText ? { dkFullGaugeNavyDamageText: true as const } : {}),
+            ...(damageExtras?.maxellandFullGaugeVictimDamageOutline
+              ? { maxellandFullGaugeVictimDamageOutline: true as const }
+              : {}),
+            ...(damageExtras?.kalliVsDefensePureDamageText
+              ? { kalliVsDefensePureDamageText: true as const }
+              : {}),
+          }
+        : { id, kind, amount };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, COMBAT_POPUP_MS);
+  };
+
+  /** 반짓고리 부여 대상 카드 위에 핑크 2줄 플로팅 (데미지 숫자와 동일 애니메이션) */
+  const pushBanjitgoriBuffFloat = (slotKey: string) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry = { id, kind: "banjitgoriBuff", lines: BANJITGORI_BUFF_FLOAT_LINES };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, BANJITGORI_BUFF_FLOAT_MS);
+  };
+
+  const pushLimeBubbleBuffFloat = (slotKey: string) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry = { id, kind: "limeBubbleBuff", lines: LIME_BUBBLE_BUFF_FLOAT_LINES };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, LIME_BUBBLE_BUFF_FLOAT_MS);
+  };
+
+  /** 철기병 능력 발동 이펙트와 함께 카드 위 회색 2줄 플로팅 */
+  const pushCheolgibyeongPassiveBuffFloat = (slotKey: string) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry = {
+      id,
+      kind: "cheolgibyeongPassiveFloat",
+      lines: CHEOLGIBYEONG_PASSIVE_FLOAT_LINES,
+    };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, CHEOLGIBYEONG_PASSIVE_FLOAT_MS);
+  };
+
+  /** 렴초 능력 발동 이펙트와 함께 카드 위 베이지 1줄 플로팅(지속: 철기병 패시브와 동일) */
+  const pushRyeomchoPassiveBuffFloat = (slotKey: string) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry = {
+      id,
+      kind: "ryeomchoPassiveFloat",
+      lines: RYEOMCHO_PASSIVE_FLOAT_LINES,
+    };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, CHEOLGIBYEONG_PASSIVE_FLOAT_MS);
+  };
+
+  /** 아이언 키위 배치 — 철기병 패시브와 동형(회색·2200ms·damageFloat) */
+  const pushIronKiwiPassiveBuffFloat = (slotKey: string) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry = {
+      id,
+      kind: "ironKiwiPassiveFloat",
+      lines: IRON_KIWI_PASSIVE_FLOAT_LINES,
+    };
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, CHEOLGIBYEONG_PASSIVE_FLOAT_MS);
+  };
+
+  /** 시스템 메시지: 동일 슬롯·동일 문구가 겹치면 기존 infoFloat를 제거한 뒤 새로 연다. */
+  const pushInfoFloat = (
+    slotKey: string,
+    text: string,
+    durationMs: number,
+    tone?: "default" | "executeGray"
+  ) => {
+    const id = ++combatPopupIdRef.current;
+    const entry: CombatPopupEntry =
+      tone === "executeGray"
+        ? { id, kind: "infoFloat", text, durationMs, tone: "executeGray" }
+        : { id, kind: "infoFloat", text, durationMs };
+    setCombatPopups(prev => {
+      const list = prev[slotKey] ?? [];
+      const withoutSameText = list.filter(
+        e =>
+          !(
+            e.kind === "infoFloat" &&
+            e.text === text &&
+            (e.tone === "executeGray") === (tone === "executeGray")
+          )
+      );
+      return {
+        ...prev,
+        [slotKey]: [...withoutSameText, entry],
+      };
+    });
+    window.setTimeout(() => {
+      setCombatPopups(prev => {
+        const list = prev[slotKey];
+        if (!list) return prev;
+        const next = list.filter(e => e.id !== id);
+        if (next.length === 0) {
+          const { [slotKey]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [slotKey]: next };
+      });
+    }, durationMs);
+  };
+
+  const showDamageNumber = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "damage");
+  };
+
+  /** 패키 처치: 붉은 피격 섬광 없음 — 필립 소환과 동형 레이어·타이밍의 능력 발동 이펙트(패키 색) + 피해 숫자만 */
+  const showPakkiSlainDamageOnTarget = (
+    slotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "pakkiDeathCurse");
+  };
+
+  /** 필립 기본 공격(철기병과 동일 규격): 빨간 피격 + 중앙 주황·노랑 원, 착지 직후(≈0.03s) 파동 1회 */
+  const showPhilipBasicHitDamage = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "philipBasicHit");
+  };
+
+  /** 철기병 기본 공격 적중: 빨간 피격 + 중앙 회색 원, 착지 직후(≈0.03s) 파동 1회 */
+  const showCheolgibyeongBasicHitDamage = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "cheolgibyeongBasicHit");
+  };
+
+  /** 고스톤이 적을 처치: 능력 발동 이펙트(보라·인디고 사각 명멸) + 피해 숫자 */
+  const showGhostoneKillDamageOnTarget = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "ghostoneKill");
+  };
+
+  /** 고스톤 처치 시 공격자 슬롯 — 능력 발동 이펙트 동일 재생(숫자 없음) */
+  const triggerGhostoneKillFlashOnAttacker = (attackerSlotKey: string) => {
+    triggerCardFlash(attackerSlotKey, "ghostoneKill");
+  };
+
+  /** 다크나이트가 적 유닛을 처치: 인디고 능력 발동(피해 대상·공격자), 피해 숫자 */
+  const showDarkKnightKillDamageOnTarget = (
+    targetSlotKey: string,
+    amount: number,
+    attackerSlotKey: string,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(targetSlotKey, "damage", amount, damageExtras);
+    triggerCardFlash(targetSlotKey, "darkKnightKill");
+    triggerCardFlash(attackerSlotKey, "darkKnightKill");
+  };
+
+  /** 맥셀렌드가 적 유닛을 처치: 붉은 능력 발동 이펙트(대상·자신 동시) + 피해 숫자 */
+  const showMaxellandKillDamageOnTarget = (
+    targetSlotKey: string,
+    amount: number,
+    attackerSlotKey: string,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(targetSlotKey, "damage", amount, damageExtras);
+    triggerCardFlash(targetSlotKey, "maxellandKill");
+    triggerCardFlash(attackerSlotKey, "maxellandKill");
+  };
+
+  /** 맥셀렌드 풀스택 기본 공격 적중(비처치): 노란 윤곽 피해 숫자 + 주황 반경 능력 발동 이펙트(일반 피격 섬광 없음) */
+  const showMaxellandFullGaugeStrikeDamageOnTarget = (
+    targetSlotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(targetSlotKey, "damage", amount, {
+      maxellandFullGaugeVictimDamageOutline: true,
+      ...damageExtras,
+    });
+    triggerCardFlash(targetSlotKey, "maxellandFullGaugeStrike");
+  };
+
+  /** 소울 만축 다크나이트 기본 공격 적중(비처치): 데미지 글자색만 남색 + 인디고 윤곽 명멸 */
+  const showDarkKnightFullSoulStrikeOnTarget = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
+    pushCombatPopup(slotKey, "damage", amount, {
+      dkFullGaugeNavyDamageText: true,
+      ...damageExtras,
+    });
+    triggerCardFlash(slotKey, "darkKnightFullSoulHit");
+  };
+
+  /** 인디고 처치 명멸 후: 처치 회복 숫자·초록 섬광 */
+  const showHealNumberAfterDarkKnightKillFlash = (slotKey: string, amount: number) => {
+    const delayMs = FLASH_CLEAR_MS.darkKnightKill + 40;
+    window.setTimeout(() => {
+      pushCombatPopup(slotKey, "heal", amount);
+      triggerCardFlash(slotKey, "heal");
+    }, delayMs);
+  };
+
+  /** 보라 처치 명멸 후: +힐 플로팅 텍스트와 초록 섬광을 같은 타이밍에 발동 */
+  const showHealNumberAfterGhostoneKillFlash = (slotKey: string, amount: number) => {
+    const delayMs = FLASH_CLEAR_MS.ghostoneKill + 40;
+    window.setTimeout(() => {
+      pushCombatPopup(slotKey, "heal", amount);
+      triggerCardFlash(slotKey, "heal");
+    }, delayMs);
+  };
+
+  const showHealNumber = (slotKey: string, amount: number) => {
+    pushCombatPopup(slotKey, "heal", amount);
+    triggerCardFlash(slotKey, "heal");
+  };
+
+  const renderCombatPopups = (slotKey: string) => {
+    const entries = combatPopups[slotKey];
+    if (!entries?.length) return null;
+    const damages = entries.filter((e): e is Extract<CombatPopupEntry, { kind: "damage" }> => e.kind === "damage");
+    const heals = entries.filter((e): e is Extract<CombatPopupEntry, { kind: "heal" }> => e.kind === "heal");
+    const banjitBuffs = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "banjitgoriBuff" }> => e.kind === "banjitgoriBuff"
+    );
+    const limeBubbleBuffs = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "limeBubbleBuff" }> => e.kind === "limeBubbleBuff"
+    );
+    const cheolPassiveFloats = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "cheolgibyeongPassiveFloat" }> =>
+        e.kind === "cheolgibyeongPassiveFloat"
+    );
+    const ryeomchoPassiveFloats = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "ryeomchoPassiveFloat" }> =>
+        e.kind === "ryeomchoPassiveFloat"
+    );
+    const ironKiwiPassiveFloats = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "ironKiwiPassiveFloat" }> =>
+        e.kind === "ironKiwiPassiveFloat"
+    );
+    const infoFloats = entries.filter(
+      (e): e is Extract<CombatPopupEntry, { kind: "infoFloat" }> => e.kind === "infoFloat"
+    );
+    const bandGap = heals.length > 0 ? POPUP_DAMAGE_HEAL_GAP : 0;
+    const popupTopFromAnchor = (extraPx: number) =>
+      `calc(${COMBAT_POPUP_VERTICAL_ANCHOR_PCT}% - ${COMBAT_POPUP_FIRST_ROW_OFFSET_PX + extraPx}px)`;
+    const anim = `damageFloat ${COMBAT_POPUP_MS / 1000}s ease-out forwards`;
+    const animBanjit = `damageFloat ${BANJITGORI_BUFF_FLOAT_MS / 1000}s ease-out forwards`;
+    const animLimeBubbleBuff = `damageFloat ${LIME_BUBBLE_BUFF_FLOAT_MS / 1000}s ease-out forwards`;
+    const animCheolPassive = `damageFloat ${CHEOLGIBYEONG_PASSIVE_FLOAT_MS / 1000}s ease-out forwards`;
+    /* 플로팅 레이어는 슬롯 오버레이(z-80) 위에 쌓임. 소울 만축 타격 플래시(z-45)보다 남색 데미지 가독성용 z-[52] */
+    const baseText =
+      "pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 whitespace-nowrap font-black tabular-nums text-2xl md:text-3xl";
+    const damagePopupBase =
+      "pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap font-black tabular-nums text-2xl md:text-3xl";
+    const damageTextShadow =
+      "drop-shadow-[0_2px_0_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.55)]";
+    /** 소울 만축 남색 데미지 가독성 — 밝은 보라 윤곽 + 소프트 글로우 (글자색·드롭섀도는 동일 유지) */
+    const dkFullGaugeNavyFloatingOutline =
+      "0 0 2px #faf5ff, 0 0 8px rgba(196, 181, 253, 0.95), 0 0 14px rgba(167, 139, 250, 0.5), -1px -1px 0 rgba(237, 233, 254, 0.9), 1px -1px 0 rgba(237, 233, 254, 0.9), -1px 1px 0 rgba(237, 233, 254, 0.9), 1px 1px 0 rgba(237, 233, 254, 0.9)";
+    const maxellFullGaugeYellowDamageOutline =
+      "0 0 2px #facc15, 0 0 7px rgba(250, 204, 21, 0.95), 0 0 12px rgba(234, 179, 8, 0.55), -1px -1px 0 #fef08a, 1px -1px 0 #fef08a, -1px 1px 0 #fef08a, 1px 1px 0 #fef08a";
+    const healText =
+      `${baseText} text-emerald-400 drop-shadow-[0_2px_0_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.55)]`;
+    const stackAboveDamagesHeals =
+      heals.length * POPUP_ROW_STEP + damages.length * POPUP_ROW_STEP + bandGap;
+    const banjitBaseText =
+      "pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 text-center font-black leading-tight drop-shadow-[0_2px_0_rgba(0,0,0,0.9),0_0_12px_rgba(0,0,0,0.45)] text-lg md:text-xl text-pink-400";
+    const limeBubbleBuffBaseText =
+      "pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 text-center font-black leading-tight drop-shadow-[0_2px_0_rgba(0,0,0,0.9),0_0_12px_rgba(0,0,0,0.45)] text-lg md:text-xl text-sky-300";
+    const cheolPassiveBaseText =
+      "pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 text-center font-black leading-tight drop-shadow-[0_2px_0_rgba(0,0,0,0.92),0_0_10px_rgba(0,0,0,0.5)] text-lg md:text-xl text-slate-300";
+    const ryeomchoPassiveBaseText =
+      "pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 text-center font-black leading-tight drop-shadow-[0_2px_0_rgba(42,34,26,0.95),0_0_12px_rgba(212,196,168,0.55),0_0_22px_rgba(232,220,196,0.35)] text-lg md:text-xl text-[#ebe3d3]";
+
+    const buffFloatBlockRows = banjitBuffs.length + limeBubbleBuffs.length;
+    const gapAfterBuffFloatBlock = buffFloatBlockRows > 0 ? 6 : 0;
+    const buffFloatBlockBaseOffset = stackAboveDamagesHeals + 6;
+
+    const stackAboveBuffBlocks =
+      stackAboveDamagesHeals +
+      6 +
+      buffFloatBlockRows * 52 +
+      gapAfterBuffFloatBlock +
+      cheolPassiveFloats.length * 52 +
+      ryeomchoPassiveFloats.length * 52 +
+      ironKiwiPassiveFloats.length * 52;
+    /** 시스템 메시지(pushInfoFloat): 흰색·일반 굵기·한 줄·중앙 — 변경 시 시스템 메시지 전부에 동일 적용 */
+    const infoFloatBaseText =
+      "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-normal leading-snug text-base md:text-lg text-white antialiased drop-shadow-[0_1px_2px_rgba(0,0,0,0.88)]";
+    /** 백스 처형 플로팅 — 능력 발동(밝은 회색)과 맞춘 슬레이트 톤 */
+    const infoFloatExecuteGrayText =
+      "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-slate-200 antialiased drop-shadow-[0_1px_2px_rgba(15,23,42,0.92),0_0_10px_rgba(226,232,240,0.35)]";
+
+    return (
+      <>
+        {damages.map((e, i) => {
+          const isKalliPureFloat = e.kalliVsDefensePureDamageText === true;
+          const isDkNavy = e.dkFullGaugeNavyDamageText === true && !isKalliPureFloat;
+          const stackStyle = isKalliPureFloat
+            ? {}
+            : isDkNavy
+              ? { textShadow: dkFullGaugeNavyFloatingOutline }
+              : e.maxellandFullGaugeVictimDamageOutline === true
+                ? { textShadow: maxellFullGaugeYellowDamageOutline }
+                : {};
+          const zDamage = isKalliPureFloat ? "z-[40]" : isDkNavy ? "z-[52]" : "z-[40]";
+          const textDamage = isKalliPureFloat
+            ? "text-slate-200"
+            : isDkNavy
+              ? "text-[#1e1b4b]"
+              : "text-red-500";
+          return (
+          <span
+            key={e.id}
+            className={`${damagePopupBase} ${zDamage} ${textDamage} ${damageTextShadow}`}
+            style={{
+              top: popupTopFromAnchor(heals.length * POPUP_ROW_STEP + bandGap + i * POPUP_ROW_STEP),
+              animation: anim,
+              ...stackStyle,
+            }}
+          >
+            -{e.amount}
+          </span>
+          );
+        })}
+        {heals.map((e, j) => (
+          <span
+            key={e.id}
+            className={healText}
+            style={{
+              top: popupTopFromAnchor(j * POPUP_ROW_STEP),
+              animation: anim,
+            }}
+          >
+            +{e.amount}
+          </span>
+        ))}
+        {banjitBuffs.map((e, bi) => (
+          <div
+            key={e.id}
+            className={banjitBaseText}
+            style={{
+              top: popupTopFromAnchor(buffFloatBlockBaseOffset + bi * 52),
+              animation: animBanjit,
+            }}
+          >
+            {e.lines.map((line, li) => (
+              <div key={li} className="whitespace-nowrap">
+                {line}
+              </div>
+            ))}
+          </div>
+        ))}
+        {limeBubbleBuffs.map((e, lix) => (
+          <div
+            key={e.id}
+            className={limeBubbleBuffBaseText}
+            style={{
+              top: popupTopFromAnchor(buffFloatBlockBaseOffset + banjitBuffs.length * 52 + lix * 52),
+              animation: animLimeBubbleBuff,
+            }}
+          >
+            {e.lines.map((line, li) => (
+              <div key={li} className="whitespace-nowrap">
+                {line}
+              </div>
+            ))}
+          </div>
+        ))}
+        {cheolPassiveFloats.map((e, ci) => (
+          <div
+            key={e.id}
+            className={cheolPassiveBaseText}
+            style={{
+              top: popupTopFromAnchor(
+                buffFloatBlockBaseOffset + buffFloatBlockRows * 52 + gapAfterBuffFloatBlock + ci * 52
+              ),
+              animation: animCheolPassive,
+            }}
+          >
+            {e.lines.map((line, li) => (
+              <div key={li} className="whitespace-nowrap">
+                {line}
+              </div>
+            ))}
+          </div>
+        ))}
+        {ryeomchoPassiveFloats.map((e, ri) => (
+          <div
+            key={e.id}
+            className={ryeomchoPassiveBaseText}
+            style={{
+              top: popupTopFromAnchor(
+                buffFloatBlockBaseOffset +
+                  buffFloatBlockRows * 52 +
+                  gapAfterBuffFloatBlock +
+                  cheolPassiveFloats.length * 52 +
+                  ri * 52
+              ),
+              animation: animCheolPassive,
+            }}
+          >
+            {e.lines.map((line, li) => (
+              <div key={li} className="whitespace-nowrap">
+                {line}
+              </div>
+            ))}
+          </div>
+        ))}
+        {ironKiwiPassiveFloats.map((e, ii) => (
+          <div
+            key={e.id}
+            className={cheolPassiveBaseText}
+            style={{
+              top: popupTopFromAnchor(
+                buffFloatBlockBaseOffset +
+                  buffFloatBlockRows * 52 +
+                  gapAfterBuffFloatBlock +
+                  cheolPassiveFloats.length * 52 +
+                  ryeomchoPassiveFloats.length * 52 +
+                  ii * 52
+              ),
+              animation: animCheolPassive,
+            }}
+          >
+            {e.lines.map((line, li) => (
+              <div key={li} className="whitespace-nowrap">
+                {line}
+              </div>
+            ))}
+          </div>
+        ))}
+        {infoFloats.map((e, infIdx) => (
+          <div
+            key={e.id}
+            className={e.tone === "executeGray" ? infoFloatExecuteGrayText : infoFloatBaseText}
+            style={{
+              top: popupTopFromAnchor(stackAboveBuffBlocks + 8 + infIdx * 44),
+              animation: `damageFloat ${e.durationMs / 1000}s ease-out forwards`,
+            }}
+          >
+            {e.text}
+          </div>
+        ))}
+      </>
+    );
+  };
+
+  /** 카드 위·플로팅 숫자 — `fieldSlotCombatPopupOverlayClass`(z-80) 안에서 표시, 체력행보다 위 */
+  const renderFlashOverlay = (slotKey: string, roundedClass: string) => {
+    const snap = flashOverlay[slotKey];
+    if (!snap) return null;
+    /* 능력 발동 이펙트 — 고스톤(처치 시) */
+    if (snap.kind === "ghostoneKill") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-aura`}
+            className={`pp-combat-flash-layer--ghostone-kill-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--ghostone-kill`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.31 소멸(적 유닛 즉시 제거 — 고스톤 처치와 동형 규격·파랑·시안) */
+    if (snap.kind === "somyeolSpellErase") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-somyeol-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-somyeol-aura`}
+            className={`pp-combat-flash-layer--somyeol-spell-erase-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-somyeol-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--somyeol-spell-erase`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 캘리 [버프 금지] 부여(고스톤과 동형·밝은 회색) */
+    if (snap.kind === "kalliBuffBan") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-kalli-buff-ban-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-kalli-buff-ban-aura`}
+            className={`pp-combat-flash-layer--kalli-buff-ban-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-kalli-buff-ban-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--kalli-buff-ban`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 단하「마법의 갈고리」(고스톤과 동형·하늘색) */
+    if (snap.kind === "danhaMagicHook") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-danha-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-danha-aura`}
+            className={`pp-combat-flash-layer--danha-magic-hook-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-danha-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--danha-magic-hook`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 슈퍼 그린킹「주문 파괴자」(유닛: 고스톤 동형; 스펠 칸: 가로 타원·오라 전용 클래스) */
+    if (snap.kind === "superGreenKingSpellBreaker") {
+      const isSpellSlot = slotKey === "A-spell" || slotKey === "B-spell";
+      const auraLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--super-green-king-spell-breaker-aura--spell-land"
+        : "pp-combat-flash-layer--super-green-king-spell-breaker-aura";
+      const innerLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--super-green-king-spell-breaker--spell-land"
+        : "pp-combat-flash-layer--super-green-king-spell-breaker";
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-sgk-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-sgk-aura`}
+            className={`${auraLayerClass} pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-sgk-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerLayerClass}`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 다크나이트(적 유닛 처치 시, 인디고) */
+    if (snap.kind === "darkKnightKill") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-dk-kill-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-dk-kill-aura`}
+            className={`pp-combat-flash-layer--darkknight-kill-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-dk-kill-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--darkknight-kill`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 맥셀렌드(적 유닛 처치, 붉은색 — 다크나이트 처치와 동형 레이어) */
+    if (snap.kind === "maxellandKill") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-max-kill-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-max-kill-aura`}
+            className={`pp-combat-flash-layer--maxelland-kill-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-max-kill-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--maxelland-kill`}
+          />
+        </div>
+      );
+    }
+    /* 맥셀렌드 [투지] 만축 기본 공격 적중 — 다크나이트 만축 타격과 동형 레이어·주황색 */
+    if (snap.kind === "maxellandFullGaugeStrike") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-max-fgstrike-hit`}
+          className={`pointer-events-none absolute inset-0 z-[45] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-max-fgstrike-burst`}
+            className={`pp-combat-flash-layer--maxelland-fullgauge-hit-burst pointer-events-none absolute -inset-5 z-[44] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-max-fgstrike-outline`}
+            className={`pointer-events-none absolute inset-0 z-[45] ${roundedClass} pp-combat-flash-layer--maxelland-fullgauge-hit`}
+          />
+        </div>
+      );
+    }
+    /* 다크나이트 소울 만축 기본 공격 적중 — 바깥 보라 섬광 + 인디고 윤곽 명멸 */
+    if (snap.kind === "darkKnightFullSoulHit") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-dk-fullsoul-hit`}
+          className={`pointer-events-none absolute inset-0 z-[45] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-dk-fullsoul-burst`}
+            className={`pp-combat-flash-layer--darkknight-fullsoul-hit-burst pointer-events-none absolute -inset-5 z-[44] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-dk-fullsoul-outline`}
+            className={`pointer-events-none absolute inset-0 z-[45] ${roundedClass} pp-combat-flash-layer--darkknight-fullsoul-hit`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 필립(필드 소환·마주 패시브 맺음) */
+    if (snap.kind === "philipSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-philip-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-philip-aura`}
+            className={`pp-combat-flash-layer--philip-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-philip-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--philip-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 철기병(필드 소환) */
+    if (snap.kind === "cheolgibyeongSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-cheol-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-cheol-summon-aura`}
+            className={`pp-combat-flash-layer--cheolgibyeong-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-cheol-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--cheolgibyeong-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 렴초(필드 소환, 베이지 — 철기병과 동형 타이밍·구조) */
+    if (snap.kind === "ryeomchoSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-ryeomcho-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-ryeomcho-summon-aura`}
+            className={`pp-combat-flash-layer--ryeomcho-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-ryeomcho-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--ryeomcho-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 다이아고(필드 소환, 연두 — 철기병과 동형 레이어·아군 동시 발동) */
+    if (snap.kind === "diagoSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-diago-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-diago-summon-aura`}
+            className={`pp-combat-flash-layer--diago-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-diago-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--diago-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 검은 황제(필드 소환, 다이아고와 동형·회색 톤, 아군 전원 동시) */
+    if (snap.kind === "geomeunHwangjeSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-geomeun-hwangje-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-geomeun-hwangje-summon-aura`}
+            className={`pp-combat-flash-layer--geomeun-hwangje-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-geomeun-hwangje-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--geomeun-hwangje-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 아이언 키위(필드 소환, 매우 밝은 회색 — 다이아고와 동형·아군 전원 동시) */
+    if (snap.kind === "ironKiwiSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-iron-kiwi-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-iron-kiwi-summon-aura`}
+            className={`pp-combat-flash-layer--iron-kiwi-summon-aura pointer-events-none absolute -inset-8 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-iron-kiwi-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--iron-kiwi-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 파이레드(필드 패시브 연동, 붉은 톤) */
+    if (snap.kind === "pyredSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-pyred-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-pyred-summon-aura`}
+            className={`pp-combat-flash-layer--pyred-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-pyred-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--pyred-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 모닝 무드(필드 패시브 연동, 연두 톤) */
+    if (snap.kind === "morningMoodSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-morning-mood-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-morning-mood-summon-aura`}
+            className={`pp-combat-flash-layer--morning-mood-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-morning-mood-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--morning-mood-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 시작의 나무(필드 패시브 연동, 녹색 톤) */
+    if (snap.kind === "startingTreeSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-starting-tree-summon-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-starting-tree-summon-aura`}
+            className={`pp-combat-flash-layer--starting-tree-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-starting-tree-summon-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--starting-tree-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.7 언덕!(적 유닛 적중, 밝은 하늘·시안) */
+    if (snap.kind === "eondeokSpell") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-eondeok-spell-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-eondeok-spell-aura`}
+            className={`pp-combat-flash-layer--eondeok-spell-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-eondeok-spell-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--eondeok-spell`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 방어막 필드 배치(동일 진영 유닛, 고스톤과 동형·녹색) */
+    if (snap.kind === "spellBangEomakAllyPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-bangeomak-ally-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-bangeomak-ally-aura`}
+            className={`pp-combat-flash-layer--spell-bangeomak-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-bangeomak-ally-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-bangeomak-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 집중 사격 필드 배치(동일 진영 유닛, 고스톤과 동형·붉은색) */
+    if (snap.kind === "spellJipjungAllyPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-jipjung-ally-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-jipjung-ally-aura`}
+            className={`pp-combat-flash-layer--spell-jipjung-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-jipjung-ally-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-jipjung-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.47 철벽 필드 배치(동일 진영 유닛, 밝은 흰·슬레이트 톤) */
+    if (snap.kind === "spellCheolbyeokAllyPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-cheolbyeok-ally-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-cheolbyeok-ally-aura`}
+            className={`pp-combat-flash-layer--spell-cheolbyeok-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-cheolbyeok-ally-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-cheolbyeok-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 오리에트의 초상 보호막 부여(고스톤과 동형·하늘색) */
+    if (snap.kind === "orietShieldAllyPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-oriet-shield-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-oriet-shield-aura`}
+            className={`pp-combat-flash-layer--oriet-shield-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-oriet-shield-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--oriet-shield-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.19 번개(적 유닛 적중, 파랑) */
+    if (snap.kind === "beonggaeSpell") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-beonggae-spell-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-beonggae-spell-aura`}
+            className={`pp-combat-flash-layer--beonggae-spell-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-beonggae-spell-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--beonggae-spell`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 아이버슨(소환 대기 종료, 짙은 녹색) */
+    if (snap.kind === "iversonAttackReady") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-iverson-ready-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-iverson-ready-aura`}
+            className={`pp-combat-flash-layer--iverson-attack-ready-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-iverson-ready-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--iverson-attack-ready`}
+          />
+        </div>
+      );
+    }
+    /* 패키 처치 저주 — 필립 소환(능력 발동)과 동일 레이어 구조·inset, 색만 패키(노랑·주황) */
+    if (snap.kind === "pakkiDeathCurse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-pakki-death-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-pakki-aura`}
+            className={`pp-combat-flash-layer--pakki-death-curse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-pakki-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--pakki-death-curse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 메리 [방어력 +400] 패시브(아이언 키위 소환과 동형·밝은 회색) */
+    if (snap.kind === "maryDefenseBuff") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-mary-defense-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-mary-defense-aura`}
+            className={`pp-combat-flash-layer--iron-kiwi-summon-aura pointer-events-none absolute -inset-8 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-mary-defense-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--iron-kiwi-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 에리스티나(반짓고리 스킬로 아군과 연결 시) */
+    if (snap.kind === "eristinaBanjitgori") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-eristina-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-eristina-aura`}
+            className={`pp-combat-flash-layer--eristina-banjitgori-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-eristina-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--eristina-banjitgori`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 라임(방울 보호막으로 아군과 연결 시, 밝은 하늘색) */
+    if (snap.kind === "limeBubbleShield") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-lime-bubble-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-lime-bubble-aura`}
+            className={`pp-combat-flash-layer--lime-bubble-shield-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-lime-bubble-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--lime-bubble-shield`}
+          />
+        </div>
+      );
+    }
+    if (snap.kind === "philipBasicHit") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-philip-hit-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-philip-dmg`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--damage`}
+          />
+          <div className="pointer-events-none absolute inset-0 z-[23] flex items-center justify-center overflow-visible">
+            <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center">
+              <div
+                key={`${slotKey}-${snap.id}-philip-wave`}
+                className="pp-philip-hit-wave pointer-events-none absolute aspect-square w-[44%] max-w-[5.5rem] rounded-full"
+              />
+              <div
+                key={`${slotKey}-${snap.id}-philip-core`}
+                className="pp-philip-hit-core pointer-events-none absolute aspect-square w-[30%] max-w-[3.75rem] rounded-full"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (snap.kind === "cheolgibyeongBasicHit") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-cheol-hit-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-cheol-dmg`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--damage`}
+          />
+          <div className="pointer-events-none absolute inset-0 z-[23] flex items-center justify-center overflow-visible">
+            <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center">
+              <div
+                key={`${slotKey}-${snap.id}-cheol-wave`}
+                className="pp-cheolgibyeong-hit-wave pointer-events-none absolute aspect-square w-[44%] max-w-[5.5rem] rounded-full"
+              />
+              <div
+                key={`${slotKey}-${snap.id}-cheol-core`}
+                className="pp-cheolgibyeong-hit-core pointer-events-none absolute aspect-square w-[30%] max-w-[3.75rem] rounded-full"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    const layer =
+      snap.kind === "damage" ? "pp-combat-flash-layer--damage" : "pp-combat-flash-layer--heal";
+    return (
+      <div
+        key={`${slotKey}-${snap.id}`}
+        className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${layer}`}
+        aria-hidden
+      />
+    );
+  };
+
+  const unitSlotOuterClass = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
+  /** 데미지·회복·안내 플로팅 — 필드 체력행(z 이슈) 위에 반드시 보이도록 슬롯 스택 최상단 */
+  const fieldSlotCombatPopupOverlayClass =
+    "pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-[8px]";
 
   const runInitialization = async (initialDeck: CardRow[]) => {
     if (!initialDeck || initialDeck.length === 0) return;
@@ -98,12 +2258,28 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     setAttackingSlot(null);
     setPendingSecondaryAttack(null); 
     setPendingAttackSelection(null);
+    setPendingLibutyAllEnemiesAttack(null);
     setPendingSkill(null); 
     setAttackOptionOverride(null);
     setIsRewindModalOpen(false);
     setIsSettingsOpen(false);
     setIsDrawModalOpen(false);
-    setWinner(null); 
+    setWinner(null);
+    Object.values(flashClearTimeoutsRef.current).forEach(t => window.clearTimeout(t));
+    flashClearTimeoutsRef.current = {};
+    cheolgibyeongAllyFlashDelayTimeoutsRef.current.forEach(t => window.clearTimeout(t));
+    cheolgibyeongAllyFlashDelayTimeoutsRef.current = [];
+    setFlashOverlay({});
+    clearGeunyangMojaHitFlame();
+    clearDiagoHitFlame();
+    clearMomoHitFlame();
+    clearGhostoneClawHit();
+    clearIversonClawHit();
+    clearEristinaHitLine();
+    lastDarkKnightSoulGaugeBySlotRef.current = {};
+    setDarkKnightGaugeChargePulseBySlot({});
+    setCombatPopups({});
+    setSimpanPeekFly(null);
     
     let currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
     let pAHand: CardRow[] = [];
@@ -118,8 +2294,16 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" },
       deckCards: currentDeck,
       rewindCards: [],
-      playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spell: null } },
-      playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spell: null } },
+      unitCombatStats: {},
+      unitStatsOrder: [],
+      spellDeployLog: [],
+      simpanHandChoice: null,
+      simpanHandChoiceQueue: [],
+      simpanPeekReveal: null,
+      simpanPeekQueue: [],
+      simpanPeekTick: 0,
+      playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
+      playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
     });
 
     await delay(800);
@@ -205,6 +2389,150 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   }, [state?.turnTimeLeft]); 
 
   useEffect(() => {
+    if (!state?.simpanPeekReveal) {
+      simpanPeekSkipToFlyRef.current = null;
+      return;
+    }
+
+    simpanPeekRevealTransitionStartedRef.current = false;
+
+    const run = () => {
+      if (simpanPeekRevealTransitionStartedRef.current) return;
+      const snap = simulationStateRef.current;
+      if (!snap?.simpanPeekReveal) return;
+      simpanPeekRevealTransitionStartedRef.current = true;
+
+      const { player, pendingCard } = snap.simpanPeekReveal;
+      const ps = player === "A" ? snap.playerA : snap.playerB;
+      const targetIndex = ps.hand.length;
+
+      const fromEl = simpanPeekCardMeasureRef.current;
+      const toEl =
+        player === "A"
+          ? handSlotOuterRefsA.current[targetIndex]
+          : handSlotOuterRefsB.current[targetIndex];
+      const fr = fromEl?.getBoundingClientRect();
+      const tr = toEl?.getBoundingClientRect();
+
+      if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+        setState(prev => {
+          if (!prev?.simpanPeekReveal) {
+            simpanPeekRevealTransitionStartedRef.current = false;
+            return prev;
+          }
+          if (
+            prev.simpanPeekReveal.player !== player ||
+            prev.simpanPeekReveal.pendingCard !== pendingCard
+          ) {
+            simpanPeekRevealTransitionStartedRef.current = false;
+            return prev;
+          }
+          ppSimHandGlowSeqRef.current += 1;
+          const marked = markPpSimHandNewGlow(pendingCard, `pp-hng-${ppSimHandGlowSeqRef.current}`);
+          const key = player === "A" ? "playerA" : "playerB";
+          const pslive = player === "A" ? prev.playerA : prev.playerB;
+          const peekKind = prev.simpanPeekReveal.peekKind ?? "simpan";
+          const merged: SimulationState = {
+            ...prev,
+            simpanPeekReveal: null,
+            [key]: { ...pslive, hand: [...pslive.hand, marked] },
+          };
+          return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+        });
+        return;
+      }
+
+      queueMicrotask(() => {
+        const s2 = simulationStateRef.current;
+        if (
+          !s2?.simpanPeekReveal ||
+          s2.simpanPeekReveal.pendingCard !== pendingCard ||
+          s2.simpanPeekReveal.player !== player
+        ) {
+          simpanPeekRevealTransitionStartedRef.current = false;
+          return;
+        }
+        setSimpanPeekFly({
+          player,
+          pendingCard,
+          from: { x: fr.left, y: fr.top, w: fr.width, h: fr.height },
+          to: { x: tr.left, y: tr.top, w: tr.width, h: tr.height },
+          phase: 0,
+        });
+      });
+    };
+
+    const skip = () => {
+      if (simpanPeekRevealTimerRef.current != null) {
+        window.clearTimeout(simpanPeekRevealTimerRef.current);
+        simpanPeekRevealTimerRef.current = null;
+      }
+      run();
+    };
+
+    simpanPeekSkipToFlyRef.current = skip;
+
+    const id = window.setTimeout(() => {
+      simpanPeekRevealTimerRef.current = null;
+      run();
+    }, 1750);
+    simpanPeekRevealTimerRef.current = id;
+
+    return () => {
+      window.clearTimeout(id);
+      simpanPeekRevealTimerRef.current = null;
+      simpanPeekSkipToFlyRef.current = null;
+    };
+  }, [state?.simpanPeekReveal, state?.simpanPeekTick]);
+
+  useLayoutEffect(() => {
+    if (!simpanPeekFly || simpanPeekFly.phase !== 0) return;
+    let cancelled = false;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setSimpanPeekFly(f => (f && f.phase === 0 ? { ...f, phase: 1 } : f));
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [simpanPeekFly]);
+
+  useEffect(() => {
+    if (!simpanPeekFly || simpanPeekFly.phase !== 1) return;
+    const { player, pendingCard } = simpanPeekFly;
+    const tid = window.setTimeout(() => {
+      setSimpanPeekFly(null);
+      setState(prev => {
+        if (!prev?.simpanPeekReveal) return prev;
+        if (
+          prev.simpanPeekReveal.player !== player ||
+          prev.simpanPeekReveal.pendingCard !== pendingCard
+        ) {
+          return prev;
+        }
+        ppSimHandGlowSeqRef.current += 1;
+        const marked = markPpSimHandNewGlow(pendingCard, `pp-hng-${ppSimHandGlowSeqRef.current}`);
+        const key = player === "A" ? "playerA" : "playerB";
+        const pslive = player === "A" ? prev.playerA : prev.playerB;
+        const peekKind = prev.simpanPeekReveal.peekKind ?? "simpan";
+        const merged: SimulationState = {
+          ...prev,
+          simpanPeekReveal: null,
+          [key]: { ...pslive, hand: [...pslive.hand, marked] },
+        };
+        return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+      });
+    }, SIMPAN_PEEK_HAND_FLY_MS + 50);
+    return () => window.clearTimeout(tid);
+  }, [simpanPeekFly]);
+
+  useEffect(() => {
     if (!cards || cards.length === 0) return;
     if (initialized.current) return;
     
@@ -222,7 +2550,17 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false; 
         parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
         parsed.globalTurnCount = parsed.globalTurnCount ?? 1; 
-        
+        parsed.unitCombatStats = parsed.unitCombatStats ?? {};
+        parsed.unitStatsOrder = parsed.unitStatsOrder ?? [];
+        parsed.spellDeployLog = parsed.spellDeployLog ?? [];
+        parsed.simpanHandChoice = parsed.simpanHandChoice ?? null;
+        parsed.simpanHandChoiceQueue = Array.isArray(parsed.simpanHandChoiceQueue) ? parsed.simpanHandChoiceQueue : [];
+        parsed.simpanPeekReveal = parsed.simpanPeekReveal ?? null;
+        parsed.simpanPeekQueue = Array.isArray(parsed.simpanPeekQueue) ? parsed.simpanPeekQueue : [];
+        parsed.simpanPeekTick = typeof parsed.simpanPeekTick === "number" ? parsed.simpanPeekTick : 0;
+        parsed.playerA = { ...parsed.playerA, field: migratePlayerFieldSpellStack(parsed.playerA.field) };
+        parsed.playerB = { ...parsed.playerB, field: migratePlayerFieldSpellStack(parsed.playerB.field) };
+
         setState(parsed); 
       } catch (e) { 
         localStorage.removeItem("pp_sim_save");
@@ -244,17 +2582,23 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     if (winner || window.confirm("진행 중인 모든 시뮬레이션 기록을 삭제하고 초기화할까요?")) {
       localStorage.removeItem("pp_sim_save");
       setIsMenuOpen(false);
-      setIsSettingsOpen(false); 
+      setIsSettingsOpen(false);
+      setIsGameStatsOpen(false);
       runInitialization(cards);
     }
   };
 
   const handleEndTurn = (player: "A" | "B") => {
     if (!state || state.currentTurn !== player || isInitializing || winner) return;
+    if (state.simpanHandChoice || state.simpanPeekReveal || simpanPeekFly) {
+      alert("[연출] 중앙 카드가 패로 합류할 때까지, 또는 심판 대기 카드를 정리한 뒤 턴을 넘겨 주세요.");
+      return;
+    }
     setSelectedSlot(null);
     setAttackingSlot(null); 
     setPendingSecondaryAttack(null); 
     setPendingAttackSelection(null);
+    setPendingLibutyAllEnemiesAttack(null);
     setPendingSkill(null); 
     setAttackOptionOverride(null);
     setIsDrawModalOpen(false); 
@@ -263,45 +2607,113 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       if (!prev) return prev;
       const isA = player === "A";
 
-      const resetField = (f: PlayerState['field']) => ({
-        is: f.is ? { ...f.is, hasAttacked: false, hasBeenAttackedThisTurn: false } : null,
-        m: f.m ? { ...f.m, hasAttacked: false, hasBeenAttackedThisTurn: false } : null,
-        os: f.os ? { ...f.os, hasAttacked: false, hasBeenAttackedThisTurn: false } : null,
-        spell: f.spell,
+      const resetFieldUnits = (f: PlayerState["field"]) => ({
+        is: f.is
+          ? {
+              ...applyEndTurnEondeokSilenceTickToFieldUnit(
+                applyEndTurnIversonWaitTickToFieldUnit(
+                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.is))
+                )
+              ),
+              hasAttacked: false,
+              hasBeenAttackedThisTurn: false,
+            }
+          : null,
+        m: f.m
+          ? {
+              ...applyEndTurnEondeokSilenceTickToFieldUnit(
+                applyEndTurnIversonWaitTickToFieldUnit(
+                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.m))
+                )
+              ),
+              hasAttacked: false,
+              hasBeenAttackedThisTurn: false,
+            }
+          : null,
+        os: f.os
+          ? {
+              ...applyEndTurnEondeokSilenceTickToFieldUnit(
+                applyEndTurnIversonWaitTickToFieldUnit(
+                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.os))
+                )
+              ),
+              hasAttacked: false,
+              hasBeenAttackedThisTurn: false,
+            }
+          : null,
       });
+
+      const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
+      const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
+      let rewindCards = [...prev.rewindCards];
+      if (ta.expiredBangEomakToRewind) rewindCards = [...rewindCards, ta.expiredBangEomakToRewind];
+      if (tb.expiredBangEomakToRewind) rewindCards = [...rewindCards, tb.expiredBangEomakToRewind];
+      if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
+      if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
+
+      const fieldA = { ...resetFieldUnits(prev.playerA.field), spellStack: ta.nextStack };
+      const fieldB = { ...resetFieldUnits(prev.playerB.field), spellStack: tb.nextStack };
 
       return {
         ...prev,
+        rewindCards,
         currentTurn: isA ? "B" : "A",
         turnCount: !isA ? prev.turnCount + 1 : prev.turnCount,
-        globalTurnCount: prev.globalTurnCount + 1, 
+        globalTurnCount: prev.globalTurnCount + 1,
         turnTimeLeft: 60,
-        playerA: { 
-          ...prev.playerA, 
+        playerA: {
+          ...prev.playerA,
           tokens: !isA ? Math.min(prev.playerA.tokens + 2, 10) : prev.playerA.tokens,
           hasDrawnThisTurn: false,
-          attacksThisTurn: 0, 
-          hasBeenAttackedThisTurn: false, 
-          field: resetField(prev.playerA.field)
+          attacksThisTurn: 0,
+          hasBeenAttackedThisTurn: false,
+          field: fieldA,
         },
-        playerB: { 
-          ...prev.playerB, 
+        playerB: {
+          ...prev.playerB,
           tokens: isA ? Math.min(prev.playerB.tokens + 2, 10) : prev.playerB.tokens,
           hasDrawnThisTurn: false,
-          attacksThisTurn: 0, 
-          hasBeenAttackedThisTurn: false, 
-          field: resetField(prev.playerB.field)
+          attacksThisTurn: 0,
+          hasBeenAttackedThisTurn: false,
+          field: fieldB,
         },
       };
     });
   };
 
   const handleSkillDiscard = (cardIndex: number, player: "A" | "B") => {
-    if (!pendingSkill || !state || pendingSkill.name !== "먹보") return;
+    if (!pendingSkill || !state || pendingSkill.name !== PENDING_SKILL.MOMO_EAT) return;
 
     const targetPlayerState = player === "A" ? state.playerA : state.playerB;
     const hand = targetPlayerState.hand;
     const discardedCard = hand[cardIndex];
+    const healSlot = pendingSkill.slot;
+    const unitBeforeHeal = targetPlayerState.field[healSlot as "is"|"m"|"os"];
+    const headroom = unitBeforeHeal
+      ? Math.max(0, Number(unitBeforeHeal.hp) - unitBeforeHeal.currentHp)
+      : 0;
+    const actualHeal = unitBeforeHeal ? Math.min(MOMO_SKILL_HEAL_AMOUNT, headroom) : 0;
+    const healPopupKey = `${player}-${healSlot}`;
+
+    const momoFieldForStats = player === "A" ? state.playerA.field : state.playerB.field;
+    const momoUnitCard = momoFieldForStats[pendingSkill.slot as "is" | "m" | "os"];
+    const momoHealPatches: Array<{
+      id: string | undefined;
+      delta: Partial<
+        Record<
+          "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+          number
+        >
+      >;
+    }> = [];
+    if (actualHeal > 0 && momoUnitCard?.statsInstanceId && unitBeforeHeal?.statsInstanceId) {
+      if (momoUnitCard.statsInstanceId === unitBeforeHeal.statsInstanceId) {
+        momoHealPatches.push({ id: momoUnitCard.statsInstanceId, delta: { selfHeal: actualHeal } });
+      } else {
+        momoHealPatches.push({ id: momoUnitCard.statsInstanceId, delta: { allyHealGiven: actualHeal } });
+        momoHealPatches.push({ id: unitBeforeHeal.statsInstanceId, delta: { selfHeal: actualHeal } });
+      }
+    }
 
     setState(prev => {
       if (!prev) return prev;
@@ -312,37 +2724,119 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const newPlayerB = { ...prev.playerB, hand: player === "B" ? newHand : prev.playerB.hand, field: { ...prev.playerB.field } };
 
       const targetPlayer = player === "A" ? newPlayerA : newPlayerB;
-      const targetUnit = targetPlayer.field[pendingSkill.slot as "is"|"m"|"os"];
+      const healSlotKey = pendingSkill.slot as "is" | "m" | "os";
+      const targetUnit = targetPlayer.field[healSlotKey];
 
       if (targetUnit) {
-        const healAmount = 500; 
+        const healAmount = MOMO_SKILL_HEAL_AMOUNT;
         const maxHp = Number(targetUnit.hp);
-        targetUnit.currentHp = Math.min(maxHp, targetUnit.currentHp + healAmount);
-        
-        (targetUnit as any).skillLastUsedGlobalTurn = prev.globalTurnCount; 
+        const newHp = Math.min(maxHp, targetUnit.currentHp + healAmount);
+        targetPlayer.field = {
+          ...targetPlayer.field,
+          [healSlotKey]: {
+            ...targetUnit,
+            currentHp: newHp,
+            skillLastUsedGlobalTurn: prev.globalTurnCount,
+          } as FieldCard,
+        };
       }
 
       const newRewind = [...prev.rewindCards, discardedCard];
 
       return {
         ...prev,
+        unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, momoHealPatches),
         playerA: newPlayerA,
         playerB: newPlayerB,
         rewindCards: newRewind
       };
     });
+    if (actualHeal > 0) {
+      showHealNumber(healPopupKey, actualHeal);
+    }
+  };
+
+  const handleDanhaSteal = (victimHandIndex: number, victimPlayer: "A" | "B") => {
+    const ps = pendingSkill;
+    if (!ps || !state || ps.name !== PENDING_SKILL.DANHA_GALGORI) return;
+    const caster = ps.player;
+    if (victimPlayer === caster) return;
+
+    const slotKey = ps.slot as "is" | "m" | "os";
+    const allyField = caster === "A" ? state.playerA.field : state.playerB.field;
+    const danhaUnit = allyField[slotKey];
+    if (!danhaUnit || danhaUnit.name !== UNIT.DANHA) {
+      setPendingSkill(null);
+      alert("단하가 필드에 없어 [마법의 갈고리]가 취소되었습니다.");
+      return;
+    }
+
+    const victimHandArr = victimPlayer === "A" ? state.playerA.hand : state.playerB.hand;
+    if (!victimHandArr[victimHandIndex]) return;
+
+    const allyHandLen = (caster === "A" ? state.playerA.hand : state.playerB.hand).length;
+    if (allyHandLen >= 6) return;
+
+    const danhaFieldKey = `${caster}-${slotKey}`;
+    const victimHandKey = `hand-${victimPlayer}-${victimHandIndex}`;
+    triggerCardFlash(danhaFieldKey, "danhaMagicHook");
+    triggerCardFlash(victimHandKey, "danhaMagicHook");
+
+    const stealGlowToken = nextPpSimHandGlowToken();
+    setState(prev => {
+      if (!prev) return prev;
+      const vHand = victimPlayer === "A" ? prev.playerA.hand : prev.playerB.hand;
+      if (victimHandIndex < 0 || victimHandIndex >= vHand.length) return prev;
+      const card = vHand[victimHandIndex];
+      if (!card) return prev;
+
+      const ally = caster === "A" ? prev.playerA : prev.playerB;
+      if (ally.hand.length >= 6) return prev;
+
+      const newVictimHand = [...vHand];
+      newVictimHand.splice(victimHandIndex, 1);
+      const newAllyHand = [...ally.hand, markPpSimHandNewGlow(stripPpSimHandNewGlow(card), stealGlowToken)];
+
+      const newPlayerA = {
+        ...prev.playerA,
+        hand: caster === "A" ? newAllyHand : victimPlayer === "A" ? newVictimHand : prev.playerA.hand,
+        field: { ...prev.playerA.field },
+      };
+      const newPlayerB = {
+        ...prev.playerB,
+        hand: caster === "B" ? newAllyHand : victimPlayer === "B" ? newVictimHand : prev.playerB.hand,
+        field: { ...prev.playerB.field },
+      };
+
+      if (caster === "A") {
+        const u = newPlayerA.field[slotKey];
+        if (u) {
+          newPlayerA.field = { ...newPlayerA.field, [slotKey]: { ...u, danhaMagicHookConsumed: true } };
+        }
+      } else {
+        const u = newPlayerB.field[slotKey];
+        if (u) {
+          newPlayerB.field = { ...newPlayerB.field, [slotKey]: { ...u, danhaMagicHookConsumed: true } };
+        }
+      }
+
+      return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+    });
 
     setPendingSkill(null);
-    setTimeout(() => alert(`🍔 모모가 [${discardedCard.name}] 카드를 버리고(먹어치우고) 체력을 500 회복했습니다!`), 50);
   };
 
   const handleDrawClick = () => {
     if (!state || isInitializing || !state.currentTurn || winner) return;
     if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
-    
+    if (state.simpanHandChoice || state.simpanPeekReveal) {
+      alert("중앙 카드 연출이 끝난 뒤 덱을 눌러 주세요.");
+      return;
+    }
+
     const isA = state.currentTurn === "A";
     const targetPlayer = isA ? state.playerA : state.playerB;
-    
+
     if (targetPlayer.hasDrawnThisTurn) return alert("이번 턴에는 이미 카드를 뽑았습니다! (턴당 1회 제한)");
     if (targetPlayer.hand.length >= 6) return alert("패가 가득 찼습니다! (최대 6장)");
 
@@ -357,8 +2851,10 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const executeDraw = (selectedCardIndex: number | null) => {
     setState(prev => {
       if (!prev) return prev;
+      if (prev.simpanHandChoice || prev.simpanPeekReveal) return prev;
       const isA = prev.currentTurn === "A";
       const targetPlayer = isA ? prev.playerA : prev.playerB;
+      if (targetPlayer.hand.length >= 6) return prev;
 
       const newDeck = [...prev.deckCards];
       let drawnCard: CardRow;
@@ -369,60 +2865,83 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         drawnCard = newDeck.pop()!;
       }
 
+      const key = isA ? "playerA" : "playerB";
+      const pendingCard = stripPpSimHandNewGlow(drawnCard);
+
       return {
         ...prev,
         deckCards: newDeck,
-        [isA ? "playerA" : "playerB"]: {
+        simpanPeekReveal: {
+          player: isA ? "A" : "B",
+          pendingCard,
+          peekKind: "draw",
+        },
+        simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+        [key]: {
           ...targetPlayer,
-          hand: [...targetPlayer.hand, drawnCard],
-          hasDrawnThisTurn: true 
+          hasDrawnThisTurn: true,
         },
       };
     });
-    
-    setIsDrawModalOpen(false); 
+
+    setIsDrawModalOpen(false);
   };
 
-  const handleDragStart = (e: React.DragEvent, cardIndex: number, player: "A" | "B") => {
-    if (state?.currentTurn !== player || winner || pendingSkill) {
-      e.preventDefault();
+  const placeHandCardFromHand = (
+    gameState: SimulationState,
+    cardIndex: number,
+    sourcePlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell",
+    targetPlayer: "A" | "B"
+  ) => {
+    if (!gameState || winner) return;
+
+    if (sourcePlayer !== targetPlayer || gameState.currentTurn !== sourcePlayer) {
       return;
     }
-    setSelectedSlot(null);
-    setAttackingSlot(null); 
-    setPendingSecondaryAttack(null);
-    setPendingAttackSelection(null);
-    setAttackOptionOverride(null);
+    if (!Number.isFinite(cardIndex) || cardIndex < 0) return;
 
-    e.dataTransfer.setData("cardIndex", cardIndex.toString());
-    e.dataTransfer.setData("player", player);
-  };
-
-  const handleDrop = (e: React.DragEvent, slot: "is" | "m" | "os" | "spell", targetPlayer: "A" | "B") => {
-    e.preventDefault();
-    if (!state || winner) return;
-
-    const cardIndexStr = e.dataTransfer.getData("cardIndex");
-    const sourcePlayer = e.dataTransfer.getData("player");
-
-    if (!cardIndexStr || sourcePlayer !== targetPlayer || state.currentTurn !== sourcePlayer) {
-      return;
-    }
-
-    const cardIndex = parseInt(cardIndexStr, 10);
     const isPlayerA = sourcePlayer === "A";
 
-    const hand = isPlayerA ? state.playerA.hand : state.playerB.hand;
+    const hand = isPlayerA ? gameState.playerA.hand : gameState.playerB.hand;
     const handCard = hand.slice(cardIndex, cardIndex + 1).pop();
     if (!handCard) return;
 
+    if (isEnemyUnitDragTargetSpell(handCard)) {
+      pushInfoFloat(`${sourcePlayer}-spell`, "적 유닛 위에 드래그하여 사용하세요", INFO_FLOAT_MS);
+      return;
+    }
+
+    if (isOrietChosangSpellCard(handCard)) {
+      pushInfoFloat(`${sourcePlayer}-spell`, "아군 유닛 위에 드래그하여 사용하세요", INFO_FLOAT_MS);
+      return;
+    }
+
+    const statsInstanceId = createSimulationStatsInstanceId();
+    const handCardForField = stripPpSimHandNewGlow(handCard);
     const card: FieldCard = {
-      ...handCard,
+      ...handCardForField,
+      statsInstanceId,
       currentHp: Number(handCard.hp) || 0,
       hasAttacked: false,
       hasBeenAttackedThisTurn: false,
-      summonedTurn: `${state.turnCount}-${state.currentTurn}` 
+      summonedTurn: `${gameState.turnCount}-${gameState.currentTurn}` 
     };
+    if (handCard.name === DARK_KNIGHT_ID) {
+      card.darkKnightSoulGauge = 0;
+    }
+    if (handCard.name === MAXELLAND_ID) {
+      card.maxellandTenacityGauge = 0;
+    }
+    if (handCard.name === IVERSON_ID) {
+      card.iversonSummonWaitEndTurnTicksRemaining = IVERSON_SUMMON_WAIT_END_TURNS;
+    }
+    if (slot === "spell" && handCard.name === BANG_EOMAK_SPELL_ID) {
+      card.bangEomakDefenseEndTurnTicksRemaining = BANG_EOMAK_DEFENSE_INITIAL_END_TURN_TICKS;
+    }
+    if (slot === "spell" && handCard.name === CHEOLBYEOK_SPELL_ID) {
+      card.cheolbyeokAllyInvulnEndTurnTicksRemaining = CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS;
+    }
 
     const typeStr = String(card.type || "").toLowerCase();
     const categoryStr = String(card.category || "").toLowerCase();
@@ -442,18 +2961,22 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       return;
     }
 
-    const targetField = isPlayerA ? state.playerA.field : state.playerB.field;
-    const isSlotOccupied = slot === "is" ? targetField.is : slot === "m" ? targetField.m : slot === "os" ? targetField.os : targetField.spell;
-    
-    if (isSlotOccupied !== null) {
-      alert("이미 카드가 배치된 자리입니다.");
-      return;
+    const targetField = isPlayerA ? gameState.playerA.field : gameState.playerB.field;
+    const spellStackBefore = normalizeSpellStack(targetField);
+
+    if (!isSpellSlot) {
+      const isUnitSlotOccupied =
+        slot === "is" ? targetField.is : slot === "m" ? targetField.m : targetField.os;
+      if (isUnitSlotOccupied !== null) {
+        alert("이미 카드가 배치된 자리입니다.");
+        return;
+      }
     }
 
-    const currentTokens = isPlayerA ? state.playerA.tokens : state.playerB.tokens;
+    const currentTokens = isPlayerA ? gameState.playerA.tokens : gameState.playerB.tokens;
     const cost = Number(card.cost) || 0;
     if (currentTokens < cost) {
-      alert(`토큰이 부족합니다! (필요 코스트: ${cost}, 현재 토큰: ${currentTokens})`);
+      pushInfoFloat(`${targetPlayer}-${slot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
       return;
     }
 
@@ -463,16 +2986,48 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const newHand = Array.from(isPlayerA ? prev.playerA.hand : prev.playerB.hand);
       newHand.splice(cardIndex, 1);
 
-      const updatedField = {
+      const nextSpellStack = isSpellSlot ? appendSpellToStack(spellStackBefore, card) : spellStackBefore;
+      let updatedField: PlayerState["field"] = {
         is: slot === "is" ? card : targetField.is,
         m: slot === "m" ? card : targetField.m,
         os: slot === "os" ? card : targetField.os,
-        spell: slot === "spell" ? card : targetField.spell
+        spellStack: nextSpellStack,
       };
+      if (isSpellSlot && handCard.name === CHEOLBYEOK_SPELL_ID) {
+        updatedField = {
+          ...updatedField,
+          is: updatedField.is ? stripBaekseuHarmfulEffectsForInvuln(updatedField.is) : null,
+          m: updatedField.m ? stripBaekseuHarmfulEffectsForInvuln(updatedField.m) : null,
+          os: updatedField.os ? stripBaekseuHarmfulEffectsForInvuln(updatedField.os) : null,
+        };
+      }
 
       if (isPlayerA) {
-        return {
+        const nextUnitCombat = !isSpellSlot
+          ? {
+              ...prev.unitCombatStats,
+              [card.statsInstanceId!]: emptyUnitCombatRow(card.name, "A", card.summonedTurn),
+            }
+          : prev.unitCombatStats;
+        const nextUnitOrder = !isSpellSlot
+          ? [...prev.unitStatsOrder, card.statsInstanceId!]
+          : prev.unitStatsOrder;
+        const nextSpellLog = isSpellSlot
+          ? [
+              ...prev.spellDeployLog,
+              {
+                statsInstanceId: card.statsInstanceId!,
+                name: card.name,
+                player: "A" as const,
+                summonedTurn: card.summonedTurn,
+              },
+            ]
+          : prev.spellDeployLog;
+        const rA = {
           ...prev,
+          unitCombatStats: nextUnitCombat,
+          unitStatsOrder: nextUnitOrder,
+          spellDeployLog: nextSpellLog,
           playerA: {
             ...prev.playerA,
             tokens: prev.playerA.tokens - cost,
@@ -480,9 +3035,33 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             field: updatedField
           }
         };
+        return isSpellSlot ? finalizeSpellWithSimpan(rA) : rA;
       } else {
-        return {
+        const nextUnitCombat = !isSpellSlot
+          ? {
+              ...prev.unitCombatStats,
+              [card.statsInstanceId!]: emptyUnitCombatRow(card.name, "B", card.summonedTurn),
+            }
+          : prev.unitCombatStats;
+        const nextUnitOrder = !isSpellSlot
+          ? [...prev.unitStatsOrder, card.statsInstanceId!]
+          : prev.unitStatsOrder;
+        const nextSpellLog = isSpellSlot
+          ? [
+              ...prev.spellDeployLog,
+              {
+                statsInstanceId: card.statsInstanceId!,
+                name: card.name,
+                player: "B" as const,
+                summonedTurn: card.summonedTurn,
+              },
+            ]
+          : prev.spellDeployLog;
+        const rB = {
           ...prev,
+          unitCombatStats: nextUnitCombat,
+          unitStatsOrder: nextUnitOrder,
+          spellDeployLog: nextSpellLog,
           playerB: {
             ...prev.playerB,
             tokens: prev.playerB.tokens - cost,
@@ -490,8 +3069,662 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             field: updatedField
           }
         };
+        return isSpellSlot ? finalizeSpellWithSimpan(rB) : rB;
       }
     });
+
+    const fieldAfterPlace: PlayerState["field"] = {
+      ...targetField,
+      is: slot === "is" ? card : targetField.is,
+      m: slot === "m" ? card : targetField.m,
+      os: slot === "os" ? card : targetField.os,
+      spellStack: isSpellSlot ? appendSpellToStack(spellStackBefore, card) : spellStackBefore,
+    };
+
+    /* 능력 발동 이펙트 — 방어막·집중 사격 스펠 필드 배치 시 같은 진영 유닛 슬롯 전부 */
+    if (isSpellSlot && handCard.name === BANG_EOMAK_SPELL_ID) {
+      window.setTimeout(() => {
+        (["is", "m", "os"] as const).forEach(s =>
+          triggerCardFlash(`${targetPlayer}-${s}`, "spellBangEomakAllyPulse")
+        );
+      }, 0);
+    }
+    if (isSpellSlot && isJipjungSagyeokSpellCard(handCard)) {
+      window.setTimeout(() => {
+        (["is", "m", "os"] as const).forEach(s =>
+          triggerCardFlash(`${targetPlayer}-${s}`, "spellJipjungAllyPulse")
+        );
+      }, 0);
+    }
+    if (isSpellSlot && handCard.name === CHEOLBYEOK_SPELL_ID) {
+      window.setTimeout(() => {
+        (["is", "m", "os"] as const).forEach(s =>
+          triggerCardFlash(`${targetPlayer}-${s}`, "spellCheolbyeokAllyPulse")
+        );
+      }, 0);
+    }
+
+    /* 능력 발동 이펙트 — 파이레드 필드 배치 시 본인 + 지금 효과를 받는 [공격형] 아군 */
+    if (!isSpellSlot && card.name === PYRED_ID) {
+      const pyredKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
+      triggerCardFlash(pyredKey, "pyredSummon");
+      (["is", "m", "os"] as const).forEach(s => {
+        if (s === slot) return;
+        const ally = fieldAfterPlace[s];
+        if (!hasPyredAttackAura(ally, fieldAfterPlace)) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "pyredSummon");
+      });
+    }
+
+    /* 파이레드가 이미 있을 때 [공격형] 아군 신규 배치 — 파이레드와 해당 아군 동시 연출 */
+    if (!isSpellSlot && card.name !== PYRED_ID && hasPyredAttackAura(card, fieldAfterPlace)) {
+      const allyKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
+      triggerCardFlash(allyKey, "pyredSummon");
+      (["is", "m", "os"] as const).forEach(s => {
+        const u = fieldAfterPlace[s];
+        if (!u || u.name !== PYRED_ID) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "pyredSummon");
+      });
+    }
+
+    /* 능력 발동 이펙트 — 모닝 무드 필드 배치 시 본인 + 지금 효과를 받는 [지원형] 아군 */
+    if (!isSpellSlot && card.name === MORNING_MOOD_ID) {
+      const morningKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
+      triggerCardFlash(morningKey, "morningMoodSummon");
+      (["is", "m", "os"] as const).forEach(s => {
+        if (s === slot) return;
+        const ally = fieldAfterPlace[s];
+        if (!hasMorningMoodAttackAura(ally, fieldAfterPlace)) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "morningMoodSummon");
+      });
+    }
+
+    /* 모닝 무드가 이미 있을 때 [지원형] 아군 신규 배치 — 모닝 무드와 해당 아군 동시 연출 */
+    if (!isSpellSlot && card.name !== MORNING_MOOD_ID && hasMorningMoodAttackAura(card, fieldAfterPlace)) {
+      const allyKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
+      triggerCardFlash(allyKey, "morningMoodSummon");
+      (["is", "m", "os"] as const).forEach(s => {
+        const u = fieldAfterPlace[s];
+        if (!u || u.name !== MORNING_MOOD_ID) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "morningMoodSummon");
+      });
+    }
+
+    /* 시작의 나무 필드 배치: 자신 + 모든 아군 동시 녹색 연출 */
+    if (!isSpellSlot && card.name === STARTING_TREE_ID) {
+      (["is", "m", "os"] as const).forEach(s => {
+        if (!fieldAfterPlace[s]) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "startingTreeSummon");
+      });
+    }
+
+    /* 능력 발동 이펙트 — 필립 필드 배치(본인·마주 칸 상대 동시) */
+    if (!isSpellSlot && card.name === PHILIP_ID) {
+      const uSlot = slot as "is" | "m" | "os";
+      const opp = sourcePlayer === "A" ? "B" : "A";
+      const oppField = opp === "A" ? gameState.playerA.field : gameState.playerB.field;
+      triggerCardFlash(`${sourcePlayer}-${uSlot}`, "philipSummon");
+      if (oppField[uSlot]) {
+        triggerCardFlash(`${opp}-${uSlot}`, "philipSummon");
+      }
+    }
+
+    /* 능력 발동 이펙트 — 철기병 필드 배치: 본인 칸 즉시 → 약간 뒤 같은 진영 나머지 아군 */
+    if (!isSpellSlot && card.name === CHEOLGIBYEONG_ID) {
+      const uSlot = slot as "is" | "m" | "os";
+      const cheolSlotKey = `${sourcePlayer}-${uSlot}`;
+      triggerCardFlash(cheolSlotKey, "cheolgibyeongSummon");
+      pushCheolgibyeongPassiveBuffFloat(cheolSlotKey);
+
+      const tid = window.setTimeout(() => {
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === uSlot || !fieldAfterPlace[s]) return;
+          triggerCardFlash(`${sourcePlayer}-${s}`, "cheolgibyeongSummon");
+        });
+        cheolgibyeongAllyFlashDelayTimeoutsRef.current =
+          cheolgibyeongAllyFlashDelayTimeoutsRef.current.filter(id => id !== tid);
+      }, CHEOLGIBYEONG_ALLY_ABILITY_FLASH_DELAY_MS);
+      cheolgibyeongAllyFlashDelayTimeoutsRef.current.push(tid);
+    }
+
+    /* 능력 발동 이펙트 — 렴초 필드 배치: 본인 칸 즉시 → 철기병과 동일 지연 후 같은 진영 나머지 아군 (베이지) */
+    if (!isSpellSlot && card.name === RYEOMCHO_ID) {
+      const uSlot = slot as "is" | "m" | "os";
+      const ryeomchoSlotKey = `${sourcePlayer}-${uSlot}`;
+      triggerCardFlash(ryeomchoSlotKey, "ryeomchoSummon");
+      pushRyeomchoPassiveBuffFloat(ryeomchoSlotKey);
+
+      const tid = window.setTimeout(() => {
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === uSlot || !fieldAfterPlace[s]) return;
+          triggerCardFlash(`${sourcePlayer}-${s}`, "ryeomchoSummon");
+        });
+        cheolgibyeongAllyFlashDelayTimeoutsRef.current =
+          cheolgibyeongAllyFlashDelayTimeoutsRef.current.filter(id => id !== tid);
+      }, CHEOLGIBYEONG_ALLY_ABILITY_FLASH_DELAY_MS);
+      cheolgibyeongAllyFlashDelayTimeoutsRef.current.push(tid);
+    }
+
+    /* 능력 발동 이펙트 — 다이아고 필드 배치: 다이아고 포함 같은 진영 전원 동시(연두), 지연 없음 */
+    if (!isSpellSlot && card.name === DIAGO_ID) {
+      (["is", "m", "os"] as const).forEach(s => {
+        if (!fieldAfterPlace[s]) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "diagoSummon");
+      });
+    }
+
+    /* 능력 발동 이펙트 — 검은 황제 필드 배치: 같은 진영 전원 동시(회색), 지연 없음 */
+    if (!isSpellSlot && card.name === UNIT.GEOMEUN_HWANGJE) {
+      (["is", "m", "os"] as const).forEach(s => {
+        if (!fieldAfterPlace[s]) return;
+        triggerCardFlash(`${sourcePlayer}-${s}`, "geomeunHwangjeSummon");
+      });
+    }
+
+    /* 능력 발동 이펙트 — 아이언 키위 필드 배치: 같은 진영 전원 동시(매우 밝은 회색) */
+    if (!isSpellSlot && card.name === IRON_KIWI_ID) {
+      (["is", "m", "os"] as const).forEach(s => {
+        if (!fieldAfterPlace[s]) return;
+        const key = `${sourcePlayer}-${s}`;
+        triggerCardFlash(key, "ironKiwiSummon");
+        pushIronKiwiPassiveBuffFloat(key);
+      });
+    }
+
+    /* 필립이 먼저 깔려 있고 마주 칸에 유닛을 나중에 올릴 때 — 능력 발동 이펙트(패시브 맺음) 1회 */
+    if (!isSpellSlot && card.name !== PHILIP_ID) {
+      const uSlot = slot as "is" | "m" | "os";
+      const opp = sourcePlayer === "A" ? "B" : "A";
+      const oppField = opp === "A" ? gameState.playerA.field : gameState.playerB.field;
+      if (oppField[uSlot]?.name === PHILIP_ID) {
+        triggerCardFlash(`${sourcePlayer}-${uSlot}`, "philipSummon");
+        triggerCardFlash(`${opp}-${uSlot}`, "philipSummon");
+      }
+    }
+  };
+
+  const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (!state || state.currentTurn !== player || winner || pendingSkill) {
+      return;
+    }
+    if (state.simpanHandChoice?.player === player) {
+      return;
+    }
+    if (state.simpanPeekReveal?.player === player || simpanPeekFly?.player === player) {
+      return;
+    }
+    e.preventDefault();
+    setSelectedSlot(null);
+    setAttackingSlot(null);
+    setPendingSecondaryAttack(null);
+    setPendingAttackSelection(null);
+    setPendingLibutyAllEnemiesAttack(null);
+    setAttackOptionOverride(null);
+
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    const next: HandDragState = {
+      player,
+      cardIndex,
+      card,
+      width: rect.width,
+      height: rect.height,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pointerId: e.pointerId,
+      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
+    };
+    activeHandDragRef.current = next;
+    setHandDrag(next);
+    syncHandDragHover(e.clientX, e.clientY);
+  };
+
+  const updateHandDrag = (e: React.PointerEvent) => {
+    const d = activeHandDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const next = { ...d, clientX: e.clientX, clientY: e.clientY };
+    activeHandDragRef.current = next;
+    setHandDrag(next);
+    syncHandDragHover(e.clientX, e.clientY);
+  };
+
+  /** 스펠 No.19 번개 — 적 is/m/os에 드롭 시 현재 체력 1. 성공·오류 안내 시 true(일반 필드 배치 생략). */
+  const attemptCastBeonggaeSpellDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || spellRow.name !== BEONGGAE_SPELL_ID || !isSpellCardRow(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    if (targetPlayer === saved.player || slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const sk = slot as "is" | "m" | "os";
+    const enemyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const enemyUnit = enemyField[sk];
+    if (!enemyUnit) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    if (!isBeonggaeValidTargetUnit(enemyUnit)) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    if (isInvulnerableFromBaekseuOrCheolbyeok(enemyUnit, enemyField)) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "[무적] 상태의 유닛에게는 적용되지 않습니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    setState(prev => {
+      if (!prev) return prev;
+      const casterIsA = saved.player === "A";
+      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+      const c = h[saved.cardIndex];
+      if (!c || c.name !== BEONGGAE_SPELL_ID || !isSpellCardRow(c)) return prev;
+      const cst = Number(c.cost) || 0;
+      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+      h.splice(saved.cardIndex, 1);
+
+      const sk2 = slot as "is" | "m" | "os";
+      const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+      const u2 = victim.field[sk2];
+      if (!u2) return prev;
+      if (!isBeonggaeValidTargetUnit(u2)) return prev;
+      if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
+      const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
+      const nextVictim = { ...victim, field: { ...victim.field, [sk2]: updated } };
+
+      if (casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...nextVictim, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: prev.playerB,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (casterIsA && targetPlayer === "B") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: nextVictim,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (!casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: nextVictim,
+          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      return finalizeSpellWithSimpan({
+        ...prev,
+        playerA: prev.playerA,
+        playerB: { ...nextVictim, hand: h, tokens: prev.playerB.tokens - cst },
+        rewindCards: [...prev.rewindCards, c],
+      });
+    });
+
+    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "beonggaeSpell"), 0);
+    return true;
+  };
+
+  /** 스펠 No.7 언덕! — 적 is/m/os에 드롭 시 처리. 성공·오류 안내 시 true(일반 필드 배치 생략). */
+  const attemptCastEondeokSpellDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || spellRow.name !== EONDEOK_SPELL_ID || !isSpellCardRow(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    if (targetPlayer === saved.player || slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const sk = slot as "is" | "m" | "os";
+    const enemyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const enemyUnit = enemyField[sk];
+    if (!enemyUnit) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    if (isInvulnerableFromBaekseuOrCheolbyeok(enemyUnit, enemyField)) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "[무적] 상태의 유닛에게는 적용되지 않습니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    setState(prev => {
+      if (!prev) return prev;
+      const casterIsA = saved.player === "A";
+      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+      const c = h[saved.cardIndex];
+      if (!c || c.name !== EONDEOK_SPELL_ID || !isSpellCardRow(c)) return prev;
+      const cst = Number(c.cost) || 0;
+      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+      h.splice(saved.cardIndex, 1);
+
+      const sk = slot as "is" | "m" | "os";
+      const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+      const u2 = victim.field[sk];
+      if (!u2) return prev;
+      const updated: FieldCard = {
+        ...u2,
+        eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
+      };
+      const nextVictim = { ...victim, field: { ...victim.field, [sk]: updated } };
+
+      if (casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...nextVictim, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: prev.playerB,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (casterIsA && targetPlayer === "B") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: nextVictim,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (!casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: nextVictim,
+          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      return finalizeSpellWithSimpan({
+        ...prev,
+        playerA: prev.playerA,
+        playerB: { ...nextVictim, hand: h, tokens: prev.playerB.tokens - cst },
+        rewindCards: [...prev.rewindCards, c],
+      });
+    });
+
+    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "eondeokSpell"), 0);
+    return true;
+  };
+
+  /** 스펠 No.31 소멸 — 적 is/m/os에 드롭 시 즉시 제거(백스·무적·사망 시 패시브 무시), 스펠·유닛 리와인드 */
+  const attemptCastSomyeolSpellDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || spellRow.name !== SOMYEOL_SPELL_ID || !isSpellCardRow(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    if (targetPlayer === saved.player || slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const sk = slot as "is" | "m" | "os";
+    const enemyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const enemyUnit = enemyField[sk];
+    if (!enemyUnit) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    setState(prev => {
+      if (!prev) return prev;
+      const casterIsA = saved.player === "A";
+      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+      const c = h[saved.cardIndex];
+      if (!c || c.name !== SOMYEOL_SPELL_ID || !isSpellCardRow(c)) return prev;
+      const cst = Number(c.cost) || 0;
+      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+      h.splice(saved.cardIndex, 1);
+
+      const sk2 = slot as "is" | "m" | "os";
+      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+      const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
+      const erased = victimState.field[sk2];
+      if (!erased) return prev;
+
+      cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
+        skipDarkKnightSoulIncrement: true,
+      });
+      victimState.field[sk2] = null;
+
+      let nextUnitCombatStats = prev.unitCombatStats;
+      let nextUnitStatsOrder = prev.unitStatsOrder;
+      const sid = erased.statsInstanceId;
+      if (sid) {
+        const { [sid]: _removed, ...restStats } = nextUnitCombatStats;
+        nextUnitCombatStats = restStats;
+        nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+      }
+
+      if (casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          unitCombatStats: nextUnitCombatStats,
+          unitStatsOrder: nextUnitStatsOrder,
+          playerA: { ...newPlayerA, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: newPlayerB,
+          rewindCards: [...prev.rewindCards, c, erased],
+        });
+      }
+      if (casterIsA && targetPlayer === "B") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          unitCombatStats: nextUnitCombatStats,
+          unitStatsOrder: nextUnitStatsOrder,
+          playerA: { ...newPlayerA, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: newPlayerB,
+          rewindCards: [...prev.rewindCards, c, erased],
+        });
+      }
+      if (!casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          unitCombatStats: nextUnitCombatStats,
+          unitStatsOrder: nextUnitStatsOrder,
+          playerA: newPlayerA,
+          playerB: { ...newPlayerB, hand: h, tokens: prev.playerB.tokens - cst },
+          rewindCards: [...prev.rewindCards, c, erased],
+        });
+      }
+      return finalizeSpellWithSimpan({
+        ...prev,
+        unitCombatStats: nextUnitCombatStats,
+        unitStatsOrder: nextUnitStatsOrder,
+        playerA: newPlayerA,
+        playerB: { ...newPlayerB, hand: h, tokens: prev.playerB.tokens - cst },
+        rewindCards: [...prev.rewindCards, c, erased],
+      });
+    });
+
+    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "somyeolSpellErase"), 0);
+    return true;
+  };
+
+  /** 스펠 No.48 오리에트의 초상 — 아군 is/m/os에 드롭 시 체력 보호막(흡수 1000) */
+  const attemptCastOrietChosangSpellDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || !isOrietChosangSpellCard(spellRow) || !isSpellCardRow(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    if (targetPlayer !== saved.player || slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "아군 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const sk = slot as "is" | "m" | "os";
+    const allyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const ally = allyField[sk];
+    if (!ally || (ally.currentHp ?? 0) <= 0) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "아군 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    setState(prev => {
+      if (!prev) return prev;
+      const casterIsA = saved.player === "A";
+      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+      const c = h[saved.cardIndex];
+      if (!c || !isOrietChosangSpellCard(c) || !isSpellCardRow(c)) return prev;
+      const cst = Number(c.cost) || 0;
+      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+      h.splice(saved.cardIndex, 1);
+
+      const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
+      const u = allySide.field[sk];
+      if (!u) return prev;
+      const updatedAlly: FieldCard = {
+        ...u,
+        hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
+      };
+      const nextAllySide = { ...allySide, field: { ...allySide.field, [sk]: updatedAlly } };
+
+      if (casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...nextAllySide, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: prev.playerB,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (casterIsA && targetPlayer === "B") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
+          playerB: nextAllySide,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      if (!casterIsA && targetPlayer === "A") {
+        return finalizeSpellWithSimpan({
+          ...prev,
+          playerA: nextAllySide,
+          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
+          rewindCards: [...prev.rewindCards, c],
+        });
+      }
+      return finalizeSpellWithSimpan({
+        ...prev,
+        playerA: prev.playerA,
+        playerB: { ...nextAllySide, hand: h, tokens: prev.playerB.tokens - cst },
+        rewindCards: [...prev.rewindCards, c],
+      });
+    });
+
+    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "orietShieldAllyPulse"), 0);
+    return true;
+  };
+
+  const finishHandDrag = (e: React.PointerEvent) => {
+    const d = activeHandDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const saved = { ...d };
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    activeHandDragRef.current = null;
+    setHandDrag(null);
+    setHandDragHoverSlotKey(null);
+
+    const snap = state;
+    if (!snap) return;
+
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const drop = under?.closest("[data-field-drop]");
+    if (!drop) return;
+
+    const targetPlayer = (drop as HTMLElement).dataset.fieldPlayer as "A" | "B" | undefined;
+    const slot = (drop as HTMLElement).dataset.fieldSlot as "is" | "m" | "os" | "spell" | undefined;
+    if (!targetPlayer || !slot) return;
+    if (targetPlayer !== "A" && targetPlayer !== "B") return;
+
+    if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
+
+    placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
+  };
+
+  const cancelHandDrag = (e: React.PointerEvent) => {
+    const d = activeHandDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    activeHandDragRef.current = null;
+    setHandDrag(null);
+    setHandDragHoverSlotKey(null);
   };
 
   const handlePlayerAttack = (targetPlayer: "A" | "B") => {
@@ -500,8 +3733,33 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     
     if (attackerPlayer === targetPlayer) return; 
 
+    const attackerFieldPeek = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+    if (isLibuty(attackerFieldPeek[attackerSlotName])) {
+      alert("리부티는 적 플레이어 HP를 직접 공격할 수 없습니다. 기본 공격은 '모든 적 공격'으로만 사용할 수 있습니다.");
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      return;
+    }
+    if (isRyeomcho(attackerFieldPeek[attackerSlotName])) {
+      alert(BATTLE_MSG.ryeomcho.cannotAttackPlayer);
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      return;
+    }
+    if (isRanigo(attackerFieldPeek[attackerSlotName])) {
+      alert(BATTLE_MSG.ranigo.cannotAttackEnemy);
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      return;
+    }
+
     const targetPlayerState = targetPlayer === "A" ? state.playerA : state.playerB;
-    if (targetPlayerState.hasBeenAttackedThisTurn) {
+    const attackerCardPeek = attackerFieldPeek[attackerSlotName];
+    if (
+      targetPlayerState.hasBeenAttackedThisTurn &&
+      !fieldGrantsFocusedFireMultihitExemption(attackerFieldPeek) &&
+      !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCardPeek)
+    ) {
       alert('다른 유닛이 이미 상대 플레이어를 공격했습니다. (플레이어 다구리 금지)');
       setAttackingSlot(null);
       setAttackOptionOverride(null);
@@ -511,8 +3769,29 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     const attackerField = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
     const attackerCard = attackerField[attackerSlotName];
     if (!attackerCard) return;
+    if (isAttackDisabledUnit(attackerCard)) {
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      return;
+    }
 
-    const baseAtkRaw = attackOptionOverride !== null ? attackOptionOverride : String(attackerCard.atk || "0");
+    const activeForPlayerStrike =
+      attackerPlayer === "A" ? state.playerA : state.playerB;
+    const playerStrikeRules = validateAttack({
+      attackerCard,
+      currentTurnKey: `${state.turnCount}-${state.currentTurn}`,
+      attacksUsedThisTurn: activeForPlayerStrike.attacksThisTurn || 0,
+      isSilenced: isSilenced(attackerCard, null),
+      isStunned: isStunned(attackerCard),
+    });
+    if (!playerStrikeRules.canAttack) {
+      alert(playerStrikeRules.reason ?? "공격할 수 없습니다.");
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      return;
+    }
+
+    const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(attackerCard, attackOptionOverride);
     const atkRaw = baseAtkRaw.replace(/[\(\)]/g, ""); 
     const atkRawLower = atkRaw.toLowerCase();
     
@@ -534,7 +3813,70 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       return;
     }
 
-    const skillUpdates = applyPostAttackSkills(attackerCard, { damageDealt: primaryDamage, targetDestroyed: false });
+    ({ primaryDamage } = applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
+      attackerPlayer,
+      attackerSlotName,
+      attackerCard,
+      attackerField,
+      targetPlayerState.field,
+      state.playerA.field,
+      state.playerB.field,
+      primaryDamage,
+      0
+    ));
+
+    primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCard, attackerField);
+
+    let fieldHealAmount = 0;
+    let fieldBuffKey = "";
+    const skillUpdates = applyPostAttackSkills(attackerCard, {
+      damageDealt: primaryDamage,
+      targetDestroyed: false,
+      applyFieldHeal: amt => {
+        fieldHealAmount = amt;
+      },
+      applyFieldBuff: key => {
+        fieldBuffKey = key;
+      },
+    });
+    const attackerHeal = getHealFromSkillUpdates(attackerCard, skillUpdates);
+
+    const maengCombatPatches: Array<{
+      id: string | undefined;
+      delta: Partial<
+        Record<
+          "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+          number
+        >
+      >;
+    }> = [];
+    if (attackerCard.statsInstanceId && primaryDamage > 0) {
+      maengCombatPatches.push({
+        id: attackerCard.statsInstanceId,
+        delta: { damageDealt: primaryDamage },
+      });
+    }
+    if (attackerHeal > 0 && attackerCard.statsInstanceId) {
+      maengCombatPatches.push({
+        id: attackerCard.statsInstanceId,
+        delta: { selfHeal: attackerHeal },
+      });
+    }
+    if (fieldHealAmount > 0 && attackerCard.statsInstanceId) {
+      const allySnapMaeng = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+      (["is", "m", "os"] as const).forEach(s => {
+        const u = allySnapMaeng[s];
+        if (!u?.statsInstanceId) return;
+        const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+        if (healedFld <= 0) return;
+        if (u.statsInstanceId === attackerCard.statsInstanceId) {
+          maengCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+        } else {
+          maengCombatPatches.push({ id: attackerCard.statsInstanceId, delta: { allyHealGiven: healedFld } });
+          maengCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+        }
+      });
+    }
 
     setState(prev => {
       if (!prev) return prev;
@@ -559,16 +3901,49 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         newPlayerB.hasBeenAttackedThisTurn = true; 
       }
 
-      return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+      const activePlayer = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+      if (fieldHealAmount > 0 || fieldBuffKey) {
+        (["is", "m", "os"] as const).forEach(s => {
+          const unit = activePlayer.field[s];
+          if (!unit) return;
+          const updatedUnit = { ...unit };
+          if (fieldHealAmount > 0) {
+            updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+          }
+          if (fieldBuffKey) {
+            (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
+          }
+          activePlayer.field[s] = updatedUnit;
+        });
+      }
+
+      return {
+        ...prev,
+        unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, maengCombatPatches),
+        playerA: newPlayerA,
+        playerB: newPlayerB,
+      };
     });
 
     const newHp = targetPlayer === "A" ? state.playerA.hp - primaryDamage : state.playerB.hp - primaryDamage;
-    
+
+    showDamageNumber(`player-${targetPlayer}`, primaryDamage);
+    if (attackerHeal > 0) {
+      showHealNumber(`${attackerPlayer}-${attackerSlotName}`, attackerHeal);
+    }
+    if (fieldHealAmount > 0) {
+      const allySnap = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+      (["is", "m", "os"] as const).forEach(s => {
+        const u = allySnap[s];
+        if (!u) return;
+        const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+        if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+      });
+    }
+
     setTimeout(() => {
       if (newHp <= 0) {
         setWinner(attackerPlayer);
-      } else {
-        alert(`⚔️ 플레이어 직접 공격! 적 플레이어에게 ${primaryDamage}의 피해를 입혔습니다.`);
       }
     }, 50);
 
@@ -576,39 +3951,537 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     setAttackOptionOverride(null);
   };
 
+  const commitLibutyAllEnemiesBasicAttack = () => {
+    if (!pendingLibutyAllEnemiesAttack || !state || winner) return;
+    const pend = pendingLibutyAllEnemiesAttack;
+    setPendingLibutyAllEnemiesAttack(null);
+
+    const { player: attackerPlayer, slot: attackerSlotName } = pend;
+    const attackerFieldSnap =
+      attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const attackerCardSnap = attackerFieldSnap[attackerSlotName];
+    if (!attackerCardSnap || !isLibuty(attackerCardSnap) || isAttackDisabledUnit(attackerCardSnap)) return;
+
+    const activeForStrike = attackerPlayer === "A" ? state.playerA : state.playerB;
+    const atkRules = validateAttack({
+      attackerCard: attackerCardSnap,
+      currentTurnKey: `${state.turnCount}-${state.currentTurn}`,
+      attacksUsedThisTurn: activeForStrike.attacksThisTurn || 0,
+      isSilenced: isSilenced(attackerCardSnap, null),
+      isStunned: isStunned(attackerCardSnap),
+    });
+    if (!atkRules.canAttack) {
+      alert(atkRules.reason ?? "공격할 수 없습니다.");
+      return;
+    }
+
+    const defenderPlayer = attackerPlayer === "A" ? "B" : "A";
+    const defenderFieldSnap =
+      defenderPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const slotsToHit = (["is", "m", "os"] as const).filter(s => {
+      const u = defenderFieldSnap[s];
+      return u != null && (u.currentHp ?? 0) > 0;
+    });
+    if (slotsToHit.length === 0) {
+      alert("필드에 공격할 적이 없습니다.");
+      return;
+    }
+
+    const playerAField = state.playerA.field;
+    const playerBField = state.playerB.field;
+    const victimFieldForInvuln = defenderPlayer === "A" ? playerAField : playerBField;
+
+    type LibutyHitRow = {
+      slot: "is" | "m" | "os";
+      card: FieldCard;
+      newHp: number;
+      isDestroyed: boolean;
+      actualPrimaryDamage: number;
+      kalliPurePrimary: number;
+      hpLossPrimary: number;
+      skillUpdates: Partial<FieldCard>;
+      fieldHealAmountPrimary: number;
+      fieldBuffKeyPrimary: string;
+      morningMoodDeathHeal: number;
+      startingTreeAllyHeal: number;
+      baekseuLastStandPrimary: boolean;
+      baekseuPatchPrimary: Partial<FieldCard>;
+      barrierNextRemaining: number;
+      pakkiDebuffPrimary: boolean;
+      targetMitigationPrimary: number;
+    };
+
+    const rows: LibutyHitRow[] = [];
+    let mergedSkillUpdates: Partial<FieldCard> = {};
+    let anyPakkiDebuff = false;
+
+    for (const slotName of slotsToHit) {
+      const card = defenderFieldSnap[slotName]!;
+      let primaryDamage = LIBUTY_BASIC_AOE_DAMAGE;
+      let secondaryDamage = 0;
+      const attackType = "NORMAL" as const;
+      const secondaryHits = 0;
+
+      ({ primaryDamage, secondaryDamage } = applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
+        attackerPlayer,
+        attackerSlotName,
+        attackerCardSnap,
+        attackerFieldSnap,
+        defenderFieldSnap,
+        playerAField,
+        playerBField,
+        primaryDamage,
+        secondaryDamage,
+        { attackType, secondaryHits }
+      ));
+      primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCardSnap, attackerFieldSnap);
+
+      const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCardSnap, card);
+      const kalliPurePrimary = getKalliVsDefenseTypePureBonus(attackerCardSnap, card);
+      let afterBanjitPrimary = primaryDamage;
+      let banjitMitPrimary = 0;
+      if (
+        !kalliVsDefenseStrike &&
+        (card as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori &&
+        !callieBuffBanSuppressesBuffsForVictim(
+          defenderPlayer,
+          slotName,
+          playerAField,
+          playerBField
+        )
+      ) {
+        const floored = Math.floor((primaryDamage * 0.75) / 50) * 50;
+        banjitMitPrimary = Math.max(0, primaryDamage - floored);
+        afterBanjitPrimary = floored;
+      }
+
+      const primaryDefenseResult = kalliVsDefenseStrike
+        ? { finalDamage: afterBanjitPrimary }
+        : applyIncomingDefenseDamage(
+            afterBanjitPrimary,
+            card,
+            playerAField,
+            playerBField,
+            `${defenderPlayer}-${slotName}`
+          );
+      const defenseMitPrimary =
+        !kalliVsDefenseStrike && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldForInvuln)
+          ? Math.max(0, afterBanjitPrimary - primaryDefenseResult.finalDamage)
+          : 0;
+      const coreAfterDefense =
+        kalliVsDefenseStrike || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldForInvuln)
+          ? afterBanjitPrimary
+          : primaryDefenseResult.finalDamage;
+      const preInvulnTotal = coreAfterDefense + kalliPurePrimary;
+      let actualPrimaryDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldForInvuln)
+        ? 0
+        : preInvulnTotal;
+      const barrierSplitPrimary = splitDamageThroughHpBarrier(card, actualPrimaryDamage);
+      const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
+      const resolvedPrimary = resolveBaekseuFatalDamage(
+        card,
+        hpAfterRawPrimary,
+        barrierSplitPrimary.damageToCurrentHp
+      );
+      const newHp = resolvedPrimary.finalHp;
+      const hpLossPrimary = Math.max(0, card.currentHp - newHp);
+      const targetMitigationPrimary =
+        banjitMitPrimary + defenseMitPrimary + Math.max(0, preInvulnTotal - hpLossPrimary);
+      const isDestroyed = resolvedPrimary.isDestroyed;
+      const baekseuPatchPrimary = resolvedPrimary.patch;
+      const baekseuLastStandPrimary = resolvedPrimary.lastStandTriggered;
+
+      const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
+      const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualPrimaryDamage);
+
+      let fieldHealAmountPrimary = 0;
+      let fieldBuffKeyPrimary = "";
+      const skillUpdates = applyPostAttackSkills(attackerCardSnap, {
+        damageDealt: actualPrimaryDamage,
+        targetDestroyed: isDestroyed,
+        targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+        applyFieldHeal: amt => {
+          fieldHealAmountPrimary += amt;
+        },
+        applyFieldBuff: key => {
+          fieldBuffKeyPrimary = key;
+        },
+      });
+      mergedSkillUpdates = { ...mergedSkillUpdates, ...skillUpdates };
+
+      const pakkiDebuffPrimary =
+        isDestroyed &&
+        String(card?.name ?? "").trim() === PAKKI_ID &&
+        canApplyPakkiKillDebuff(attackerFieldSnap);
+      if (pakkiDebuffPrimary) anyPakkiDebuff = true;
+
+      rows.push({
+        slot: slotName,
+        card,
+        newHp,
+        isDestroyed,
+        actualPrimaryDamage,
+        kalliPurePrimary,
+        hpLossPrimary,
+        skillUpdates,
+        fieldHealAmountPrimary,
+        fieldBuffKeyPrimary,
+        morningMoodDeathHeal,
+        startingTreeAllyHeal,
+        baekseuLastStandPrimary,
+        baekseuPatchPrimary,
+        barrierNextRemaining: barrierSplitPrimary.nextBarrierRemaining,
+        pakkiDebuffPrimary,
+        targetMitigationPrimary,
+      });
+    }
+
+    const combatPatchList: Array<{
+      id: string | undefined;
+      delta: Partial<
+        Record<
+          "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+          number
+        >
+      >;
+    }> = [];
+
+    for (const r of rows) {
+      if (attackerCardSnap.statsInstanceId) {
+        combatPatchList.push({
+          id: attackerCardSnap.statsInstanceId,
+          delta: { damageDealt: r.hpLossPrimary, kills: r.isDestroyed ? 1 : 0 },
+        });
+      }
+      if (r.card.statsInstanceId) {
+        combatPatchList.push({
+          id: r.card.statsInstanceId,
+          delta: { damageTaken: r.hpLossPrimary, damageMitigated: r.targetMitigationPrimary },
+        });
+      }
+      const attackerHealFromHit = getHealFromSkillUpdates(attackerCardSnap, r.skillUpdates);
+      if (attackerHealFromHit > 0 && attackerCardSnap.statsInstanceId) {
+        combatPatchList.push({
+          id: attackerCardSnap.statsInstanceId,
+          delta: { selfHeal: attackerHealFromHit },
+        });
+      }
+      if (r.morningMoodDeathHeal > 0 && r.isDestroyed && r.card.statsInstanceId) {
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === r.slot) return;
+          const u = defenderFieldSnap[s];
+          if (!u?.statsInstanceId) return;
+          const healedMm = Math.min(Number(u.hp) - u.currentHp, r.morningMoodDeathHeal);
+          if (healedMm <= 0) return;
+          combatPatchList.push({ id: r.card.statsInstanceId, delta: { allyHealGiven: healedMm } });
+          combatPatchList.push({ id: u.statsInstanceId, delta: { selfHeal: healedMm } });
+        });
+      }
+      if (r.startingTreeAllyHeal > 0 && r.card.statsInstanceId) {
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === r.slot) return;
+          const u = defenderFieldSnap[s];
+          if (!u?.statsInstanceId) return;
+          const healedSt = Math.min(Number(u.hp) - u.currentHp, r.startingTreeAllyHeal);
+          if (healedSt <= 0) return;
+          combatPatchList.push({ id: r.card.statsInstanceId, delta: { allyHealGiven: healedSt } });
+          combatPatchList.push({ id: u.statsInstanceId, delta: { selfHeal: healedSt } });
+        });
+      }
+      if (r.fieldHealAmountPrimary > 0 && attackerCardSnap.statsInstanceId) {
+        const allySidePrimary = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+        (["is", "m", "os"] as const).forEach(s => {
+          const u = allySidePrimary[s];
+          if (!u?.statsInstanceId) return;
+          const healedFld = Math.min(Number(u.hp) - u.currentHp, r.fieldHealAmountPrimary);
+          if (healedFld <= 0) return;
+          if (u.statsInstanceId === attackerCardSnap.statsInstanceId) {
+            combatPatchList.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+          } else {
+            combatPatchList.push({ id: attackerCardSnap.statsInstanceId, delta: { allyHealGiven: healedFld } });
+            combatPatchList.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+          }
+        });
+      }
+    }
+
+    let maxellCum: Partial<FieldCard> = {};
+    let gaugeSim: FieldCard = attackerCardSnap;
+    for (const r of rows) {
+      if (!r.isDestroyed) continue;
+      const b = bumpMaxellandTenacityGaugeOnEnemyKill({ ...gaugeSim, ...maxellCum }, true);
+      maxellCum = { ...maxellCum, ...b };
+    }
+
+    const fieldHealDiagoTotal = rows.reduce((a, r) => a + r.fieldHealAmountPrimary, 0);
+    const fieldBuffKeyDiago = rows.map(r => r.fieldBuffKeyPrimary).filter(Boolean).pop() ?? "";
+
+    const updatedAttacker = {
+      ...attackerCardSnap,
+      hasAttacked: true,
+      ...mergedSkillUpdates,
+      ...maxellCum,
+      ...(anyPakkiDebuff ? { hasPakiAttackHalveDebuff: true } : {}),
+    } as FieldCard;
+
+    setState(prev => {
+      if (!prev) return prev;
+      const cleanupSkillLinksOnDeath = (deadCard: FieldCard, newPA: PlayerState, newPB: PlayerState, gt: number) => {
+        cleanupSimulationUnitDeath(deadCard, newPA, newPB, gt);
+      };
+
+      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+
+      if (attackerPlayer === "A") {
+        newPlayerA.field[attackerSlotName] = updatedAttacker;
+        newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+      } else {
+        newPlayerB.field[attackerSlotName] = updatedAttacker;
+        newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+      }
+
+      const defSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
+      for (const r of rows) {
+        const baseTargetPrimary =
+          Object.keys(r.baekseuPatchPrimary).length > 0
+            ? stripBaekseuHarmfulEffectsForInvuln(r.card)
+            : r.card;
+        const updatedTarget: FieldCard = {
+          ...baseTargetPrimary,
+          ...elixir5StunTargetPatch(attackerCardSnap.name, r.actualPrimaryDamage, r.isDestroyed),
+          ...r.baekseuPatchPrimary,
+          ...hpBarrierPatchFromRemaining(r.barrierNextRemaining),
+          currentHp: r.newHp,
+          hasBeenAttackedThisTurn: true,
+        };
+        defSide.field[r.slot] = r.isDestroyed ? null : updatedTarget;
+      }
+
+      for (const r of rows) {
+        if (!r.isDestroyed) continue;
+        if (r.morningMoodDeathHeal > 0) {
+          const deadSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
+          (["is", "m", "os"] as const).forEach(s => {
+            const unit = deadSide.field[s];
+            if (!unit) return;
+            deadSide.field[s] = {
+              ...unit,
+              currentHp: Math.min(Number(unit.hp), unit.currentHp + r.morningMoodDeathHeal),
+            };
+          });
+        }
+        cleanupSkillLinksOnDeath(r.card, newPlayerA, newPlayerB, prev.globalTurnCount);
+      }
+
+      for (const r of rows) {
+        if (r.startingTreeAllyHeal <= 0) continue;
+        const damagedSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === r.slot) return;
+          const unit = damagedSide.field[s];
+          if (!unit) return;
+          damagedSide.field[s] = {
+            ...unit,
+            currentHp: Math.min(Number(unit.hp), unit.currentHp + r.startingTreeAllyHeal),
+          };
+        });
+      }
+
+      const activePlayerPrimary = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+      if (fieldHealDiagoTotal > 0 || fieldBuffKeyDiago) {
+        (["is", "m", "os"] as const).forEach(s => {
+          const unit = activePlayerPrimary.field[s];
+          if (!unit) return;
+          const updatedUnit = { ...unit };
+          if (fieldHealDiagoTotal > 0) {
+            updatedUnit.currentHp = Math.min(
+              Number(updatedUnit.hp),
+              updatedUnit.currentHp + fieldHealDiagoTotal
+            );
+          }
+          if (fieldBuffKeyDiago) {
+            (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyDiago] = true;
+          }
+          activePlayerPrimary.field[s] = updatedUnit;
+        });
+      }
+
+      let rc = prev.rewindCards;
+      for (const r of rows) {
+        if (r.isDestroyed) rc = [...rc, r.card];
+      }
+
+      return {
+        ...prev,
+        unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, combatPatchList),
+        rewindCards: rc,
+        playerA: newPlayerA,
+        playerB: newPlayerB,
+      };
+    });
+
+    const atkKey = `${attackerPlayer}-${attackerSlotName}`;
+    for (const r of rows) {
+      const tgt = `${defenderPlayer}-${r.slot}`;
+      if (r.pakkiDebuffPrimary) {
+        triggerCardFlash(atkKey, "pakkiDeathCurse");
+      }
+      const dkFullSoulStrike =
+        attackerCardSnap.name === DARK_KNIGHT_ID &&
+        darkKnightSoulGaugeFull(attackerCardSnap) &&
+        r.actualPrimaryDamage > 0;
+      const maxellFullStrikeVfx =
+        attackerCardSnap.name === MAXELLAND_ID &&
+        maxellandTenacityGaugeFull(attackerCardSnap) &&
+        r.actualPrimaryDamage > 0;
+      const pakkiDestroyedPrimary = r.isDestroyed && String(r.card?.name ?? "").trim() === PAKKI_ID;
+      if (pakkiDestroyedPrimary) {
+        const dkKillExtrasPrimary =
+          attackerCardSnap.name === DARK_KNIGHT_ID && dkFullSoulStrike
+            ? ({ dkFullGaugeNavyDamageText: true } as const)
+            : undefined;
+        showPakkiSlainDamageOnTarget(
+          tgt,
+          r.actualPrimaryDamage,
+          mergeKalliPureDamageFloat(r.kalliPurePrimary, dkKillExtrasPrimary)
+        );
+        if (attackerCardSnap.name === GHOSTONE_ID) {
+          triggerGhostoneKillFlashOnAttacker(atkKey);
+        } else if (attackerCardSnap.name === DARK_KNIGHT_ID) {
+          triggerCardFlash(atkKey, "darkKnightKill");
+        } else if (attackerCardSnap.name === MAXELLAND_ID) {
+          triggerCardFlash(atkKey, "maxellandKill");
+        }
+      } else if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
+        showGhostoneKillDamageOnTarget(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        triggerGhostoneKillFlashOnAttacker(atkKey);
+      } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
+        showDarkKnightKillDamageOnTarget(
+          tgt,
+          r.actualPrimaryDamage,
+          atkKey,
+          mergeKalliPureDamageFloat(
+            r.kalliPurePrimary,
+            dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
+          )
+        );
+      } else if (r.isDestroyed && attackerCardSnap.name === MAXELLAND_ID) {
+        showMaxellandKillDamageOnTarget(
+          tgt,
+          r.actualPrimaryDamage,
+          atkKey,
+          mergeKalliPureDamageFloat(r.kalliPurePrimary)
+        );
+      } else if (
+        attackerCardSnap.name === PHILIP_ID &&
+        r.actualPrimaryDamage > 0
+      ) {
+        showPhilipBasicHitDamage(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+      } else if (
+        attackerCardSnap.name === CHEOLGIBYEONG_ID &&
+        r.actualPrimaryDamage > 0
+      ) {
+        showCheolgibyeongBasicHitDamage(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+      } else if (dkFullSoulStrike) {
+        showDarkKnightFullSoulStrikeOnTarget(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+      } else if (maxellFullStrikeVfx) {
+        showMaxellandFullGaugeStrikeDamageOnTarget(
+          tgt,
+          r.actualPrimaryDamage,
+          mergeKalliPureDamageFloat(r.kalliPurePrimary)
+        );
+      } else {
+        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+      }
+      if (r.baekseuLastStandPrimary) {
+        window.setTimeout(() => triggerCardFlash(tgt, "kalliBuffBan"), 0);
+      }
+      triggerGeunyangMojaHitFlame(attackerCardSnap, tgt, r.actualPrimaryDamage);
+      triggerDiagoHitFlame(attackerCardSnap, tgt, r.actualPrimaryDamage);
+      triggerMomoHitFlame(attackerCardSnap, tgt, r.actualPrimaryDamage);
+      triggerGhostoneClawHit(attackerCardSnap, tgt, r.actualPrimaryDamage, "primary");
+      triggerIversonClawHit(attackerCardSnap, tgt, r.actualPrimaryDamage, "primary");
+      triggerEristinaHitLine(attackerCardSnap, tgt, r.actualPrimaryDamage, "primary");
+    }
+
+    for (const r of rows) {
+      if (r.morningMoodDeathHeal > 0 && r.isDestroyed) {
+        const deadSideSnap = defenderPlayer === "A" ? state.playerA.field : state.playerB.field;
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === r.slot) return;
+          const unit = deadSideSnap[s];
+          if (!unit) return;
+          const healed = Math.min(Number(unit.hp) - unit.currentHp, r.morningMoodDeathHeal);
+          if (healed > 0) showHealNumber(`${defenderPlayer}-${s}`, healed);
+        });
+      }
+      if (r.startingTreeAllyHeal > 0) {
+        const sideSnap = defenderPlayer === "A" ? state.playerA.field : state.playerB.field;
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === r.slot) return;
+          const unit = sideSnap[s];
+          if (!unit) return;
+          const healed = Math.min(Number(unit.hp) - unit.currentHp, r.startingTreeAllyHeal);
+          if (healed > 0) showHealNumber(`${defenderPlayer}-${s}`, healed);
+        });
+      }
+      const ah = getHealFromSkillUpdates(attackerCardSnap, r.skillUpdates);
+      if (ah > 0) {
+        if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
+          showHealNumberAfterGhostoneKillFlash(atkKey, ah);
+        } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
+          showHealNumberAfterDarkKnightKillFlash(atkKey, ah);
+        } else {
+          showHealNumber(atkKey, ah);
+        }
+      }
+    }
+
+    if (fieldHealDiagoTotal > 0) {
+      const allySnapPrimary = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+      (["is", "m", "os"] as const).forEach(s => {
+        const u = allySnapPrimary[s];
+        if (!u) return;
+        const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealDiagoTotal);
+        if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+      });
+    }
+  };
+
+  const handleSpellStackShuffleClick = (e: React.MouseEvent, player: "A" | "B") => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (winner) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const key = player === "A" ? "playerA" : "playerB";
+      const side = prev[key];
+      const stack = normalizeSpellStack(side.field);
+      if (stack.length <= 1) return prev;
+      const nextStack = rotateSpellStackTopToBottom(stack);
+      return {
+        ...prev,
+        [key]: {
+          ...side,
+          field: { ...side.field, spellStack: nextStack },
+        },
+      };
+    });
+  };
+
   const handleFieldClick = (e: React.MouseEvent, player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
     e.stopPropagation(); 
     if (winner) return;
-    
+    if (!state) return;
+
     // 사망 시 스킬 연결(링크)을 해제하고 에리스티나의 쿨타임을 시작시키는 헬퍼 함수
     const cleanupSkillLinksOnDeath = (deadCard: FieldCard, newPA: PlayerState, newPB: PlayerState, currentGlobalTurn: number) => {
-      if ((deadCard as any).hasBanjitgori && (deadCard as any).linkedSource) {
-          const [sPlayer, sSlot] = (deadCard as any).linkedSource.split('-');
-          const sField = sPlayer === "A" ? newPA.field : newPB.field;
-          if (sField[sSlot as "is"|"m"|"os"]) {
-              sField[sSlot as "is"|"m"|"os"] = { 
-                ...sField[sSlot as "is"|"m"|"os"]!, 
-                isSkillActive: false, 
-                linkedTarget: null, 
-                skillLastUsedGlobalTurn: currentGlobalTurn 
-              };
-          }
-      }
-      if ((deadCard as any).isSkillActive && (deadCard as any).linkedTarget) {
-          const [tPlayer, tSlot] = (deadCard as any).linkedTarget.split('-');
-          const tField = tPlayer === "A" ? newPA.field : newPB.field;
-          if (tField[tSlot as "is"|"m"|"os"]) {
-              tField[tSlot as "is"|"m"|"os"] = { 
-                ...tField[tSlot as "is"|"m"|"os"]!, 
-                hasBanjitgori: false, 
-                linkedSource: null 
-              };
-          }
-      }
+      cleanupSimulationUnitDeath(deadCard, newPA, newPB, currentGlobalTurn);
     };
 
     // 에리스티나 '마법의 반짓고리' 스킬 적용 로직
-    if (pendingSkill && pendingSkill.name === "마법의 반짓고리") {
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
       if (player !== pendingSkill.player) {
         alert("아군 유닛만 대상으로 지정할 수 있습니다.");
         return;
@@ -632,7 +4505,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         const eristina = activePlayer.field[pendingSkill.slot as "is"|"m"|"os"];
         const target = activePlayer.field[slot as "is"|"m"|"os"];
 
-        if (eristina && target) {
+        if (eristina && target && eristina.name === UNIT.ERISTINA) {
           activePlayer.field[pendingSkill.slot as "is"|"m"|"os"] = {
             ...eristina,
             isSkillActive: true,
@@ -648,14 +4521,321 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
       });
 
+      const allySlotKey = `${player}-${slot}` as const;
+      const eristinaSlotKey = `${pendingSkill.player}-${pendingSkill.slot}` as const;
+      /* 능력 발동 이펙트 — 에리스티나 반짓고리(대상·에리스티나 양쪽) */
+      triggerCardFlash(allySlotKey, "eristinaBanjitgori");
+      triggerCardFlash(eristinaSlotKey, "eristinaBanjitgori");
+      pushBanjitgoriBuffFloat(allySlotKey);
+
       setPendingSkill(null);
-      setTimeout(() => alert(`🎀 에리스티나가 [${card.name}]에게 [반짓고리] 버프를 연결했습니다!\n(대상이 받는 모든 피해 25% 감소 & 도발 효과 부여)`), 50);
+      return;
+    }
+
+    // 라임「방울 보호막」— 에리스티나 반짓고리와 동일한 링크·쿨 규칙, 대상에는 [방어력 +200]만 부여
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.LIME_BUBBLE_SHIELD) {
+      if (player !== pendingSkill.player) {
+        alert("아군 유닛만 대상으로 지정할 수 있습니다.");
+        return;
+      }
+      if (slot === pendingSkill.slot) {
+        alert("자기 자신에게는 버프를 부여할 수 없습니다.");
+        return;
+      }
+      if (slot === "spell") {
+        alert("스펠 카드는 지정할 수 없습니다.");
+        return;
+      }
+      if (!card) return;
+
+      setState(prev => {
+        if (!prev) return prev;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+        const activePlayer = player === "A" ? newPlayerA : newPlayerB;
+
+        const limeCaster = activePlayer.field[pendingSkill.slot as "is" | "m" | "os"];
+        const target = activePlayer.field[slot as "is" | "m" | "os"];
+
+        if (limeCaster && target && limeCaster.name === UNIT.LIME) {
+          activePlayer.field[pendingSkill.slot as "is" | "m" | "os"] = {
+            ...limeCaster,
+            isSkillActive: true,
+            linkedTarget: `${player}-${slot}`,
+          };
+          activePlayer.field[slot as "is" | "m" | "os"] = {
+            ...target,
+            hasLimeBubbleShieldBuff: true,
+            linkedSource: `${pendingSkill.player}-${pendingSkill.slot}`,
+          };
+        }
+
+        return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+      });
+
+      const allySlotKey = `${player}-${slot}` as const;
+      const limeSlotKey = `${pendingSkill.player}-${pendingSkill.slot}` as const;
+      triggerCardFlash(allySlotKey, "limeBubbleShield");
+      triggerCardFlash(limeSlotKey, "limeBubbleShield");
+      pushLimeBubbleBuffFloat(allySlotKey);
+
+      setPendingSkill(null);
+      return;
+    }
+
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER) {
+      const ps = pendingSkill;
+      const caster = ps.player;
+      const kingSlot = ps.slot as "is" | "m" | "os";
+
+      if (player === caster) {
+        alert("상대방의 스펠 칸을 선택하세요.");
+        return;
+      }
+      if (slot !== "spell") {
+        alert("상대 스펠 칸을 선택하세요.");
+        return;
+      }
+
+      const allyFieldSnap = caster === "A" ? state.playerA.field : state.playerB.field;
+      const king = allyFieldSnap[kingSlot];
+      if (!king || king.name !== UNIT.SUPER_GREEN_KING) {
+        setPendingSkill(null);
+        alert("슈퍼 그린킹이 필드에 없어 [주문 파괴자]가 취소되었습니다.");
+        return;
+      }
+      if (king.superGreenKingSpellBreakerConsumed) {
+        setPendingSkill(null);
+        return;
+      }
+
+      const oppFieldSnap = player === "A" ? state.playerA.field : state.playerB.field;
+      if (normalizeSpellStack(oppFieldSnap).length === 0) {
+        alert("상대 스펠 칸에 제거할 마법이 없습니다.");
+        return;
+      }
+
+      const oppSpellKey = `${player}-spell`;
+      const casterFieldKey = `${caster}-${kingSlot}`;
+      triggerCardFlash(casterFieldKey, "superGreenKingSpellBreaker");
+      triggerCardFlash(oppSpellKey, "superGreenKingSpellBreaker");
+
+      setState(prev => {
+        if (!prev) return prev;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+
+        const allyF = caster === "A" ? newPlayerA.field : newPlayerB.field;
+        const ku = allyF[kingSlot];
+        if (!ku || ku.name !== UNIT.SUPER_GREEN_KING || ku.superGreenKingSpellBreakerConsumed) {
+          return prev;
+        }
+
+        const targetF = player === "A" ? newPlayerA.field : newPlayerB.field;
+        const st = normalizeSpellStack(targetF);
+        if (st.length === 0) return prev;
+        const removedSpell = st[st.length - 1]!;
+        const newStack = st.slice(0, -1);
+
+        if (player === "A") {
+          newPlayerA.field = { ...newPlayerA.field, spellStack: newStack };
+        } else {
+          newPlayerB.field = { ...newPlayerB.field, spellStack: newStack };
+        }
+
+        if (caster === "A") {
+          const u = newPlayerA.field[kingSlot];
+          if (u) {
+            newPlayerA.field = {
+              ...newPlayerA.field,
+              [kingSlot]: { ...u, superGreenKingSpellBreakerConsumed: true },
+            };
+          }
+        } else {
+          const u = newPlayerB.field[kingSlot];
+          if (u) {
+            newPlayerB.field = {
+              ...newPlayerB.field,
+              [kingSlot]: { ...u, superGreenKingSpellBreakerConsumed: true },
+            };
+          }
+        }
+
+        return {
+          ...prev,
+          playerA: newPlayerA,
+          playerB: newPlayerB,
+          rewindCards: [...prev.rewindCards, removedSpell],
+        };
+      });
+
+      setPendingSkill(null);
+      return;
+    }
+
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.DANHA_GALGORI) {
+      alert("상대 패에 있는 카드를 선택하세요.");
       return;
     }
 
     // 1. 연쇄 공격 처리
     if (pendingSecondaryAttack) {
       const targetId = `${player}-${slot}`;
+
+      if (pendingSecondaryAttack.allyHealOnly) {
+        if (player !== pendingSecondaryAttack.attackerPlayer || slot === "spell" || !card) {
+          alert(BATTLE_MSG.ranigo.cannotAttackEnemy);
+          return;
+        }
+        if (pendingSecondaryAttack.hitTargets.includes(targetId)) {
+          alert(BATTLE_MSG.ranigo.chainDuplicateAlly);
+          return;
+        }
+        if (
+          player === pendingSecondaryAttack.attackerPlayer &&
+          slot === pendingSecondaryAttack.attackerSlotName
+        ) {
+          alert(BATTLE_MSG.ranigo.cannotTargetSelf);
+          return;
+        }
+
+        const attackerPlayer = pendingSecondaryAttack.attackerPlayer;
+        const attackerSlotName = pendingSecondaryAttack.attackerSlotName;
+        const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+        const attackerCard = attackerField[attackerSlotName];
+        if (isAttackDisabledUnit(attackerCard)) {
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          setPendingSecondaryAttack(null);
+          return;
+        }
+
+        const maxHp = Number(card.hp);
+        if (card.currentHp >= maxHp) {
+          alert(BATTLE_MSG.ranigo.allyFullyHealed);
+          return;
+        }
+
+        const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
+        const actualHeal = newTargetHp - card.currentHp;
+
+        let fieldHealAmount = 0;
+        let fieldBuffKey = "";
+        let skillUpdates: Partial<FieldCard> = {};
+        if (attackerCard) {
+          skillUpdates = applyPostAttackSkills(attackerCard, {
+            damageDealt: 0,
+            targetDestroyed: false,
+            applyFieldHeal: amt => {
+              fieldHealAmount = amt;
+            },
+            applyFieldBuff: key => {
+              fieldBuffKey = key;
+            },
+          });
+        }
+
+        const ranigoChainPatches: Array<{
+          id: string | undefined;
+          delta: Partial<
+            Record<
+              "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+              number
+            >
+          >;
+        }> = [];
+        if (actualHeal > 0 && attackerCard?.statsInstanceId) {
+          ranigoChainPatches.push({
+            id: attackerCard.statsInstanceId,
+            delta: { allyHealGiven: actualHeal },
+          });
+        }
+        if (actualHeal > 0 && card.statsInstanceId) {
+          ranigoChainPatches.push({ id: card.statsInstanceId, delta: { selfHeal: actualHeal } });
+        }
+        if (fieldHealAmount > 0 && attackerCard?.statsInstanceId) {
+          const allySnapRanigoC = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            const u = allySnapRanigoC[s];
+            if (!u?.statsInstanceId) return;
+            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            if (healedFld <= 0) return;
+            if (u.statsInstanceId === attackerCard.statsInstanceId) {
+              ranigoChainPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            } else {
+              ranigoChainPatches.push({ id: attackerCard.statsInstanceId, delta: { allyHealGiven: healedFld } });
+              ranigoChainPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            }
+          });
+        }
+
+        setState(prev => {
+          if (!prev) return prev;
+          const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+          const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+
+          const updatedTarget = { ...card, currentHp: newTargetHp };
+          if (player === "A") newPlayerA.field[slot as "is" | "m" | "os"] = updatedTarget;
+          else newPlayerB.field[slot as "is" | "m" | "os"] = updatedTarget;
+
+          if (attackerCard) {
+            const updatedAttacker = { ...attackerCard, ...skillUpdates };
+            if (attackerPlayer === "A") {
+              newPlayerA.field[attackerSlotName] = updatedAttacker;
+            } else {
+              newPlayerB.field[attackerSlotName] = updatedAttacker;
+            }
+
+            const activePlayerSec = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+            if (fieldHealAmount > 0 || fieldBuffKey) {
+              (["is", "m", "os"] as const).forEach(s => {
+                const unit = activePlayerSec.field[s];
+                if (!unit) return;
+                const updatedUnit = { ...unit };
+                if (fieldHealAmount > 0) {
+                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                }
+                if (fieldBuffKey) {
+                  (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
+                }
+                activePlayerSec.field[s] = updatedUnit;
+              });
+            }
+          }
+
+          return {
+            ...prev,
+            unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, ranigoChainPatches),
+            playerA: newPlayerA,
+            playerB: newPlayerB,
+          };
+        });
+
+        if (actualHeal > 0) {
+          showHealNumber(targetId, actualHeal);
+        }
+        if (fieldHealAmount > 0 && attackerCard) {
+          const allySnap = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            const u = allySnap[s];
+            if (!u) return;
+            const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+          });
+        }
+
+        const newHitsRemaining = pendingSecondaryAttack.hitsRemaining - 1;
+        if (newHitsRemaining > 0) {
+          setPendingSecondaryAttack(prev => ({
+            ...prev!,
+            hitsRemaining: newHitsRemaining,
+            hitTargets: [...prev!.hitTargets, targetId],
+          }));
+        } else {
+          setPendingSecondaryAttack(null);
+        }
+        return;
+      }
 
       if (player !== pendingSecondaryAttack.attackerPlayer && slot !== "spell" && card) {
         if (pendingSecondaryAttack.hitTargets.includes(targetId)) {
@@ -667,22 +4847,107 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         const attackerSlotName = pendingSecondaryAttack.attackerSlotName;
         const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
         const attackerCard = attackerField[attackerSlotName];
-
-        let damage = pendingSecondaryAttack.damage;
-        
-        if ((card as any).hasBanjitgori) {
-           damage = Math.floor((damage * 0.75) / 50) * 50;
+        if (
+          !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard) &&
+          !canEnemyFieldSourceTargetMaengsugyeonPo(
+            attackerPlayer,
+            attackerSlotName,
+            player,
+            slot as "is" | "m" | "os",
+            card
+          )
+        ) {
+          pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
+          return;
+        }
+        if (isAttackDisabledUnit(attackerCard)) {
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          return;
         }
 
-        const isDefending = getActiveStatuses(card, null).includes("방어력 +200");
-        const actualDamage = isDefending && damage > 100 ? Math.max(100, damage - 200) : damage;
+        let damageSec = pendingSecondaryAttack.damage;
 
-        const newHp = card.currentHp - actualDamage;
-        const isDestroyed = newHp <= 0;
-
-        let skillUpdates = {};
         if (attackerCard) {
-            skillUpdates = applyPostAttackSkills(attackerCard, { damageDealt: actualDamage, targetDestroyed: isDestroyed });
+          damageSec = scalePakkiOutgoingHit(damageSec, attackerCard, attackerField);
+        }
+        const pakkiScaledSecondaryForMit = damageSec;
+
+        const kalliVsDefenseSecondary = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
+        const kalliPureSecondary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+        let afterBanjitSecondary = pakkiScaledSecondaryForMit;
+        let banjitMitSecondary = 0;
+        if (
+          !kalliVsDefenseSecondary &&
+          (card as any).hasBanjitgori &&
+          !callieBuffBanSuppressesBuffsForVictim(
+            player,
+            slot as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        ) {
+          const flooredS = Math.floor((pakkiScaledSecondaryForMit * 0.75) / 50) * 50;
+          banjitMitSecondary = Math.max(0, pakkiScaledSecondaryForMit - flooredS);
+          afterBanjitSecondary = flooredS;
+        }
+
+        const victimFieldSecondary = player === "A" ? state!.playerA.field : state!.playerB.field;
+
+        const secondaryDefenseResult = kalliVsDefenseSecondary
+          ? { finalDamage: afterBanjitSecondary }
+          : applyIncomingDefenseDamage(
+              afterBanjitSecondary,
+              card,
+              state!.playerA.field,
+              state!.playerB.field,
+              `${player}-${slot}`
+            );
+        const defenseMitSecondary =
+          !kalliVsDefenseSecondary && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
+            ? Math.max(0, afterBanjitSecondary - secondaryDefenseResult.finalDamage)
+            : 0;
+        const coreAfterDefenseSecondary =
+          kalliVsDefenseSecondary || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
+            ? afterBanjitSecondary
+            : secondaryDefenseResult.finalDamage;
+        const preInvulnTotalSecondary = coreAfterDefenseSecondary + kalliPureSecondary;
+        let actualDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
+          ? 0
+          : preInvulnTotalSecondary;
+        const barrierSplitSecondary = splitDamageThroughHpBarrier(card, actualDamage);
+        const hpAfterRaw = card.currentHp - barrierSplitSecondary.damageToCurrentHp;
+        const resolvedSecondary = resolveBaekseuFatalDamage(
+          card,
+          hpAfterRaw,
+          barrierSplitSecondary.damageToCurrentHp
+        );
+        const newHp = resolvedSecondary.finalHp;
+        const hpLossSecondary = Math.max(0, card.currentHp - newHp);
+        const targetMitigationSecondary =
+          banjitMitSecondary + defenseMitSecondary + Math.max(0, preInvulnTotalSecondary - hpLossSecondary);
+        const isDestroyed = resolvedSecondary.isDestroyed;
+        const baekseuPatchSecondary = resolvedSecondary.patch;
+        const baekseuLastStandSecondary = resolvedSecondary.lastStandTriggered;
+
+        const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
+        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualDamage);
+
+        let skillUpdates: Partial<FieldCard> = {};
+        let fieldHealAmount = 0;
+        let fieldBuffKey = "";
+        if (attackerCard) {
+          skillUpdates = applyPostAttackSkills(attackerCard, {
+            damageDealt: actualDamage,
+            targetDestroyed: isDestroyed,
+            targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+            applyFieldHeal: amt => {
+              fieldHealAmount = amt;
+            },
+            applyFieldBuff: key => {
+              fieldBuffKey = key;
+            },
+          });
         }
 
         const targetPlayerState = player === "A" ? state!.playerA : state!.playerB;
@@ -691,49 +4956,338 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
           (slot === "m" ? true : targetPlayerState.field.m === null) &&
           (slot === "os" ? true : targetPlayerState.field.os === null);
 
+        const attackerFieldForPakkiCurseSec =
+          attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+        const pakkiDebuffSecondary =
+          isDestroyed &&
+          String(card?.name ?? "").trim() === PAKKI_ID &&
+          attackerCard &&
+          canApplyPakkiKillDebuff(attackerFieldForPakkiCurseSec);
+
+        const ahSecondary = attackerCard ? getHealFromSkillUpdates(attackerCard, skillUpdates) : 0;
+
+        const secondaryCombatPatches: Array<{
+          id: string | undefined;
+          delta: Partial<
+            Record<
+              "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+              number
+            >
+          >;
+        }> = [];
+        if (attackerCard?.statsInstanceId) {
+          secondaryCombatPatches.push({
+            id: attackerCard.statsInstanceId,
+            delta: { damageDealt: hpLossSecondary, kills: isDestroyed ? 1 : 0 },
+          });
+        }
+        if (card.statsInstanceId) {
+          secondaryCombatPatches.push({
+            id: card.statsInstanceId,
+            delta: { damageTaken: hpLossSecondary, damageMitigated: targetMitigationSecondary },
+          });
+        }
+        if (ahSecondary > 0 && attackerCard?.statsInstanceId) {
+          secondaryCombatPatches.push({
+            id: attackerCard.statsInstanceId,
+            delta: { selfHeal: ahSecondary },
+          });
+        }
+        if (morningMoodDeathHeal > 0 && isDestroyed && card.statsInstanceId) {
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === slot) return;
+            const u = targetPlayerState.field[s];
+            if (!u?.statsInstanceId) return;
+            const healedMm = Math.min(Number(u.hp) - u.currentHp, morningMoodDeathHeal);
+            if (healedMm <= 0) return;
+            secondaryCombatPatches.push({ id: card.statsInstanceId, delta: { allyHealGiven: healedMm } });
+            secondaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedMm } });
+          });
+        }
+        if (startingTreeAllyHeal > 0 && card.statsInstanceId) {
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === slot) return;
+            const u = targetPlayerState.field[s];
+            if (!u?.statsInstanceId) return;
+            const healedSt = Math.min(Number(u.hp) - u.currentHp, startingTreeAllyHeal);
+            if (healedSt <= 0) return;
+            secondaryCombatPatches.push({ id: card.statsInstanceId, delta: { allyHealGiven: healedSt } });
+            secondaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedSt } });
+          });
+        }
+        if (fieldHealAmount > 0 && attackerCard?.statsInstanceId) {
+          const allySideSec = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            const u = allySideSec[s];
+            if (!u?.statsInstanceId) return;
+            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            if (healedFld <= 0) return;
+            if (u.statsInstanceId === attackerCard.statsInstanceId) {
+              secondaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            } else {
+              secondaryCombatPatches.push({ id: attackerCard.statsInstanceId, delta: { allyHealGiven: healedFld } });
+              secondaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            }
+          });
+        }
+
+        let reflectLibutySecondaryAgg: ReturnType<
+          typeof computeLibutyReflectPureDamageOnAggressor
+        > | null = null;
+        if (attackerCard && isLibuty(card) && hpLossSecondary > 0) {
+          const mergedForReflectSec: FieldCard = {
+            ...attackerCard,
+            ...skillUpdates,
+            ...bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed),
+            ...(pakkiDebuffSecondary ? { hasPakiAttackHalveDebuff: true } : {}),
+          };
+          reflectLibutySecondaryAgg =
+            computeLibutyReflectPureDamageOnAggressor(mergedForReflectSec);
+          if (reflectLibutySecondaryAgg && reflectLibutySecondaryAgg.hpLoss > 0) {
+            if (attackerCard.statsInstanceId) {
+              secondaryCombatPatches.push({
+                id: attackerCard.statsInstanceId,
+                delta: { damageTaken: reflectLibutySecondaryAgg.hpLoss },
+              });
+            }
+            if (card.statsInstanceId) {
+              secondaryCombatPatches.push({
+                id: card.statsInstanceId,
+                delta: { damageDealt: reflectLibutySecondaryAgg.hpLoss },
+              });
+            }
+          }
+        }
+
         setState(prev => {
           if (!prev) return prev;
           const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
           const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
           
-          const updatedTarget = { ...card, currentHp: newHp }; 
+          const baseTargetCard =
+            Object.keys(baekseuPatchSecondary).length > 0
+              ? stripBaekseuHarmfulEffectsForInvuln(card)
+              : card;
+          const updatedTarget = {
+            ...baseTargetCard,
+            ...elixir5StunTargetPatch(attackerCard?.name ?? "", actualDamage, isDestroyed),
+            ...baekseuPatchSecondary,
+            ...hpBarrierPatchFromRemaining(barrierSplitSecondary.nextBarrierRemaining),
+            currentHp: newHp,
+          }; 
           
           if (player === "A") newPlayerA.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
           else newPlayerB.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
           
           if (attackerCard) {
-            const updatedAttacker = { ...attackerCard, ...skillUpdates };
+            const bumpKillSec = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+            let updatedAttacker: FieldCard = {
+              ...attackerCard,
+              ...skillUpdates,
+              ...bumpKillSec,
+              ...(pakkiDebuffSecondary ? { hasPakiAttackHalveDebuff: true } : {}),
+            };
+            if (reflectLibutySecondaryAgg && reflectLibutySecondaryAgg.hpLoss > 0) {
+              updatedAttacker = applyLibutyReflectPatchToAggressorCard(
+                updatedAttacker,
+                reflectLibutySecondaryAgg
+              );
+            }
+            const attackerDestroyedByLibutyReflectSec =
+              reflectLibutySecondaryAgg?.isDestroyed === true;
             if (attackerPlayer === "A") {
-                newPlayerA.field[attackerSlotName] = updatedAttacker;
+                newPlayerA.field[attackerSlotName] = attackerDestroyedByLibutyReflectSec ? null : updatedAttacker;
             } else {
-                newPlayerB.field[attackerSlotName] = updatedAttacker;
+                newPlayerB.field[attackerSlotName] = attackerDestroyedByLibutyReflectSec ? null : updatedAttacker;
+            }
+
+            const activePlayerSec = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+            if (fieldHealAmount > 0 || fieldBuffKey) {
+              (["is", "m", "os"] as const).forEach(s => {
+                const unit = activePlayerSec.field[s];
+                if (!unit) return;
+                const updatedUnit = { ...unit };
+                if (fieldHealAmount > 0) {
+                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                }
+                if (fieldBuffKey) {
+                  (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
+                }
+                activePlayerSec.field[s] = updatedUnit;
+              });
             }
           }
 
           if (isDestroyed) {
+            if (morningMoodDeathHeal > 0) {
+              const deadSide = player === "A" ? newPlayerA : newPlayerB;
+              (["is", "m", "os"] as const).forEach(s => {
+                const unit = deadSide.field[s];
+                if (!unit) return;
+                deadSide.field[s] = {
+                  ...unit,
+                  currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
+                };
+              });
+            }
              cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
           }
+          if (attackerCard && reflectLibutySecondaryAgg?.isDestroyed) {
+            cleanupSkillLinksOnDeath(attackerCard, newPlayerA, newPlayerB, prev.globalTurnCount);
+          }
+          if (startingTreeAllyHeal > 0) {
+            const damagedSide = player === "A" ? newPlayerA : newPlayerB;
+            (["is", "m", "os"] as const).forEach(s => {
+              if (s === slot) return;
+              const unit = damagedSide.field[s];
+              if (!unit) return;
+              damagedSide.field[s] = {
+                ...unit,
+                currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
+              };
+            });
+          }
 
-          const newRewindCards = isDestroyed ? [...prev.rewindCards, card] : prev.rewindCards;
-          return { ...prev, rewindCards: newRewindCards, playerA: newPlayerA, playerB: newPlayerB };
+          let newRewindCards = prev.rewindCards;
+          if (isDestroyed) newRewindCards = [...newRewindCards, card];
+          if (attackerCard && reflectLibutySecondaryAgg?.isDestroyed) {
+            newRewindCards = [...newRewindCards, attackerCard];
+          }
+          return {
+            ...prev,
+            unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, secondaryCombatPatches),
+            rewindCards: newRewindCards,
+            playerA: newPlayerA,
+            playerB: newPlayerB,
+          };
         });
 
         const newHitsRemaining = pendingSecondaryAttack.hitsRemaining - 1;
 
-        setTimeout(() => {
-          let msg = isDestroyed
-            ? `💥 연쇄 공격 치명타! 추가 ${actualDamage} 데미지로 적 유닛을 파괴했습니다!`
-            : `⚡ 연쇄 공격 적중! 적 유닛에게 ${actualDamage}의 추가 데미지를 입혔습니다.`;
-
-          if ((card as any).hasBanjitgori) {
-             msg = `🎀 [반짓고리] 효과로 받는 피해가 25% 감소되었습니다!\n` + msg;
+        const targetKey = `${player}-${slot}`;
+        const attackerSlotKey = `${attackerPlayer}-${attackerSlotName}`;
+        if (reflectLibutySecondaryAgg && reflectLibutySecondaryAgg.hpLoss > 0) {
+          showDamageNumber(
+            attackerSlotKey,
+            LIBUTY_REFLECT_PURE_DAMAGE,
+            mergeKalliPureDamageFloat(LIBUTY_REFLECT_PURE_DAMAGE)
+          );
+        }
+        if (reflectLibutySecondaryAgg?.baekseuLastStand) {
+          window.setTimeout(() => triggerCardFlash(attackerSlotKey, "kalliBuffBan"), 0);
+        }
+        const pakkiDestroyed =
+          isDestroyed && String(card?.name ?? "").trim() === PAKKI_ID;
+        const dkFullSoulStrike =
+          attackerCard != null &&
+          attackerCard.name === DARK_KNIGHT_ID &&
+          darkKnightSoulGaugeFull(attackerCard) &&
+          actualDamage > 0;
+        const maxellFullStrikeSecVfx =
+          attackerCard != null &&
+          attackerCard.name === MAXELLAND_ID &&
+          maxellandTenacityGaugeFull(attackerCard) &&
+          actualDamage > 0;
+        /* 패키 처치: 대상은 붉은 피격 대신 패키색 능력 발동(필립 동형) — 고스톤·다크나이트·맥셀은 공격자 칸 처치 이펙트 유지 */
+        if (pakkiDestroyed) {
+          const dkKillExtras =
+            attackerCard?.name === DARK_KNIGHT_ID && dkFullSoulStrike
+              ? ({ dkFullGaugeNavyDamageText: true } as const)
+              : undefined;
+          showPakkiSlainDamageOnTarget(
+            targetKey,
+            actualDamage,
+            mergeKalliPureDamageFloat(kalliPureSecondary, dkKillExtras)
+          );
+          if (attackerCard?.name === GHOSTONE_ID) {
+            triggerGhostoneKillFlashOnAttacker(attackerSlotKey);
+          } else if (attackerCard?.name === DARK_KNIGHT_ID) {
+            triggerCardFlash(attackerSlotKey, "darkKnightKill");
+          } else if (attackerCard?.name === MAXELLAND_ID) {
+            triggerCardFlash(attackerSlotKey, "maxellandKill");
           }
-          if (isDefending && damage > 100) {
-             msg = `🛡️ [방어력] 효과로 방어력이 적용되었습니다!\n` + msg;
+        } else if (isDestroyed && attackerCard?.name === GHOSTONE_ID) {
+          showGhostoneKillDamageOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          triggerGhostoneKillFlashOnAttacker(attackerSlotKey);
+        } else if (isDestroyed && attackerCard?.name === DARK_KNIGHT_ID) {
+          showDarkKnightKillDamageOnTarget(
+            targetKey,
+            actualDamage,
+            attackerSlotKey,
+            mergeKalliPureDamageFloat(
+              kalliPureSecondary,
+              dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
+            )
+          );
+        } else if (isDestroyed && attackerCard?.name === MAXELLAND_ID) {
+          showMaxellandKillDamageOnTarget(
+            targetKey,
+            actualDamage,
+            attackerSlotKey,
+            mergeKalliPureDamageFloat(kalliPureSecondary)
+          );
+        } else if (dkFullSoulStrike) {
+          showDarkKnightFullSoulStrikeOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+        } else if (maxellFullStrikeSecVfx) {
+          showMaxellandFullGaugeStrikeDamageOnTarget(
+            targetKey,
+            actualDamage,
+            mergeKalliPureDamageFloat(kalliPureSecondary)
+          );
+        } else {
+          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+        }
+        if (baekseuLastStandSecondary) {
+          window.setTimeout(() => triggerCardFlash(targetKey, "kalliBuffBan"), 0);
+        }
+        if (pakkiDebuffSecondary) {
+          triggerCardFlash(attackerSlotKey, "pakkiDeathCurse");
+        }
+        triggerGeunyangMojaHitFlame(attackerCard, `${player}-${slot}`, actualDamage);
+        triggerGhostoneClawHit(attackerCard, `${player}-${slot}`, actualDamage, "secondary");
+        triggerIversonClawHit(attackerCard, `${player}-${slot}`, actualDamage, "secondary");
+        triggerEristinaHitLine(attackerCard, `${player}-${slot}`, actualDamage, "secondary");
+        if (morningMoodDeathHeal > 0) {
+          const deadSideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === slot) return;
+            const unit = deadSideSnap[s];
+            if (!unit) return;
+            const healed = Math.min(Number(unit.hp) - unit.currentHp, morningMoodDeathHeal);
+            if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+          });
+        }
+        if (startingTreeAllyHeal > 0) {
+          const sideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === slot) return;
+            const unit = sideSnap[s];
+            if (!unit) return;
+            const healed = Math.min(Number(unit.hp) - unit.currentHp, startingTreeAllyHeal);
+            if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+          });
+        }
+        if (attackerCard) {
+          const ah = getHealFromSkillUpdates(attackerCard, skillUpdates);
+          if (ah > 0) {
+            if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+              showHealNumberAfterGhostoneKillFlash(attackerSlotKey, ah);
+            } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+              showHealNumberAfterDarkKnightKillFlash(attackerSlotKey, ah);
+            } else {
+              showHealNumber(attackerSlotKey, ah);
+            }
           }
-
-          alert(msg);
-        }, 50);
+          if (fieldHealAmount > 0) {
+            const allySnap = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              const u = allySnap[s];
+              if (!u) return;
+              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+              if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+            });
+          }
+        }
 
         if (newHitsRemaining > 0 && !willBeEmpty) {
           setPendingSecondaryAttack(prev => ({
@@ -743,9 +5297,6 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
           }));
         } else {
           setPendingSecondaryAttack(null);
-          if (willBeEmpty && newHitsRemaining > 0) {
-            setTimeout(() => alert("(적 필드의 모든 유닛이 파괴되어 더 이상의 연쇄 공격이 중단됩니다.)"), 100);
-          }
         }
       }
       return;
@@ -754,39 +5305,368 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     // 2. 1차 공격 (기본 공격) 처리
     if (attackingSlot) {
       const [attackerPlayer, attackerSlotName] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
-      
+      const attackerFieldBanner = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+      const attackerCardBanner = attackerFieldBanner[attackerSlotName];
+
+      if (attackerCardBanner && isRyeomcho(attackerCardBanner)) {
+        if (player === attackerPlayer && slot === attackerSlotName && card) {
+          const activeForAttack = attackerPlayer === "A" ? state!.playerA : state!.playerB;
+          const atkValidation = validateAttack({
+            attackerCard: attackerCardBanner,
+            currentTurnKey: `${state!.turnCount}-${state!.currentTurn}`,
+            attacksUsedThisTurn: activeForAttack.attacksThisTurn || 0,
+            isSilenced: isSilenced(attackerCardBanner, null),
+            isStunned: isStunned(attackerCardBanner),
+          });
+          if (!atkValidation.canAttack) {
+            alert(atkValidation.reason);
+            return;
+          }
+
+          const baseAtkRaw =
+            resolveFieldUnitSimulationBaseAtkRaw(attackerCardBanner, attackOptionOverride);
+          const healAmount = parseAttack(baseAtkRaw.replace(/[\(\)]/g, "")).primaryDamage;
+
+          if (healAmount <= 0) {
+            alert("공격력 데이터가 0이거나 유효하지 않습니다.");
+            return;
+          }
+
+          const maxHp = Number(attackerCardBanner.hp);
+          if (attackerCardBanner.currentHp >= maxHp) {
+            pushInfoFloat(`${attackerPlayer}-${attackerSlotName}`, BATTLE_MSG.ryeomcho.alreadyMaxHp, INFO_FLOAT_MS);
+            setAttackingSlot(null);
+            setAttackOptionOverride(null);
+            return;
+          }
+
+          const newHp = Math.min(maxHp, attackerCardBanner.currentHp + healAmount);
+          const actualHeal = newHp - attackerCardBanner.currentHp;
+
+          const ryeomchoHealPatches: Array<{
+            id: string | undefined;
+            delta: Partial<
+              Record<
+                "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+                number
+              >
+            >;
+          }> = [];
+          if (actualHeal > 0 && attackerCardBanner.statsInstanceId) {
+            ryeomchoHealPatches.push({
+              id: attackerCardBanner.statsInstanceId,
+              delta: { selfHeal: actualHeal },
+            });
+          }
+
+          setState(prev => {
+            if (!prev) return prev;
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+
+            const updatedAttacker = { ...attackerCardBanner, currentHp: newHp, hasAttacked: true };
+
+            if (attackerPlayer === "A") {
+              newPlayerA.field[attackerSlotName] = updatedAttacker;
+              newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+            } else {
+              newPlayerB.field[attackerSlotName] = updatedAttacker;
+              newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+            }
+
+            return {
+              ...prev,
+              unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, ryeomchoHealPatches),
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+            };
+          });
+
+          if (actualHeal > 0) {
+            showHealNumber(`${attackerPlayer}-${attackerSlotName}`, actualHeal);
+          }
+
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          return;
+        }
+        alert(BATTLE_MSG.ryeomcho.cannotAttackEnemy);
+        return;
+      }
+
+      if (attackerCardBanner && isRanigo(attackerCardBanner)) {
+        if (player === attackerPlayer && slot !== "spell" && card) {
+          if (slot === attackerSlotName) {
+            alert(BATTLE_MSG.ranigo.cannotTargetSelf);
+            return;
+          }
+          const activeForAttack = attackerPlayer === "A" ? state!.playerA : state!.playerB;
+          const atkValidation = validateAttack({
+            attackerCard: attackerCardBanner,
+            currentTurnKey: `${state!.turnCount}-${state!.currentTurn}`,
+            attacksUsedThisTurn: activeForAttack.attacksThisTurn || 0,
+            isSilenced: isSilenced(attackerCardBanner, null),
+            isStunned: isStunned(attackerCardBanner),
+          });
+          if (!atkValidation.canAttack) {
+            alert(atkValidation.reason);
+            return;
+          }
+
+          const maxHp = Number(card.hp);
+          if (card.currentHp >= maxHp) {
+            pushInfoFloat(`${player}-${slot}`, BATTLE_MSG.ranigo.allyFullyHealed, INFO_FLOAT_MS);
+            setAttackingSlot(null);
+            setAttackOptionOverride(null);
+            return;
+          }
+
+          const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
+          const actualHeal = newTargetHp - card.currentHp;
+
+          const baseAtkRaw =
+            resolveFieldUnitSimulationBaseAtkRaw(attackerCardBanner, attackOptionOverride);
+          const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
+          const chainEligible =
+            (parsed.type === "ADDITION" || parsed.type === "MULTIPLICATION") &&
+            parsed.secondaryHits > 0 &&
+            parsed.secondaryDamage > 0;
+
+          let fieldHealAmountPrimary = 0;
+          let fieldBuffKeyPrimary = "";
+          const skillUpdates = applyPostAttackSkills(attackerCardBanner, {
+            damageDealt: 0,
+            targetDestroyed: false,
+            applyFieldHeal: amt => {
+              fieldHealAmountPrimary = amt;
+            },
+            applyFieldBuff: key => {
+              fieldBuffKeyPrimary = key;
+            },
+          });
+
+        const tgt = `${player}-${slot}`;
+
+        const ranigoPrimaryPatches: Array<{
+          id: string | undefined;
+          delta: Partial<
+            Record<
+              "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+              number
+            >
+          >;
+        }> = [];
+        if (actualHeal > 0 && attackerCardBanner.statsInstanceId) {
+          ranigoPrimaryPatches.push({
+            id: attackerCardBanner.statsInstanceId,
+            delta: { allyHealGiven: actualHeal },
+          });
+        }
+        if (actualHeal > 0 && card.statsInstanceId) {
+          ranigoPrimaryPatches.push({ id: card.statsInstanceId, delta: { selfHeal: actualHeal } });
+        }
+        if (fieldHealAmountPrimary > 0 && attackerCardBanner.statsInstanceId) {
+          const allySnapRanigoP = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+          (["is", "m", "os"] as const).forEach(s => {
+            const u = allySnapRanigoP[s];
+            if (!u?.statsInstanceId) return;
+            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+            if (healedFld <= 0) return;
+            if (u.statsInstanceId === attackerCardBanner.statsInstanceId) {
+              ranigoPrimaryPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            } else {
+              ranigoPrimaryPatches.push({ id: attackerCardBanner.statsInstanceId, delta: { allyHealGiven: healedFld } });
+              ranigoPrimaryPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+            }
+          });
+        }
+
+        setState(prev => {
+            if (!prev) return prev;
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+
+            const updatedTarget = { ...card, currentHp: newTargetHp };
+            const updatedAttacker = {
+              ...attackerCardBanner,
+              hasAttacked: true,
+              ...skillUpdates,
+            };
+
+            if (player === "A") newPlayerA.field[slot as "is" | "m" | "os"] = updatedTarget;
+            else newPlayerB.field[slot as "is" | "m" | "os"] = updatedTarget;
+
+            if (attackerPlayer === "A") {
+              newPlayerA.field[attackerSlotName] = updatedAttacker;
+              newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+            } else {
+              newPlayerB.field[attackerSlotName] = updatedAttacker;
+              newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+            }
+
+            const activePlayerPrimary = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+            if (fieldHealAmountPrimary > 0 || fieldBuffKeyPrimary) {
+              (["is", "m", "os"] as const).forEach(s => {
+                const unit = activePlayerPrimary.field[s];
+                if (!unit) return;
+                const updatedUnit = { ...unit };
+                if (fieldHealAmountPrimary > 0) {
+                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmountPrimary);
+                }
+                if (fieldBuffKeyPrimary) {
+                  (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
+                }
+                activePlayerPrimary.field[s] = updatedUnit;
+              });
+            }
+
+            return {
+              ...prev,
+              unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, ranigoPrimaryPatches),
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+            };
+          });
+
+          if (actualHeal > 0) {
+            showHealNumber(tgt, actualHeal);
+          }
+          if (fieldHealAmountPrimary > 0) {
+            const allySnapPrimary = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              const u = allySnapPrimary[s];
+              if (!u) return;
+              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+            });
+          }
+
+          if (chainEligible) {
+            setPendingSecondaryAttack({
+              attackerPlayer,
+              attackerSlotName,
+              damage: 0,
+              hitsRemaining: parsed.secondaryHits,
+              hitTargets: [tgt],
+              allyHealOnly: true,
+            });
+          }
+
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          return;
+        }
+        alert(BATTLE_MSG.ranigo.cannotAttackEnemy);
+        return;
+      }
+
       if (player !== attackerPlayer && slot !== "spell" && card) {
         
         // 도발 로직 검사
         const targetPlayerState = player === "A" ? state!.playerA : state!.playerB;
-        const fields = [targetPlayerState.field.is, targetPlayerState.field.m, targetPlayerState.field.os];
-        const tauntExists = fields.some(c => c && (getActiveStatuses(c, null).includes("도발") || (c as any).hasBanjitgori));
-        const isTargetTaunted = getActiveStatuses(card, null).includes("도발") || (card as any).hasBanjitgori;
+        const oppFieldForTaunt = player === "A" ? state!.playerB.field : state!.playerA.field;
+        const tauntBattleCtxBase = {
+          playerAField: state!.playerA.field,
+          playerBField: state!.playerB.field,
+        };
+        const slotsForTaunt = ["is", "m", "os"] as const;
+        const tauntExists = slotsForTaunt.some(s => {
+          const c = targetPlayerState.field[s];
+          if (!c) return false;
+          return isTaunting(c, oppFieldForTaunt[s] ?? null, targetPlayerState.field, {
+            ...tauntBattleCtxBase,
+            mySlotKey: `${player}-${s}`,
+          });
+        });
+        const isTargetTaunted = isTaunting(card, oppFieldForTaunt[slot as "is" | "m" | "os"] ?? null, targetPlayerState.field, {
+          ...tauntBattleCtxBase,
+          mySlotKey: `${player}-${slot}`,
+        });
 
-        if (tauntExists && !isTargetTaunted) {
+        const startingHeraldAbsBasic = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCardBanner);
+
+        if (tauntExists && !isTargetTaunted && !startingHeraldAbsBasic) {
            alert("적 필드에 [도발] 능력을 가진 유닛이 있습니다! 도발 유닛을 먼저 공격해야 합니다.");
            return; 
         }
 
-        if (card.hasBeenAttackedThisTurn && !isTargetTaunted) {
+        if (attackerCardBanner?.name === IVERSON_ID) {
+          const allowed = getIversonClosestEnemyTargetSlots(
+            attackerSlotName,
+            { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
+            tauntExists,
+            {
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+              defenderPlayer: player,
+            }
+          );
+          if (!allowed.includes(slot as "is" | "m" | "os")) {
+            alert(IVERSON_NEAREST_ENEMY_MSG);
+            return;
+          }
+        }
+
+        if (
+          !startingHeraldAbsBasic &&
+          !canEnemyFieldSourceTargetMaengsugyeonPo(
+            attackerPlayer,
+            attackerSlotName,
+            player,
+            slot as "is" | "m" | "os",
+            card
+          )
+        ) {
+          pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
+          return;
+        }
+
+        const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+
+        if (
+          card.hasBeenAttackedThisTurn &&
+          !isTargetTaunted &&
+          !fieldGrantsFocusedFireMultihitExemption(attackerField) &&
+          !startingHeraldAbsBasic
+        ) {
           alert("다른 유닛이 이미 이 유닛을 공격했습니다.\n(단, [도발] 효과를 가진 유닛은 한 턴에 여러 번 공격받을 수 있습니다.)");
           setAttackingSlot(null);
           setAttackOptionOverride(null);
           return;
         }
 
-        const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
         const attackerCard = attackerField[attackerSlotName];
 
         if (attackerCard) {
-          const baseAtkRaw = attackOptionOverride !== null ? attackOptionOverride : String(attackerCard.atk || "0");
+          if (isAttackDisabledUnit(attackerCard)) {
+            setAttackingSlot(null);
+            setAttackOptionOverride(null);
+            return;
+          }
+          const activeForUnitStrike =
+            attackerPlayer === "A" ? state!.playerA : state!.playerB;
+          const unitStrikeRules = validateAttack({
+            attackerCard,
+            currentTurnKey: `${state!.turnCount}-${state!.currentTurn}`,
+            attacksUsedThisTurn: activeForUnitStrike.attacksThisTurn || 0,
+            isSilenced: isSilenced(attackerCard, null),
+            isStunned: isStunned(attackerCard),
+          });
+          if (!unitStrikeRules.canAttack) {
+            alert(unitStrikeRules.reason ?? "공격할 수 없습니다.");
+            setAttackingSlot(null);
+            setAttackOptionOverride(null);
+            return;
+          }
+
+          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(attackerCard, attackOptionOverride);
           const atkRaw = baseAtkRaw.replace(/[\(\)]/g, ""); 
           const atkRawLower = atkRaw.toLowerCase();
           
           let primaryDamage = 0;
           let secondaryDamage = 0;
           let secondaryHits = 0;
-          let attackType = "NORMAL"; 
+          let attackType: "NORMAL" | "ADDITION" | "MULTIPLICATION" = "NORMAL";
 
           if (atkRaw.includes("+")) {
             const parts = atkRaw.split("+");
@@ -818,25 +5698,212 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             return;
           }
 
-          let actualPrimaryDamage = primaryDamage;
-          if ((card as any).hasBanjitgori) {
-             actualPrimaryDamage = Math.floor((actualPrimaryDamage * 0.75) / 50) * 50;
+          ({
+            primaryDamage,
+            secondaryDamage,
+          } = applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
+            attackerPlayer,
+            attackerSlotName,
+            attackerCard,
+            attackerField,
+            player === "A" ? state!.playerA.field : state!.playerB.field,
+            state!.playerA.field,
+            state!.playerB.field,
+            primaryDamage,
+            secondaryDamage,
+            {
+              attackType,
+              secondaryHits,
+            }
+          ));
+
+          /* 패키 디버프: 연쇄 타격마다 `scalePakkiOutgoingHit`으로만 적용 — pending에 넣는 secondary는 여기서 절반 처리하지 않음(중복 방지) */
+          const pakkiScaledPrimaryForMit = scalePakkiOutgoingHit(
+            primaryDamage,
+            attackerCard,
+            attackerField
+          );
+          const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
+          const kalliPurePrimary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+          let afterBanjitPrimary = pakkiScaledPrimaryForMit;
+          let banjitMitPrimary = 0;
+          if (
+            !kalliVsDefenseStrike &&
+            (card as any).hasBanjitgori &&
+            !callieBuffBanSuppressesBuffsForVictim(
+              player,
+              slot as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          ) {
+            const floored = Math.floor((pakkiScaledPrimaryForMit * 0.75) / 50) * 50;
+            banjitMitPrimary = Math.max(0, pakkiScaledPrimaryForMit - floored);
+            afterBanjitPrimary = floored;
           }
 
-          const isDefending = getActiveStatuses(card, null).includes("방어력 +200");
-          if (isDefending && actualPrimaryDamage > 100) {
-             actualPrimaryDamage = Math.max(100, actualPrimaryDamage - 200);
-          }
+          const victimFieldPrimary = player === "A" ? state!.playerA.field : state!.playerB.field;
 
-          const newHp = card.currentHp - actualPrimaryDamage;
-          const isDestroyed = newHp <= 0;
+          const primaryDefenseResult = kalliVsDefenseStrike
+            ? { finalDamage: afterBanjitPrimary }
+            : applyIncomingDefenseDamage(
+                afterBanjitPrimary,
+                card,
+                state!.playerA.field,
+                state!.playerB.field,
+                `${player}-${slot}`
+              );
+          const defenseMitPrimary =
+            !kalliVsDefenseStrike && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
+              ? Math.max(0, afterBanjitPrimary - primaryDefenseResult.finalDamage)
+              : 0;
+          const coreAfterDefense =
+            kalliVsDefenseStrike || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
+              ? afterBanjitPrimary
+              : primaryDefenseResult.finalDamage;
+          const preInvulnTotal = coreAfterDefense + kalliPurePrimary;
+          let actualPrimaryDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
+            ? 0
+            : preInvulnTotal;
+          const barrierSplitPrimary = splitDamageThroughHpBarrier(card, actualPrimaryDamage);
+          const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
+          const resolvedPrimary = resolveBaekseuFatalDamage(
+            card,
+            hpAfterRawPrimary,
+            barrierSplitPrimary.damageToCurrentHp
+          );
+          const newHp = resolvedPrimary.finalHp;
+          const hpLossPrimary = Math.max(0, card.currentHp - newHp);
+          const targetMitigationPrimary =
+            banjitMitPrimary + defenseMitPrimary + Math.max(0, preInvulnTotal - hpLossPrimary);
+          const isDestroyed = resolvedPrimary.isDestroyed;
+          const baekseuPatchPrimary = resolvedPrimary.patch;
+          const baekseuLastStandPrimary = resolvedPrimary.lastStandTriggered;
+
+          const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
+          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualPrimaryDamage);
+
+          const attackerFieldForPakkiCurse =
+            attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+          const pakkiDebuffPrimary =
+            isDestroyed &&
+            String(card?.name ?? "").trim() === PAKKI_ID &&
+            attackerCard &&
+            canApplyPakkiKillDebuff(attackerFieldForPakkiCurse);
 
           const willBeEmpty = isDestroyed && 
             (slot === "is" ? true : targetPlayerState.field.is === null) &&
             (slot === "m" ? true : targetPlayerState.field.m === null) &&
             (slot === "os" ? true : targetPlayerState.field.os === null);
 
-          const skillUpdates = applyPostAttackSkills(attackerCard, { damageDealt: actualPrimaryDamage, targetDestroyed: isDestroyed });
+          let fieldHealAmountPrimary = 0;
+          let fieldBuffKeyPrimary = "";
+          const skillUpdates = applyPostAttackSkills(attackerCard, {
+            damageDealt: actualPrimaryDamage,
+            targetDestroyed: isDestroyed,
+            targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+            applyFieldHeal: amt => {
+              fieldHealAmountPrimary = amt;
+            },
+            applyFieldBuff: key => {
+              fieldBuffKeyPrimary = key;
+            },
+          });
+          const attackerHealFromHit = getHealFromSkillUpdates(attackerCard, skillUpdates);
+
+          const primaryCombatPatches: Array<{
+            id: string | undefined;
+            delta: Partial<
+              Record<
+                "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated",
+                number
+              >
+            >;
+          }> = [];
+          if (attackerCard.statsInstanceId) {
+            primaryCombatPatches.push({
+              id: attackerCard.statsInstanceId,
+              delta: { damageDealt: hpLossPrimary, kills: isDestroyed ? 1 : 0 },
+            });
+          }
+          if (card.statsInstanceId) {
+            primaryCombatPatches.push({
+              id: card.statsInstanceId,
+              delta: { damageTaken: hpLossPrimary, damageMitigated: targetMitigationPrimary },
+            });
+          }
+          if (attackerHealFromHit > 0 && attackerCard.statsInstanceId) {
+            primaryCombatPatches.push({
+              id: attackerCard.statsInstanceId,
+              delta: { selfHeal: attackerHealFromHit },
+            });
+          }
+          if (morningMoodDeathHeal > 0 && isDestroyed && card.statsInstanceId) {
+            (["is", "m", "os"] as const).forEach(s => {
+              if (s === slot) return;
+              const u = targetPlayerState.field[s];
+              if (!u?.statsInstanceId) return;
+              const healedMm = Math.min(Number(u.hp) - u.currentHp, morningMoodDeathHeal);
+              if (healedMm <= 0) return;
+              primaryCombatPatches.push({ id: card.statsInstanceId, delta: { allyHealGiven: healedMm } });
+              primaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedMm } });
+            });
+          }
+          if (startingTreeAllyHeal > 0 && card.statsInstanceId) {
+            (["is", "m", "os"] as const).forEach(s => {
+              if (s === slot) return;
+              const u = targetPlayerState.field[s];
+              if (!u?.statsInstanceId) return;
+              const healedSt = Math.min(Number(u.hp) - u.currentHp, startingTreeAllyHeal);
+              if (healedSt <= 0) return;
+              primaryCombatPatches.push({ id: card.statsInstanceId, delta: { allyHealGiven: healedSt } });
+              primaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedSt } });
+            });
+          }
+          if (fieldHealAmountPrimary > 0 && attackerCard.statsInstanceId) {
+            const allySidePrimary = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              const u = allySidePrimary[s];
+              if (!u?.statsInstanceId) return;
+              const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              if (healedFld <= 0) return;
+              if (u.statsInstanceId === attackerCard.statsInstanceId) {
+                primaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+              } else {
+                primaryCombatPatches.push({ id: attackerCard.statsInstanceId, delta: { allyHealGiven: healedFld } });
+                primaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
+              }
+            });
+          }
+
+          let reflectLibutyOnAggressorResult: ReturnType<
+            typeof computeLibutyReflectPureDamageOnAggressor
+          > | null = null;
+          if (isLibuty(card) && hpLossPrimary > 0) {
+            const mergedForReflect: FieldCard = {
+              ...attackerCard,
+              hasAttacked: true,
+              ...skillUpdates,
+              ...bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed),
+              ...(pakkiDebuffPrimary ? { hasPakiAttackHalveDebuff: true } : {}),
+            };
+            reflectLibutyOnAggressorResult =
+              computeLibutyReflectPureDamageOnAggressor(mergedForReflect);
+            if (reflectLibutyOnAggressorResult && reflectLibutyOnAggressorResult.hpLoss > 0) {
+              if (attackerCard.statsInstanceId) {
+                primaryCombatPatches.push({
+                  id: attackerCard.statsInstanceId,
+                  delta: { damageTaken: reflectLibutyOnAggressorResult.hpLoss },
+                });
+              }
+              if (card.statsInstanceId) {
+                primaryCombatPatches.push({
+                  id: card.statsInstanceId,
+                  delta: { damageDealt: reflectLibutyOnAggressorResult.hpLoss },
+                });
+              }
+            }
+          }
 
           setState(prev => {
             if (!prev) return prev;
@@ -844,64 +5911,239 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
             
-            const updatedTarget = { ...card, currentHp: newHp, hasBeenAttackedThisTurn: true }; 
-            const updatedAttacker = { ...attackerCard, hasAttacked: true, ...skillUpdates }; 
+            const baseTargetPrimary =
+              Object.keys(baekseuPatchPrimary).length > 0
+                ? stripBaekseuHarmfulEffectsForInvuln(card)
+                : card;
+            const updatedTarget = {
+              ...baseTargetPrimary,
+              ...elixir5StunTargetPatch(attackerCard.name, actualPrimaryDamage, isDestroyed),
+              ...baekseuPatchPrimary,
+              ...hpBarrierPatchFromRemaining(barrierSplitPrimary.nextBarrierRemaining),
+              currentHp: newHp,
+              hasBeenAttackedThisTurn: true,
+            }; 
+            const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+            let updatedAttacker: FieldCard = {
+              ...attackerCard,
+              hasAttacked: true,
+              ...skillUpdates,
+              ...bumpKill,
+              ...(pakkiDebuffPrimary ? { hasPakiAttackHalveDebuff: true } : {}),
+            };
+            if (reflectLibutyOnAggressorResult && reflectLibutyOnAggressorResult.hpLoss > 0) {
+              updatedAttacker = applyLibutyReflectPatchToAggressorCard(
+                updatedAttacker,
+                reflectLibutyOnAggressorResult
+              );
+            }
+            const attackerDestroyedByLibutyReflect =
+              reflectLibutyOnAggressorResult?.isDestroyed === true;
             
             if (player === "A") newPlayerA.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
             else newPlayerB.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
             
             if (attackerPlayer === "A") {
-              newPlayerA.field[attackerSlotName] = updatedAttacker;
+              newPlayerA.field[attackerSlotName] = attackerDestroyedByLibutyReflect ? null : updatedAttacker;
               newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
             } else {
-              newPlayerB.field[attackerSlotName] = updatedAttacker;
+              newPlayerB.field[attackerSlotName] = attackerDestroyedByLibutyReflect ? null : updatedAttacker;
               newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
             }
 
-            if (isDestroyed) {
-               cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
+            const activePlayerPrimary = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+            if (fieldHealAmountPrimary > 0 || fieldBuffKeyPrimary) {
+              (["is", "m", "os"] as const).forEach(s => {
+                const unit = activePlayerPrimary.field[s];
+                if (!unit) return;
+                const updatedUnit = { ...unit };
+                if (fieldHealAmountPrimary > 0) {
+                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmountPrimary);
+                }
+                if (fieldBuffKeyPrimary) {
+                  (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
+                }
+                activePlayerPrimary.field[s] = updatedUnit;
+              });
             }
 
-            const newRewindCards = isDestroyed ? [...prev.rewindCards, card] : prev.rewindCards;
+            if (isDestroyed) {
+              if (morningMoodDeathHeal > 0) {
+                const deadSide = player === "A" ? newPlayerA : newPlayerB;
+                (["is", "m", "os"] as const).forEach(s => {
+                  const unit = deadSide.field[s];
+                  if (!unit) return;
+                  deadSide.field[s] = {
+                    ...unit,
+                    currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
+                  };
+                });
+              }
+               cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
+            }
+            if (attackerDestroyedByLibutyReflect) {
+              cleanupSkillLinksOnDeath(attackerCard, newPlayerA, newPlayerB, prev.globalTurnCount);
+            }
+            if (startingTreeAllyHeal > 0) {
+              const damagedSide = player === "A" ? newPlayerA : newPlayerB;
+              (["is", "m", "os"] as const).forEach(s => {
+                if (s === slot) return;
+                const unit = damagedSide.field[s];
+                if (!unit) return;
+                damagedSide.field[s] = {
+                  ...unit,
+                  currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
+                };
+              });
+            }
+
+            let newRewindCards = prev.rewindCards;
+            if (isDestroyed) newRewindCards = [...newRewindCards, card];
+            if (attackerDestroyedByLibutyReflect) {
+              newRewindCards = [...newRewindCards, attackerCard];
+            }
 
             return {
               ...prev,
+              unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, primaryCombatPatches),
               rewindCards: newRewindCards,
               playerA: newPlayerA,
               playerB: newPlayerB
             };
           });
 
-          setTimeout(() => {
-            let msg = isDestroyed 
-              ? `💥 치명타! ${actualPrimaryDamage}의 데미지를 입혀 적 유닛을 파괴했습니다!` 
-              : `⚔️ 공격 적중! 적 유닛에게 ${actualPrimaryDamage}의 데미지를 입혔습니다.`;
+          const tgt = `${player}-${slot}`;
+          const atkKey = `${attackerPlayer}-${attackerSlotName}`;
+          if (reflectLibutyOnAggressorResult && reflectLibutyOnAggressorResult.hpLoss > 0) {
+            showDamageNumber(
+              atkKey,
+              LIBUTY_REFLECT_PURE_DAMAGE,
+              mergeKalliPureDamageFloat(LIBUTY_REFLECT_PURE_DAMAGE)
+            );
+          }
+          if (reflectLibutyOnAggressorResult?.baekseuLastStand) {
+            window.setTimeout(() => triggerCardFlash(atkKey, "kalliBuffBan"), 0);
+          }
+          if (pakkiDebuffPrimary) {
+            triggerCardFlash(atkKey, "pakkiDeathCurse");
+          }
+          const dkFullSoulStrike =
+            attackerCard.name === DARK_KNIGHT_ID &&
+            darkKnightSoulGaugeFull(attackerCard) &&
+            actualPrimaryDamage > 0;
+          const maxellFullStrikeVfx =
+            attackerCard.name === MAXELLAND_ID &&
+            maxellandTenacityGaugeFull(attackerCard) &&
+            actualPrimaryDamage > 0;
+          const pakkiDestroyedPrimary =
+            isDestroyed && String(card?.name ?? "").trim() === PAKKI_ID;
+          /* 능력 발동 이펙트 — 고스톤 처치(1차 공격) */
+          if (pakkiDestroyedPrimary) {
+            const dkKillExtrasPrimary =
+              attackerCard.name === DARK_KNIGHT_ID && dkFullSoulStrike
+                ? ({ dkFullGaugeNavyDamageText: true } as const)
+                : undefined;
+            showPakkiSlainDamageOnTarget(
+              tgt,
+              actualPrimaryDamage,
+              mergeKalliPureDamageFloat(kalliPurePrimary, dkKillExtrasPrimary)
+            );
+            if (attackerCard.name === GHOSTONE_ID) {
+              triggerGhostoneKillFlashOnAttacker(atkKey);
+            } else if (attackerCard.name === DARK_KNIGHT_ID) {
+              triggerCardFlash(atkKey, "darkKnightKill");
+            } else if (attackerCard.name === MAXELLAND_ID) {
+              triggerCardFlash(atkKey, "maxellandKill");
+            }
+          } else if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+            showGhostoneKillDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            triggerGhostoneKillFlashOnAttacker(atkKey);
+          } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+            showDarkKnightKillDamageOnTarget(
+              tgt,
+              actualPrimaryDamage,
+              atkKey,
+              mergeKalliPureDamageFloat(kalliPurePrimary, dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined)
+            );
+          } else if (isDestroyed && attackerCard.name === MAXELLAND_ID) {
+            showMaxellandKillDamageOnTarget(tgt, actualPrimaryDamage, atkKey, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (
+            attackerCard.name === PHILIP_ID &&
+            attackType === "NORMAL" &&
+            actualPrimaryDamage > 0
+          ) {
+            showPhilipBasicHitDamage(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (
+            attackerCard.name === CHEOLGIBYEONG_ID &&
+            attackType === "NORMAL" &&
+            actualPrimaryDamage > 0
+          ) {
+            showCheolgibyeongBasicHitDamage(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (dkFullSoulStrike) {
+            showDarkKnightFullSoulStrikeOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (maxellFullStrikeVfx) {
+            showMaxellandFullGaugeStrikeDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else {
+            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          }
+          if (baekseuLastStandPrimary) {
+            window.setTimeout(() => triggerCardFlash(tgt, "kalliBuffBan"), 0);
+          }
+          triggerGeunyangMojaHitFlame(attackerCard, `${player}-${slot}`, actualPrimaryDamage);
+          triggerDiagoHitFlame(attackerCard, `${player}-${slot}`, actualPrimaryDamage);
+          triggerMomoHitFlame(attackerCard, `${player}-${slot}`, actualPrimaryDamage);
+          triggerGhostoneClawHit(attackerCard, `${player}-${slot}`, actualPrimaryDamage, "primary");
+          triggerIversonClawHit(attackerCard, `${player}-${slot}`, actualPrimaryDamage, "primary");
+          triggerEristinaHitLine(attackerCard, `${player}-${slot}`, actualPrimaryDamage, "primary");
+          if (morningMoodDeathHeal > 0) {
+            const deadSideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              if (s === slot) return;
+              const unit = deadSideSnap[s];
+              if (!unit) return;
+              const healed = Math.min(Number(unit.hp) - unit.currentHp, morningMoodDeathHeal);
+              if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+            });
+          }
+          if (startingTreeAllyHeal > 0) {
+            const sideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              if (s === slot) return;
+              const unit = sideSnap[s];
+              if (!unit) return;
+              const healed = Math.min(Number(unit.hp) - unit.currentHp, startingTreeAllyHeal);
+              if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+            });
+          }
+          if (attackerHealFromHit > 0) {
+            if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+              showHealNumberAfterGhostoneKillFlash(atkKey, attackerHealFromHit);
+            } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+              showHealNumberAfterDarkKnightKillFlash(atkKey, attackerHealFromHit);
+            } else {
+              showHealNumber(atkKey, attackerHealFromHit);
+            }
+          }
+          if (fieldHealAmountPrimary > 0) {
+            const allySnapPrimary = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+            (["is", "m", "os"] as const).forEach(s => {
+              const u = allySnapPrimary[s];
+              if (!u) return;
+              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+            });
+          }
 
-            if ((card as any).hasBanjitgori) {
-               msg = `🎀 [반짓고리] 효과로 받는 피해가 25% 감소되었습니다!\n` + msg;
-            }
-            if (isDefending && actualPrimaryDamage > 100) {
-               msg = `🛡️ [방어력] 효과로 방어력이 적용되었습니다!\n` + msg;
-            }
-
-            if ((attackType === "ADDITION" || attackType === "MULTIPLICATION") && secondaryHits > 0 && secondaryDamage > 0) {
-              if (willBeEmpty) {
-                msg += `\n\n(적 필드의 모든 유닛이 파괴되어 연쇄 공격이 자동으로 중단됩니다.)`;
-              } else {
-                const targetId = `${player}-${slot}`;
-                msg += `\n\n연쇄 공격 발동! 추가 피해(${secondaryDamage})를 입힐 적을 선택해주세요. (남은 횟수: ${secondaryHits}회)`;
-                
-                setPendingSecondaryAttack({ 
-                  attackerPlayer,
-                  attackerSlotName, 
-                  damage: secondaryDamage, 
-                  hitsRemaining: secondaryHits,
-                  hitTargets: [targetId]
-                });
-              }
-            }
-            alert(msg);
-          }, 50);
+          if ((attackType === "ADDITION" || attackType === "MULTIPLICATION") && secondaryHits > 0 && secondaryDamage > 0 && !willBeEmpty) {
+            const targetId = `${player}-${slot}`;
+            setPendingSecondaryAttack({
+              attackerPlayer,
+              attackerSlotName,
+              damage: secondaryDamage,
+              hitsRemaining: secondaryHits,
+              hitTargets: [targetId],
+            });
+          }
         }
       }
       
@@ -916,35 +6158,247 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   };
 
   const isTargetable = (targetPlayer: "A" | "B", slotName: string, card: FieldCard | null) => {
-    if (!card) return false;
     const targetId = `${targetPlayer}-${slotName}`;
+
+    const eondeokDragMode = ((): "off" | "yes" | "no" => {
+      if (!state || !handDrag || winner) return "off";
+      if (pendingSkill || pendingSecondaryAttack || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (!isEnemyUnitDragTargetSpell(handDrag.card)) return "off";
+      if (state.currentTurn !== handDrag.player) return "off";
+      if (slotName === "spell") return "no";
+      const opp = handDrag.player === "A" ? "B" : "A";
+      if (targetPlayer !== opp) return "no";
+      if (!card) return "no";
+      const tokens = handDrag.player === "A" ? state.playerA.tokens : state.playerB.tokens;
+      const cost = Number(handDrag.card.cost) || 0;
+      if (tokens < cost) return "no";
+      if (handDrag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(card)) return "no";
+      return "yes";
+    })();
+    if (eondeokDragMode === "yes") return true;
+    if (eondeokDragMode === "no") return false;
+
+    const orietDragMode = ((): "off" | "yes" | "no" => {
+      if (!state || !handDrag || winner) return "off";
+      if (pendingSkill || pendingSecondaryAttack || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (!isSpellCardRow(handDrag.card) || !isOrietChosangSpellCard(handDrag.card)) return "off";
+      if (state.currentTurn !== handDrag.player) return "off";
+      if (slotName === "spell") return "no";
+      if (targetPlayer !== handDrag.player) return "no";
+      if (!card || (card.currentHp ?? 0) <= 0) return "no";
+      const tokens = handDrag.player === "A" ? state.playerA.tokens : state.playerB.tokens;
+      const cost = Number(handDrag.card.cost) || 0;
+      if (tokens < cost) return "no";
+      return "yes";
+    })();
+    if (orietDragMode === "yes") return true;
+    if (orietDragMode === "no") return false;
+
+    if (!card) return false;
     
-    if (pendingSkill && pendingSkill.name === "마법의 반짓고리") {
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
         return pendingSkill.player === targetPlayer && slotName !== "spell" && slotName !== pendingSkill.slot;
     }
 
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.LIME_BUBBLE_SHIELD) {
+      return pendingSkill.player === targetPlayer && slotName !== "spell" && slotName !== pendingSkill.slot;
+    }
+
     if (pendingSecondaryAttack) {
+      if (pendingSecondaryAttack.allyHealOnly) {
+        return (
+          pendingSecondaryAttack.attackerPlayer === targetPlayer &&
+          slotName !== "spell" &&
+          slotName !== pendingSecondaryAttack.attackerSlotName &&
+          !pendingSecondaryAttack.hitTargets.includes(targetId) &&
+          card != null
+        );
+      }
+      if (
+        !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+          (pendingSecondaryAttack.attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field)[
+            pendingSecondaryAttack.attackerSlotName
+          ]
+        ) &&
+        !canEnemyFieldSourceTargetMaengsugyeonPo(
+          pendingSecondaryAttack.attackerPlayer,
+          pendingSecondaryAttack.attackerSlotName,
+          targetPlayer,
+          slotName as "is" | "m" | "os",
+          card
+        )
+      ) {
+        return false;
+      }
       return pendingSecondaryAttack.attackerPlayer !== targetPlayer && !pendingSecondaryAttack.hitTargets.includes(targetId);
     }
     
-    if (attackingSlot && attackingSlot.split("-")[0] !== targetPlayer) {
-      const targetPlayerState = targetPlayer === "A" ? state!.playerA : state!.playerB;
-      const fields = [targetPlayerState.field.is, targetPlayerState.field.m, targetPlayerState.field.os];
-      const tauntExists = fields.some(c => c && (getActiveStatuses(c, null).includes("도발") || (c as any).hasBanjitgori));
+    if (attackingSlot) {
+      const [attackerPlayer, attackerSlotName] = attackingSlot.split("-");
+      const attackerCard = (attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field)[
+        attackerSlotName as "is" | "m" | "os"
+      ];
 
-      if (tauntExists) {
-        return getActiveStatuses(card, null).includes("도발") || (card as any).hasBanjitgori;
+      if (isRyeomcho(attackerCard)) {
+        return targetPlayer === attackerPlayer && slotName === attackerSlotName;
       }
-      return true;
+
+      if (isRanigo(attackerCard)) {
+        return (
+          targetPlayer === attackerPlayer &&
+          slotName !== "spell" &&
+          slotName !== attackerSlotName &&
+          card != null
+        );
+      }
+
+      if (attackerPlayer !== targetPlayer) {
+        const targetPlayerState = targetPlayer === "A" ? state!.playerA : state!.playerB;
+        const oppFieldForTaunt2 = targetPlayer === "A" ? state!.playerB.field : state!.playerA.field;
+        const tauntCtxBase2 = {
+          playerAField: state!.playerA.field,
+          playerBField: state!.playerB.field,
+        };
+        const slotsTaunt2 = ["is", "m", "os"] as const;
+        const tauntExists = slotsTaunt2.some(s => {
+          const c = targetPlayerState.field[s];
+          if (!c) return false;
+          return isTaunting(c, oppFieldForTaunt2[s] ?? null, targetPlayerState.field, {
+            ...tauntCtxBase2,
+            mySlotKey: `${targetPlayer}-${s}`,
+          });
+        });
+
+        const startingHeraldAbsTarget = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard);
+
+        if (tauntExists) {
+          if (
+            !startingHeraldAbsTarget &&
+            !isTaunting(
+              card,
+              oppFieldForTaunt2[slotName as "is" | "m" | "os"] ?? null,
+              targetPlayerState.field,
+              { ...tauntCtxBase2, mySlotKey: `${targetPlayer}-${slotName}` }
+            )
+          ) {
+            return false;
+          }
+        }
+
+        if (attackerCard?.name === IVERSON_ID) {
+          const allowed = getIversonClosestEnemyTargetSlots(
+            attackerSlotName as "is" | "m" | "os",
+            { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
+            tauntExists,
+            {
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+              defenderPlayer: targetPlayer as "A" | "B",
+            }
+          );
+          if (!allowed.includes(slotName as "is" | "m" | "os")) return false;
+        }
+
+        if (
+          !startingHeraldAbsTarget &&
+          !canEnemyFieldSourceTargetMaengsugyeonPo(
+            attackerPlayer as "A" | "B",
+            attackerSlotName as "is" | "m" | "os",
+            targetPlayer as "A" | "B",
+            slotName as "is" | "m" | "os",
+            card
+          )
+        ) {
+          return false;
+        }
+
+        return true;
+      }
     }
     return false;
+  };
+
+  /** 손패에서 유닛 카드를 드래그 중일 때, 배치 가능한 빈 유닛 슬롯 — 공격 타겟과 동형 하이라이트 */
+  const getHandDragUnitPlacementPulseClass = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    fieldCard: FieldCard | null
+  ): string => {
+    if (!handDrag || !state || winner) return "";
+    if (handDrag.player !== player) return "";
+    if (state.currentTurn !== handDrag.player) return "";
+    if (fieldCard !== null) return "";
+    if (isSpellCardRow(handDrag.card)) return "";
+
+    const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
+    const cost = Number(handDrag.card.cost) || 0;
+    if (tokens < cost) return "";
+
+    return "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair z-20";
+  };
+
+  const handDragSpellSlotHoverGlow = (player: "A" | "B") =>
+    handDragHoverSlotKey === `${player}-spell`
+      ? " ring-2 ring-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_28px_rgba(255,255,255,0.85),0_0_48px_rgba(255,255,255,0.45),inset_0_0_14px_rgba(255,255,255,0.12)] z-[25]"
+      : "";
+
+  /** 스펠 No.8 방어막 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(초록·연두 톤). 겹침 허용 후에도 표시 */
+  const getHandDragBangEomakSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (handDrag.player !== player) return "";
+    if (state.currentTurn !== handDrag.player) return "";
+    if (!isSpellCardRow(handDrag.card) || handDrag.card.name !== BANG_EOMAK_SPELL_ID) return "";
+    const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
+    const cost = Number(handDrag.card.cost) || 0;
+    if (tokens < cost) return "";
+    return "border-[3px] border-lime-300/95 bg-gradient-to-br from-emerald-500/30 to-lime-400/22 shadow-[0_0_26px_rgba(163,230,53,0.55),0_0_42px_rgba(52,211,153,0.35)] animate-pulse z-[18]";
+  };
+
+  /** 스펠 No.47 철벽 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(밝은 슬레이트·흰 톤). 겹침 허용 후에도 표시 */
+  const getHandDragCheolbyeokSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (handDrag.player !== player) return "";
+    if (state.currentTurn !== handDrag.player) return "";
+    if (!isSpellCardRow(handDrag.card) || handDrag.card.name !== CHEOLBYEOK_SPELL_ID) return "";
+    const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
+    const cost = Number(handDrag.card.cost) || 0;
+    if (tokens < cost) return "";
+    return "border-[3px] border-slate-100/95 bg-gradient-to-br from-slate-200/35 to-slate-50/22 shadow-[0_0_26px_rgba(248,250,252,0.65),0_0_42px_rgba(148,163,184,0.4)] animate-pulse z-[18]";
   };
 
   const getTargetableClass = (targetPlayer: "A" | "B", slotName: string, card: FieldCard | null) => {
       if (!isTargetable(targetPlayer, slotName, card)) return '';
       
-      if (pendingSkill && pendingSkill.name === "마법의 반짓고리") {
+      if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
           return 'border-[3px] border-pink-400 bg-pink-500/20 shadow-[0_0_25px_rgba(244,114,182,0.9)] animate-pulse cursor-pointer z-20';
+      }
+
+      if (pendingSkill && pendingSkill.name === PENDING_SKILL.LIME_BUBBLE_SHIELD) {
+        return "border-[3px] border-sky-400 bg-sky-500/20 shadow-[0_0_25px_rgba(56,189,248,0.9)] animate-pulse cursor-pointer z-20";
+      }
+
+      if (
+        handDrag &&
+        isSpellCardRow(handDrag.card) &&
+        isOrietChosangSpellCard(handDrag.card) &&
+        state?.currentTurn === handDrag.player
+      ) {
+        return "border-[3px] border-sky-400 bg-sky-500/25 shadow-[0_0_26px_rgba(56,189,248,0.88)] animate-pulse cursor-pointer z-20";
+      }
+
+      if (pendingSecondaryAttack?.allyHealOnly) {
+        return "border-[3px] border-emerald-400 bg-emerald-500/20 shadow-[0_0_25px_rgba(52,211,153,0.85)] animate-pulse cursor-pointer z-20";
+      }
+
+      if (attackingSlot) {
+        const [ap, aslot] = attackingSlot.split("-");
+        const acard = (ap === "A" ? state!.playerA.field : state!.playerB.field)[aslot as "is" | "m" | "os"];
+        if (isRyeomcho(acard)) {
+          return 'border-[3px] border-green-400 bg-green-500/20 shadow-[0_0_25px_rgba(74,222,128,0.9)] animate-pulse cursor-pointer z-20';
+        }
+        if (isRanigo(acard)) {
+          return "border-[3px] border-emerald-400 bg-emerald-500/20 shadow-[0_0_25px_rgba(52,211,153,0.85)] animate-pulse cursor-pointer z-20";
+        }
       }
       
       return 'border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair z-20';
@@ -952,49 +6406,706 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   // ⭐️ [신규] 코드가 길어지는 것을 방지하고 클래스 생성을 깔끔하게 관리하는 헬퍼 함수
   const getSlotClassName = (player: "A" | "B", slot: "is" | "m" | "os", card: FieldCard | null) => {
-    const targetClass = getTargetableClass(player, slot, card);
-    if (targetClass) return `${fieldCardStyle} ${targetClass}`;
+    const slotKeyForHover = `${player}-${slot}`;
+    const handDragSlotHoverGlow =
+      handDragHoverSlotKey === slotKeyForHover
+        ? " ring-2 ring-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_28px_rgba(255,255,255,0.85),0_0_48px_rgba(255,255,255,0.45),inset_0_0_14px_rgba(255,255,255,0.12)] z-[25]"
+        : "";
 
-    // ⭐️ [신규] 반짓고리 특수 이펙트 (핑크 & 연두 그라데이션 빛)
-    if (card && (card as any).hasBanjitgori) {
-       return `${fieldCardStyle} z-10 border-[2px] border-pink-400 bg-pink-900/30 shadow-[-8px_-8px_20px_rgba(236,72,153,0.6),8px_8px_20px_rgba(132,204,22,0.6)] animate-[pulse_2s_ease-in-out_infinite] ${!attackingSlot ? 'cursor-pointer hover:border-pink-300' : ''}`;
+    const targetClass = getTargetableClass(player, slot, card);
+    if (targetClass) return `${fieldCardStyle} ${targetClass}${handDragSlotHoverGlow}`;
+
+    const handDragPlacementClass = getHandDragUnitPlacementPulseClass(player, slot, card);
+    if (handDragPlacementClass) {
+      return `${fieldCardStyle} ${handDragPlacementClass}${handDragSlotHoverGlow}`;
+    }
+    if (
+      card &&
+      (card as any).hasBanjitgori &&
+      !callieBuffBanSuppressesBuffsForVictim(player, slot, state!.playerA.field, state!.playerB.field)
+    ) {
+       return `${fieldCardStyle} z-10 border-[2px] border-pink-400/90 bg-pink-950/25 shadow-[0_0_12px_rgba(236,72,153,0.35)] ${!attackingSlot ? 'cursor-pointer hover:border-pink-300' : ''}`;
+    }
+
+    if (card?.name === MAXELLAND_ID && maxellandTenacityGaugeFull(card)) {
+      return `${fieldCardStyle} z-10 border-[2px] border-red-600/95 bg-red-950/35 shadow-[0_0_12px_rgba(220,38,38,0.65),0_0_22px_rgba(249,115,22,0.42)] ${!attackingSlot ? "cursor-pointer hover:border-orange-500/90" : ""}`;
     }
 
     if (player === "A") {
-       return `${fieldCardStyle} border-sky-500/30 bg-sky-950/20 ${card && !attackingSlot ? 'cursor-pointer hover:border-sky-400/80' : state?.currentTurn === 'A' && !attackingSlot ? 'hover:border-sky-400 transition-colors' : ''}`;
-    } else {
-       return `${fieldCardStyle} border-blue-500/30 bg-blue-950/20 ${card && !attackingSlot ? 'cursor-pointer hover:border-blue-400/80' : ''}`;
+      return `${fieldCardStyle} border-sky-500/30 bg-sky-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-sky-400/80" : state?.currentTurn === "A" && !attackingSlot ? "hover:border-sky-400 transition-colors" : ""}`;
+    }
+    return `${fieldCardStyle} border-blue-500/30 bg-blue-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-blue-400/80" : state?.currentTurn === "B" && !attackingSlot ? "hover:border-blue-400 transition-colors" : ""}`;
+  };
+
+  /** 효과 뱃지 표시 순서 (동일 카드에서 항상 이 순서) */
+  const STATUS_BADGE_ORDER: readonly string[] = [
+    "도발",
+    "방어력 +200",
+    BANG_EOMAK_DEFENSE_BADGE,
+    "방어력 +400",
+    "[무적]",
+    "[공격력 +300]",
+    DEBUFF_IMMUNITY_BADGE,
+    BUFF_BAN_BADGE,
+    PAKKI_ATTACK_DEBUFF_BADGE,
+    "침묵",
+    "기절",
+    "반짓고리",
+    "집중 사격",
+    YORIN_STATUS_BADGE,
+  ];
+
+  const sortStatusesForBadgeDisplay = (statuses: string[]) => {
+    const rank = (s: string) => {
+      const i = STATUS_BADGE_ORDER.indexOf(s);
+      return i === -1 ? 999 : i;
+    };
+    return [...statuses].sort((a, b) => {
+      const d = rank(a) - rank(b);
+      return d !== 0 ? d : a.localeCompare(b);
+    });
+  };
+
+  const getStatusBadgeSurfaceClass = (status: string) => {
+    switch (status) {
+      case "도발":
+        return "bg-orange-600 border-orange-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+      case "방어력 +200":
+        return "bg-slate-500 border-slate-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]";
+      case BANG_EOMAK_DEFENSE_BADGE:
+        return "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950";
+      case "방어력 +400":
+        return "bg-slate-100 border-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.55)]";
+      case BAEKSEU_INVULN_BADGE:
+        return "bg-slate-200 border-slate-50 text-slate-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]";
+      case "[공격력 +300]":
+        return "bg-red-700 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+      case DEBUFF_IMMUNITY_BADGE:
+        return "bg-slate-400 border-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]";
+      case BUFF_BAN_BADGE:
+        return "bg-red-800 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+      case PAKKI_ATTACK_DEBUFF_BADGE:
+        return "bg-amber-500 border-amber-200 shadow-[inset_0_0_0_1px_rgba(255,251,235,0.35)]";
+      case "반짓고리":
+        return "bg-pink-600 border-pink-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+      case "침묵":
+        return "bg-violet-700 border-violet-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
+      case "기절":
+        return "bg-violet-700 border-violet-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
+      case YORIN_STATUS_BADGE:
+        return "bg-indigo-900 border-indigo-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
+      case "집중 사격":
+        return "bg-red-700 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+      default:
+        if (isMaxellandTenacityStatusBadge(status)) {
+          return "bg-red-800 border-red-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
+        }
+        return "bg-purple-700 border-purple-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
     }
   };
 
-  const renderStatusBadges = (player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
+  /** `방어력 +200` — 철기병 패시브(슬레이트) vs 라임 보호막(하늘색) */
+  const getStatusBadgeSurfaceClassForCard = (status: string, badgeCard: FieldCard) => {
+    if (status === "방어력 +200" && badgeCard.hasLimeBubbleShieldBuff) {
+      return "bg-sky-500 border-sky-100 text-slate-950 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3)]";
+    }
+    return getStatusBadgeSurfaceClass(status);
+  };
+
+  /**
+   * 필드 카드 특수 윤곽 링 z 순서 (높을수록 위):
+   * z-33 맥셀렌드 [투지] 만축 외곽 붉은 광채 → z-31 소울·투지 만축 링 → z-32 맹수견 포 패시브(항상 붉은 글로우) → z-30 필립 마주 패시브(노랑) → z-29 반짓고리 부여 대상(핑크) → z-28 렴초·철기병 → z-27 메리 [방어력 +400].
+   */
+  const renderPhilipFacingRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!state || !card || !oppSlotHasLivePhilip(state, player, slot)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[30] overflow-visible rounded-[8px] pp-philip-facing-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 맹수견 포 — 마주 견제 패시브: 필드에 있을 때 항상 붉은 외곽 글로우 */
+  const renderMaengsugyeonPoThreatRing = (card: FieldCard | null) => {
+    if (!card || card.name !== MAENGSUGYEON_PO_ID) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[32] overflow-visible rounded-[8px] pp-maengsugyeon-po-threat-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 맹수견 포 — 마주 적: 반투명 붉은 사각형(카드 z-[10] 아래). flex 가운데 정렬로 확장 대칭. */
+  const renderMaengsugyeonPoFacingEnemyRect = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!state || !card) return null;
+    const opp = player === "A" ? "B" : "A";
+    const oppField = opp === "A" ? state.playerA.field : state.playerB.field;
+    const poOnOpposite = oppField[slot];
+    if (!poOnOpposite || poOnOpposite.name !== MAENGSUGYEON_PO_ID) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center"
+        aria-hidden
+      >
+        <div className="box-border h-[calc(100%+12px)] w-[calc(100%+12px)] shrink-0 rounded-[14px] border border-red-500/45 bg-red-600/[0.24] shadow-[inset_0_0_0_1px_rgba(254,202,202,0.2)]" />
+      </div>
+    );
+  };
+
+  /** [도발]/[반짓고리] 뱅크가 `getActiveStatuses` 기준으로 보일 때만 — [버프 금지] 등으로 숨기면 링·체력바도 동기 */
+  const slotShowsActiveTauntBanjitBuffVisual = (player: "A" | "B", slot: "is" | "m" | "os"): boolean => {
+    if (!state) return true;
+    return !callieBuffBanSuppressesBuffsForVictim(player, slot, state.playerA.field, state.playerB.field);
+  };
+
+  /** 에리스티나 반짓고리 부여 아군 — 핑크 펄스(렴초·철기병 링보다 위, 필립보다 아래) */
+  const renderBanjitgoriFieldRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!card || !(card as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori) return null;
+    if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[29] overflow-visible rounded-[8px] pp-banjitgori-field-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 렴초 필드 체류 시 카드 윤곽 — 필립 마주 링과 동형(베이지 펄스) */
+  const renderRyeomchoFieldRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!card || !isRyeomcho(card)) return null;
+    if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] pp-ryeomcho-field-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 철기병 필드 체류 시 카드 윤곽 — 회색·은빛 펄스(렴초 링과 동형) */
+  const renderCheolgibyeongFieldRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!card || card.name !== CHEOLGIBYEONG_ID) return null;
+    if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] pp-cheolgibyeong-field-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 메리 [방어력 +400] — 에리스티나 반짓고리 링(z-29)보다 아래(z-27), 밝은 회색 링 */
+  const renderMaryDefenseFieldRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!state || !card || card.name !== MARY_ID) return null;
+    const slotKey = `${player}-${slot}`;
+    if (!maryDefenseBuffActive(card, state.playerA.field, state.playerB.field, slotKey)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[27] overflow-visible rounded-[8px] pp-mary-defense-field-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 필드 유닛 카드와 동일 가로 폭 (체력바·효과 뱃지 줄 정렬용) */
+  const fieldUnitWidthClass = "w-[85px] md:w-[100px] lg:w-[120px]";
+  /** 뱃지 최대 2줄 기준 고정 높이 — 빈 슬롯/체력만/뱃지+체력 모두 카드 밑면 동일 높이 */
+  const fieldSlotBadgeZoneClass = `flex h-12 shrink-0 flex-col items-center justify-center overflow-visible ${fieldUnitWidthClass}`;
+  /** 상대 진영(B): 게이지가 체력 위로 돌출 → 뱃지를 살짝 위로. 아군(A): 게이지는 체력 아래라 뱃지 이동 없음 */
+  const fieldSlotBadgeZoneClassWithCard = (card: FieldCard | null, isPlayerA: boolean) =>
+    `${fieldSlotBadgeZoneClass}${
+      !isPlayerA && (card?.name === DARK_KNIGHT_ID || card?.name === MAXELLAND_ID) ? " -translate-y-1.5" : ""
+    }`;
+  const fieldSlotHpRowClass = "flex h-3.5 w-full shrink-0 items-center justify-center";
+  const fieldSlotHpPlaceholder = (
+    <div className={`${fieldUnitWidthClass} h-3.5 shrink-0 rounded-[3px] border border-transparent`} aria-hidden />
+  );
+
+  const renderDarkKnightSoulGaugeSegments = (card: FieldCard | null) => {
+    if (!card || card.name !== DARK_KNIGHT_ID) return null;
+    const filled = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
+    return (
+      <>
+        {Array.from({ length: DARK_KNIGHT_GAUGE_CAP }, (_, i) => (
+          <div
+            key={i}
+            className={`min-h-0 min-w-0 flex-1 rounded-[2px] ${
+              i < filled
+                ? "border border-indigo-900/88 bg-gradient-to-b from-[#1e1b4b] via-[#4338ca] to-[#1a1033] shadow-[0_0_4px_rgba(91,33,182,0.48),inset_0_1px_0_rgba(167,139,250,0.16)]"
+                : "border border-slate-500/70 bg-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)]"
+            }`}
+          />
+        ))}
+      </>
+    );
+  };
+
+  /** 상단 진영(B): 체력바 직선 위치 고정, 게이지만 위(뱃지 방향)로 돌출 */
+  const renderDarkKnightSoulGaugeAboveHpAbsolute = (card: FieldCard | null, fieldSlotKey: string) => {
+    if (!card || card.name !== DARK_KNIGHT_ID) return null;
+    const filled = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
+    const full = darkKnightSoulGaugeFull(card);
+    const chargePulse = darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 gap-0.5">
+        {renderDarkKnightSoulGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        aria-label={`다크나이트 소울 ${filled}/${DARK_KNIGHT_GAUGE_CAP}`}
+      >
+        <div
+          key={chargePulse}
+          className={`w-full rounded-[4px] ${chargePulse > 0 ? "pp-darkknight-gauge-charge-border-ring" : ""}`}
+        >
+          {full ? <div className="pp-darkknight-gauge-frame--full w-full p-[1px]">{row}</div> : row}
+        </div>
+      </div>
+    );
+  };
+
+  /** 하단 진영(A): 카드 바로 아래 체력바 → 그 아래 게이지(자리 차지) → 뱃지 */
+  const renderDarkKnightSoulGaugeBelowHpFlow = (card: FieldCard | null, fieldSlotKey: string) => {
+    if (!card || card.name !== DARK_KNIGHT_ID) return null;
+    const filled = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
+    const full = darkKnightSoulGaugeFull(card);
+    const chargePulse = darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 shrink-0 gap-0.5">
+        {renderDarkKnightSoulGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className="w-full pointer-events-none"
+        aria-label={`다크나이트 소울 ${filled}/${DARK_KNIGHT_GAUGE_CAP}`}
+      >
+        <div
+          key={chargePulse}
+          className={`w-full rounded-[4px] ${chargePulse > 0 ? "pp-darkknight-gauge-charge-border-ring" : ""}`}
+        >
+          {full ? <div className="pp-darkknight-gauge-frame--full w-full p-[1px]">{row}</div> : row}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMaxellandTenacityGaugeSegments = (card: FieldCard | null) => {
+    if (!card || card.name !== MAXELLAND_ID) return null;
+    const filled = Math.max(0, Math.min(MAXELLAND_TENACITY_GAUGE_CAP, card.maxellandTenacityGauge ?? 0));
+    return (
+      <>
+        {Array.from({ length: MAXELLAND_TENACITY_GAUGE_CAP }, (_, i) => (
+          <div
+            key={i}
+            className={`min-h-0 min-w-0 flex-1 rounded-[2px] ${
+              i < filled
+                ? "border border-red-950/80 bg-gradient-to-b from-red-300 via-red-600 to-red-950 shadow-[0_0_4px_rgba(239,68,68,0.55),inset_0_1px_0_rgba(254,226,226,0.35)]"
+                : "border border-slate-500/70 bg-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)]"
+            }`}
+          />
+        ))}
+      </>
+    );
+  };
+
+  const renderMaxellandTenacityGaugeAboveHpAbsolute = (card: FieldCard | null, fieldSlotKey: string) => {
+    if (!card || card.name !== MAXELLAND_ID) return null;
+    const filled = Math.max(0, Math.min(MAXELLAND_TENACITY_GAUGE_CAP, card.maxellandTenacityGauge ?? 0));
+    const full = maxellandTenacityGaugeFull(card);
+    const chargePulse = maxellandGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 gap-0.5">
+        {renderMaxellandTenacityGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        aria-label={`맥셀렌드 투지 ${filled}/${MAXELLAND_TENACITY_GAUGE_CAP}`}
+      >
+        <div
+          key={chargePulse}
+          className={`w-full rounded-[4px] ${chargePulse > 0 ? "pp-maxelland-gauge-charge-border-ring" : ""}`}
+        >
+          {full ? <div className="pp-maxelland-gauge-frame--full w-full p-[1px]">{row}</div> : row}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMaxellandTenacityGaugeBelowHpFlow = (card: FieldCard | null, fieldSlotKey: string) => {
+    if (!card || card.name !== MAXELLAND_ID) return null;
+    const filled = Math.max(0, Math.min(MAXELLAND_TENACITY_GAUGE_CAP, card.maxellandTenacityGauge ?? 0));
+    const full = maxellandTenacityGaugeFull(card);
+    const chargePulse = maxellandGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 shrink-0 gap-0.5">
+        {renderMaxellandTenacityGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className="w-full pointer-events-none"
+        aria-label={`맥셀렌드 투지 ${filled}/${MAXELLAND_TENACITY_GAUGE_CAP}`}
+      >
+        <div
+          key={chargePulse}
+          className={`w-full rounded-[4px] ${chargePulse > 0 ? "pp-maxelland-gauge-charge-border-ring" : ""}`}
+        >
+          {full ? <div className="pp-maxelland-gauge-frame--full w-full p-[1px]">{row}</div> : row}
+        </div>
+      </div>
+    );
+  };
+
+  /** 아이버슨 — 소환 후 턴 넘김당 1/4씩 채워지는 단일 흰색 트랙(짙은 녹색 충전). 50%↑ 윤곽 초록 명멸, 75%↑ 명멸 2배 빠름 */
+  const iversonWaitGaugeOutlineClass = (fill: number) => {
+    if (fill >= 0.75) return "pp-iverson-wait-gauge-track--flicker-fast";
+    if (fill >= 0.5) return "pp-iverson-wait-gauge-track--flicker";
+    return "";
+  };
+
+  const renderIversonWaitGaugeAboveHpAbsolute = (card: FieldCard | null) => {
+    if (!card || card.name !== IVERSON_ID) return null;
+    const ticks = card.iversonSummonWaitEndTurnTicksRemaining ?? 0;
+    if (ticks <= 0) return null;
+    const fill = iversonWaitGaugeFill01(card);
+    const flicker = iversonWaitGaugeOutlineClass(fill);
+    return (
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        aria-label={iversonLiberationLabel(card) ?? "아이버슨 대기"}
+      >
+        <div
+          className={`h-[10px] w-full overflow-hidden rounded-[4px] border border-slate-500/85 bg-white shadow-[inset_0_1px_2px_rgba(0,0,0,0.14)] ${flicker}`}
+        >
+          <div
+            className="h-full max-w-full rounded-[3px] bg-gradient-to-b from-emerald-700 via-emerald-900 to-emerald-950 shadow-[inset_0_1px_0_rgba(167,243,208,0.22)] transition-[width] duration-700 ease-out"
+            style={{ width: `${Math.round(fill * 10000) / 100}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderIversonWaitGaugeRowPlayerA = (card: FieldCard | null) => {
+    if (!card || card.name !== IVERSON_ID) return null;
+    const ticks = card.iversonSummonWaitEndTurnTicksRemaining ?? 0;
+    if (ticks <= 0) return null;
+    const fill = iversonWaitGaugeFill01(card);
+    const flicker = iversonWaitGaugeOutlineClass(fill);
+    return (
+      <div
+        className="flex h-[10px] w-full min-w-0 shrink-0 flex-col items-stretch pointer-events-none"
+        aria-label={iversonLiberationLabel(card) ?? "아이버슨 대기"}
+      >
+        <div
+          className={`h-full w-full overflow-hidden rounded-[4px] border border-slate-500/85 bg-white shadow-[inset_0_1px_2px_rgba(0,0,0,0.14)] ${flicker}`}
+        >
+          <div
+            className="h-full max-w-full rounded-[3px] bg-gradient-to-b from-emerald-700 via-emerald-900 to-emerald-950 shadow-[inset_0_1px_0_rgba(167,243,208,0.22)] transition-[width] duration-700 ease-out"
+            style={{ width: `${Math.round(fill * 10000) / 100}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  /** 게이지 5칸 만축 시 border+p가 더해져 실제 높이 ≈14px이 됨 → 비 DK·비만축 슬롯과 동일하게 맞추기 위함 */
+  const playerAFieldSlotBelowHpReserveClass = "flex h-[14px] w-full shrink-0 flex-col justify-center pointer-events-none";
+
+  const renderHpRowWithOptionalDKGauge = (
+    card: FieldCard | null,
+    hpInner: ReactNode,
+    isPlayerA: boolean,
+    fieldSlotKey: string
+  ) => {
+    if (isPlayerA) {
+      /* flex-1+justify-end 카드 영역 높이: HP 아래(게이지|스페이서) 총높이가 슬롯마다 동일해야 함 — 만축 게이지 ≈14px 기준 통일 */
+      return (
+        <div className={`relative z-0 flex shrink-0 flex-col items-center gap-0.5 ${fieldUnitWidthClass}`}>
+          <div className={fieldSlotHpRowClass}>{hpInner}</div>
+          <div className={playerAFieldSlotBelowHpReserveClass}>
+            {card?.name === DARK_KNIGHT_ID ? (
+              renderDarkKnightSoulGaugeBelowHpFlow(card, fieldSlotKey)
+            ) : card?.name === MAXELLAND_ID ? (
+              renderMaxellandTenacityGaugeBelowHpFlow(card, fieldSlotKey)
+            ) : card?.name === IVERSON_ID ? (
+              renderIversonWaitGaugeRowPlayerA(card)
+            ) : (
+              <div className={`h-[10px] shrink-0 w-full rounded-[3px]`} aria-hidden />
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className={`relative z-0 shrink-0 ${fieldUnitWidthClass}`}>
+        {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
+        {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
+        {renderIversonWaitGaugeAboveHpAbsolute(card)}
+        <div className={fieldSlotHpRowClass}>{hpInner}</div>
+      </div>
+    );
+  };
+
+  /** 5칸 만축 — 에리스티나 반짓고리 링과 같은 방식(윤곽 중심, simulation-combat-flash.css) */
+  const renderDarkKnightSoulCompleteRing = (card: FieldCard | null) => {
+    if (!darkKnightSoulGaugeFull(card)) return null;
+    return (
+      <div
+        className="pp-darkknight-soul-field-ring-overlay pointer-events-none absolute inset-0 z-[31] overflow-visible rounded-[8px]"
+        aria-hidden
+      />
+    );
+  };
+
+  const renderMaxellandTenacityCompleteRing = (card: FieldCard | null) => {
+    if (!maxellandTenacityGaugeFull(card)) return null;
+    return (
+      <div
+        className="pp-maxelland-tenacity-field-ring-overlay pointer-events-none absolute inset-0 z-[31] overflow-visible rounded-[8px]"
+        aria-hidden
+      />
+    );
+  };
+
+  /** [투지] 4칸 만축 맥셀렌드 — 카드 외곽선 붉은 상시 광채(링 위층) */
+  const renderMaxellandFullTenacityPerimeterGlow = (card: FieldCard | null) => {
+    if (card?.name !== MAXELLAND_ID || !maxellandTenacityGaugeFull(card)) return null;
+    return (
+      <div
+        className="pp-maxelland-full-tenacity-perimeter-glow pointer-events-none absolute inset-0 z-[33] overflow-visible rounded-[8px]"
+        aria-hidden
+      />
+    );
+  };
+
+  const renderStackingGaugeFieldRings = (card: FieldCard | null) => (
+    <>
+      {renderDarkKnightSoulCompleteRing(card)}
+      {renderMaxellandTenacityCompleteRing(card)}
+      {renderMaxellandFullTenacityPerimeterGlow(card)}
+    </>
+  );
+
+  const renderStunSwirlOverlay = (card: FieldCard | null, roundedClass: string, slotKey: string) => {
+    if (!card || !isStunned(card)) return null;
+    if (selectedSlot === slotKey) return null;
+    return (
+      <div className={`pp-stun-swirl-mount ${roundedClass}`} aria-hidden>
+        <div className="pp-stun-swirl-core">
+          <svg className="pp-stun-swirl-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+            <g className="pp-stun-spiral-group">
+              <path className="pp-stun-swirl-path" d={STUN_SPIRAL_PATH_D} />
+            </g>
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  /** 아이버슨 대기 중 — 이미지 위 반투명 어둡게 + 카드 밖 녹색 글로우. 게이지 75%↑ 시 글로우가 게이지와 동일 속도(0.6s)로 명멸 */
+  const renderIversonWaitAuraOverlay = (card: FieldCard | null, roundedClass: string, slotKey: string) => {
+    if (!card || !isIversonAttackLocked(card)) return null;
+    if (selectedSlot === slotKey) return null;
+    const fill = iversonWaitGaugeFill01(card);
+    const glowFlicker = fill >= 0.75 ? " pp-iverson-wait-aura-mount--glow-flicker" : "";
+    return (
+      <div
+        className={`pp-iverson-wait-aura-mount pointer-events-none absolute inset-0 z-[32] ${roundedClass}${glowFlicker}`}
+        aria-hidden
+      />
+    );
+  };
+
+  /** 백스 패시브 발동 후 — 회색 윤곽 + 바깥 정적 글로우; [무적] 중에는 외곽 글로우만 느리게 명멸. 철벽 오라 시 전 아군에 동일 링. */
+  const renderBaekseuInvulnRing = (card: FieldCard | null, roundedClass: string, owningPlayer: "A" | "B") => {
+    if (!state) return null;
+    if (!card || (card.currentHp ?? 0) <= 0) return null;
+    const owningField = owningPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const cheolAura = getActiveCheolbyeokInvulnTicksFromField(owningField) > 0;
+    const showRing = isBaekseuLastStandExecuteAuraActiveOnUnit(card) || cheolAura;
+    if (!showRing) return null;
+    const invulnGlow = isInvulnerableFromBaekseuOrCheolbyeok(card, owningField)
+      ? " pp-baekseu-invuln-field-ring-overlay--invulnerable"
+      : "";
+    return (
+      <div
+        className={`pointer-events-none absolute inset-0 z-[34] overflow-visible ${roundedClass} pp-baekseu-invuln-field-ring-overlay${invulnGlow}`}
+        aria-hidden
+      />
+    );
+  };
+
+  /** 언덕! [침묵] — 필립 마주 링(z-30)보다 위, 밝은 하늘 외곽 광채 */
+  const renderEondeokSilenceOutline = (card: FieldCard | null, roundedClass: string) => {
+    if (!card || !isEondeokSilenceActive(card)) return null;
+    return (
+      <div
+        className={`pointer-events-none absolute inset-0 z-[35] overflow-visible ${roundedClass} shadow-[0_0_0_2px_rgba(186,230,253,0.95),0_0_26px_rgba(125,211,252,0.75),inset_0_0_16px_rgba(56,189,248,0.16)]`}
+        aria-hidden
+      />
+    );
+  };
+
+  const renderStatusBadges = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os" | "spell",
+    card: FieldCard | null,
+    isPlayerA: boolean
+  ) => {
     if (!card || !state || slot === "spell") return null;
     const oppPlayer = player === "A" ? "B" : "A";
     const oppField = oppPlayer === "A" ? state.playerA.field : state.playerB.field;
     const oppCard = oppField[slot as "is"|"m"|"os"];
-    
-    const statuses = getActiveStatuses(card, oppCard);
+    const myField = player === "A" ? state.playerA.field : state.playerB.field;
+
+    const statuses = sortStatusesForBadgeDisplay(
+      getActiveStatuses(card, oppCard, myField, {
+        playerAField: state.playerA.field,
+        playerBField: state.playerB.field,
+        mySlotKey: `${player}-${slot}`,
+      })
+    );
     
     if (statuses.length === 0) return null;
 
-    return (
-      <div className="absolute top-1 -right-2 flex flex-col gap-1 z-30 pointer-events-none">
-        {statuses.map(status => {
-          let colorClass = "bg-purple-700/95 border-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.8)]"; 
-          if (status === "도발") {
-            colorClass = "bg-red-700/95 border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.8)]";
-          } else if (status === "방어력 +200") {
-            colorClass = "bg-slate-600/95 border-slate-300 shadow-[0_0_10px_rgba(148,163,184,0.8)]";
-          } else if (status === "반짓고리") {
-            colorClass = "bg-pink-600/95 border-pink-300 shadow-[0_0_10px_rgba(219,39,119,0.8)] text-pink-100";
-          }
+    const bangeomakTicks = getActiveBangEomakDefenseTicksFromField(
+      player === "A" ? state.playerA.field : state.playerB.field
+    );
+    const invulnBadgeTicks = isBaekseuInvulnerable(card)
+      ? (card.baekseuInvulnerableEndTurnTicksRemaining ?? 0)
+      : getActiveCheolbyeokInvulnTicksFromField(myField);
 
-          return (
-            <span key={status} className={`px-1.5 py-0.5 ${colorClass} text-white text-[10px] font-black tracking-widest rounded-md border animate-[bounce_2s_infinite]`}>
-              {status}
+    const statusTooltip = (status: string) => {
+      if (status === BANG_EOMAK_DEFENSE_BADGE) {
+        return "[방어력 +200]";
+      }
+      if (status === BAEKSEU_INVULN_BADGE) {
+        return "[무적]";
+      }
+      if (status === BUFF_BAN_BADGE) {
+        return "[버프 금지]";
+      }
+      if (status === "침묵" && isEondeokSilenceActive(card)) {
+        return "[침묵]";
+      }
+      if (status === YORIN_STATUS_BADGE && card.name === DARK_KNIGHT_ID) {
+        return `역린: 공격력 +${getDarkKnightYorinAtkBonus(card)}`;
+      }
+      if (isMaxellandTenacityStatusBadge(status) && card.name === MAXELLAND_ID) {
+        return `투지: 공격력 +${getMaxellandTenacityAtkBonus(card)}`;
+      }
+      return status;
+    };
+
+    const chip =
+      "relative shrink-0 flex h-[18px] w-[18px] md:h-5 md:w-5 cursor-default rounded-[3px] border-2 pointer-events-auto";
+    /* 체력바가 있는 쪽과 반대로 툴팁 — B: 뱃지↑·체력바↓ → 위로 / A: 카드·체력바↑·뱃지↓ → 아래로 */
+    const tipPos = isPlayerA ? "top-full mt-1.5" : "bottom-full mb-1.5";
+
+    return (
+      <div
+        className={`z-[36] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
+        role="list"
+        aria-label="필드 효과"
+      >
+        {statuses.map((status, i) => (
+          <div
+            key={`${status}-${i}`}
+            title={statusTooltip(status)}
+            className={`group ${chip} ${
+              status === "침묵" && isEondeokSilenceActive(card)
+                ? "bg-sky-400 border-sky-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-sky-950"
+                : status === BANG_EOMAK_DEFENSE_BADGE
+                  ? "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950"
+                  : getStatusBadgeSurfaceClassForCard(status, card)
+            }`}
+            role="listitem"
+            aria-label={statusTooltip(status)}
+          >
+            {status === BUFF_BAN_BADGE ? (
+              <svg
+                className="pointer-events-none absolute inset-0 z-[2] h-full w-full overflow-visible"
+                viewBox="0 0 20 20"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden
+              >
+                <path
+                  d="M2.5 2.5L17.5 17.5M17.5 2.5L2.5 17.5"
+                  stroke="#0a0a0a"
+                  strokeWidth="2.4"
+                  strokeLinecap="square"
+                />
+              </svg>
+            ) : status === "침묵" && isEondeokSilenceActive(card) ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                aria-hidden
+              >
+                {`${Math.ceil((card.eondeokSilenceEndTurnTicksRemaining ?? 0) / 2)}*`}
+              </span>
+            ) : status === "기절" && isStunned(card) ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.92)] md:text-[9px]"
+                aria-hidden
+              >
+                {`${Math.ceil((card.stunEndTurnTicksRemaining ?? 0) / 2)}*`}
+              </span>
+            ) : status === BANG_EOMAK_DEFENSE_BADGE && bangeomakTicks > 0 ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                aria-hidden
+              >
+                {`${Math.ceil(bangeomakTicks / 2)}*`}
+              </span>
+            ) : status === BAEKSEU_INVULN_BADGE && invulnBadgeTicks > 0 ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-slate-900 md:text-[9px]"
+                aria-hidden
+              >
+                {`${Math.ceil(invulnBadgeTicks / 2)}*`}
+              </span>
+            ) : null}
+            <span
+              className={`pointer-events-none absolute ${tipPos} left-1/2 z-[80] -translate-x-1/2 rounded-md border border-white/15 bg-slate-950/95 px-2 py-1 text-[10px] font-bold text-white shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 whitespace-nowrap`}
+              role="tooltip"
+            >
+              {statusTooltip(status)}
             </span>
-          );
-        })}
+          </div>
+        ))}
       </div>
     );
   };
@@ -1007,28 +7118,54 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     const oppPlayer = player === "A" ? "B" : "A";
     const oppField = oppPlayer === "A" ? state?.playerA.field : state?.playerB.field;
     const oppCard = slot !== "spell" ? oppField?.[slot as "is"|"m"|"os"] : null;
-    const activeStatuses = getActiveStatuses(card, oppCard || null);
+    const allyFieldMenu = player === "A" ? state?.playerA.field : state?.playerB.field;
+    const activeStatuses = getActiveStatuses(
+      card,
+      oppCard || null,
+      allyFieldMenu,
+      state && slot !== "spell"
+        ? {
+            playerAField: state.playerA.field,
+            playerBField: state.playerB.field,
+            mySlotKey: `${player}-${slot}`,
+          }
+        : undefined
+    );
     const isSilenced = activeStatuses.includes("침묵");
+    const eondeokSilent = isEondeokSilenceActive(card);
+    const stunned = isStunned(card);
 
-    const canAttack = !card.hasAttacked && isMyTurn && !isSilenced;
+    const isAttackDisabled = isAttackDisabledUnit(card);
+    const summonLocked = card.summonedTurn === `${state?.turnCount}-${state?.currentTurn}`;
+    const iversonLocked = isIversonAttackLocked(card);
+    const canAttack =
+      !isAttackDisabled &&
+      !card.hasAttacked &&
+      isMyTurn &&
+      !isSilenced &&
+      !stunned &&
+      !summonLocked &&
+      !iversonLocked;
 
     return (
       <div 
         className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 z-30 backdrop-blur-[2px] animate-[fadeIn_0.15s_ease-out]" 
         onClick={(e) => { e.stopPropagation(); setSelectedSlot(null); }}
       >
-        {slot !== "spell" && (
+        {slot !== "spell" && !isAttackDisabled && (
           <button 
             onClick={(e) => { 
               e.stopPropagation(); 
               if (!canAttack) {
-                  if (isSilenced) alert("이 유닛은 현재 [침묵] 상태이므로 기본 공격을 할 수 없습니다!");
+                  if (stunned) alert("이 유닛은 현재 [기절] 상태이므로 기본 공격을 할 수 없습니다!");
+                  else if (isSilenced) alert("이 유닛은 현재 [침묵] 상태이므로 기본 공격을 할 수 없습니다!");
+                  else if (iversonLocked) {
+                    const lib = iversonLiberationLabel(card);
+                    alert(lib ?? "아이버슨은 아직 기본 공격을 할 수 없습니다.");
+                  } else if (summonLocked) {
+                    alert("다음 턴부터 공격이 가능합니다.");
+                  }
                   return;
-              }
-
-              if (card.summonedTurn === `${state?.turnCount}-${state?.currentTurn}`) {
-                alert("다음 턴부터 공격이 가능합니다.");
-                return;
               }
 
               const activePlayerState = state?.currentTurn === 'A' ? state.playerA : state?.playerB;
@@ -1037,7 +7174,19 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                 return;
               }
 
-              const atkStr = String(card.atk || "0").trim();
+              const atkStr = resolveFieldUnitSimulationBaseAtkRaw(card, null).trim();
+
+              if (isLibuty(card)) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setPendingLibutyAllEnemiesAttack({
+                  player,
+                  slot: slot as "is" | "m" | "os",
+                  position: { x: rect.left + rect.width / 2, y: rect.top },
+                });
+                setSelectedSlot(null);
+                return;
+              }
+
               const bracketMatch = atkStr.match(/^(\d+)\s*\((.+)\)$/);
               
               if (bracketMatch) {
@@ -1058,33 +7207,53 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
               setSelectedSlot(null); 
             }} 
             disabled={!canAttack}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${!canAttack ? (isSilenced ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-slate-700 text-slate-400 border-slate-600') + ' cursor-not-allowed opacity-80 shadow-none' : 'bg-rose-600 hover:bg-rose-500 text-white border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.6)] active:scale-95'}`}
+            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${!canAttack ? ((isSilenced || stunned) ? (eondeokSilent ? 'bg-sky-950 text-sky-200 border-sky-400' : 'bg-purple-900 text-purple-300 border-purple-700') : iversonLocked ? 'bg-emerald-950 text-emerald-200 border-emerald-800' : 'bg-slate-700 text-slate-400 border-slate-600') + ' cursor-not-allowed opacity-80 shadow-none' : 'bg-rose-600 hover:bg-rose-500 text-white border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.6)] active:scale-95'}`}
           >
-            {isSilenced ? '침묵 (공격불가)' : card.hasAttacked ? '공격 완료' : !isMyTurn ? '상대 턴' : '공격'}
+            {stunned
+              ? '기절 (행동불가)'
+              : isSilenced
+                ? eondeokSilent
+                  ? `침묵 (${Math.ceil((card.eondeokSilenceEndTurnTicksRemaining ?? 0) / 2)}*턴)`
+                  : '침묵 (공격불가)'
+                : iversonLocked
+                  ? iversonLiberationLabel(card) ?? '해방 대기'
+                  : summonLocked
+                    ? '다음 턴 공격'
+                    : card.hasAttacked
+                      ? '공격 완료'
+                      : !isMyTurn
+                        ? '상대 턴'
+                        : '공격'}
           </button>
         )}
         
         {/* 모모 스킬 버튼 */}
-        {slot !== "spell" && card.name === "모모" && (
+        {slot !== "spell" && card.name === UNIT.MOMO && (
           <button
             onClick={(e) => {
               e.stopPropagation();
+              if (isStunned(card)) {
+                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+                return;
+              }
               const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
               const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
               const isCooldown = turnsPassed < 4;
               if (isCooldown) return;
-              setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: "먹보" });
+              setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: PENDING_SKILL.MOMO_EAT });
               setSelectedSlot(null);
             }}
-            disabled={!isMyTurn || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
+            disabled={!isMyTurn || isStunned(card) || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none' :
+              isStunned(card) ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
               ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-amber-600 border-amber-900 cursor-not-allowed opacity-80' : 
               'bg-amber-600 hover:bg-amber-500 text-white border-white/20 shadow-[0_0_15px_rgba(217,119,6,0.6)] active:scale-95'
             }`}
           >
             {(() => {
                if (!isMyTurn) return '상대 턴';
+               if (isStunned(card)) return '기절 (스킬불가)';
                const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
                const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
                if (turnsPassed < 4) {
@@ -1097,10 +7266,14 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         )}
 
         {/* 에리스티나 스킬 버튼 */}
-        {slot !== "spell" && card.name === "에리스티나" && (
+        {slot !== "spell" && card.name === UNIT.ERISTINA && (
           <button
             onClick={(e) => {
               e.stopPropagation();
+              if (isStunned(card)) {
+                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+                return;
+              }
               const isSkillActive = (card as any).isSkillActive;
               if (isSkillActive) return;
 
@@ -1109,12 +7282,13 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
               const isCooldown = turnsPassed < 4;
               if (isCooldown) return;
 
-              setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: "마법의 반짓고리" });
+              setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: PENDING_SKILL.ERISTINA_BANJITGORI });
               setSelectedSlot(null);
             }}
-            disabled={!isMyTurn || (card as any).isSkillActive || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
+            disabled={!isMyTurn || isStunned(card) || (card as any).isSkillActive || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none' :
+              isStunned(card) ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
               (card as any).isSkillActive ? 'bg-pink-900 text-pink-400 border-pink-700 cursor-not-allowed opacity-80 shadow-none' :
               ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-pink-600 border-pink-900 cursor-not-allowed opacity-80' : 
               'bg-pink-600 hover:bg-pink-500 text-white border-white/20 shadow-[0_0_15px_rgba(219,39,119,0.6)] active:scale-95'
@@ -1122,6 +7296,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
           >
             {(() => {
                if (!isMyTurn) return '상대 턴';
+               if (isStunned(card)) return '기절 (스킬불가)';
                if ((card as any).isSkillActive) return '스킬 유지 중';
                const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
                const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
@@ -1130,6 +7305,184 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                    return `${remainingTurns}*턴 뒤 사용`;
                }
                return '마법의 반짓고리';
+            })()}
+          </button>
+        )}
+
+        {/* 라임 스킬 버튼 — 방울 보호막(에리스티나와 동형 링크·쿨) */}
+        {slot !== "spell" && card.name === UNIT.LIME && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isStunned(card)) {
+                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+                return;
+              }
+              const isSkillActive = (card as FieldCard).isSkillActive;
+              if (isSkillActive) return;
+
+              const lastUsedGlobalTurn = (card as FieldCard).skillLastUsedGlobalTurn ?? -999;
+              const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
+              const isCooldown = turnsPassed < 4;
+              if (isCooldown) return;
+
+              setPendingSkill({ player, slot: slot as "is" | "m" | "os", name: PENDING_SKILL.LIME_BUBBLE_SHIELD });
+              setSelectedSlot(null);
+            }}
+            disabled={
+              !isMyTurn ||
+              isStunned(card) ||
+              !!(card as FieldCard).isSkillActive ||
+              ((state?.globalTurnCount || 1) - ((card as FieldCard).skillLastUsedGlobalTurn ?? -999) < 4)
+            }
+            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+              !isMyTurn
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                : isStunned(card)
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
+                  : (card as FieldCard).isSkillActive
+                    ? "bg-sky-950 text-sky-300 border-sky-700 cursor-not-allowed opacity-80 shadow-none"
+                    : (state?.globalTurnCount || 1) - ((card as FieldCard).skillLastUsedGlobalTurn ?? -999) < 4
+                      ? "bg-slate-800 text-sky-700 border-sky-900 cursor-not-allowed opacity-80"
+                      : "bg-sky-500 hover:bg-sky-400 text-white border-sky-100/30 shadow-[0_0_15px_rgba(56,189,248,0.55)] active:scale-95"
+            }`}
+          >
+            {(() => {
+              if (!isMyTurn) return "상대 턴";
+              if (isStunned(card)) return "기절 (스킬불가)";
+              if ((card as FieldCard).isSkillActive) return "스킬 유지 중";
+              const lastUsedGlobalTurn = (card as FieldCard).skillLastUsedGlobalTurn ?? -999;
+              const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
+              if (turnsPassed < 4) {
+                const remainingTurns = Math.ceil((4 - turnsPassed) / 2);
+                return `${remainingTurns}*턴 뒤 사용`;
+              }
+              return "방울 보호막";
+            })()}
+          </button>
+        )}
+
+        {/* 단하 스킬 버튼 — 마법의 갈고리(일회성) */}
+        {slot !== "spell" && card.name === UNIT.DANHA && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isStunned(card)) {
+                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+                return;
+              }
+              if ((card as FieldCard).danhaMagicHookConsumed) return;
+
+              const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
+              const oppHand = player === "A" ? state?.playerB.hand : state?.playerA.hand;
+              if (!allyHand || !oppHand) return;
+              if (allyHand.length >= 6) {
+                alert("아군 패에 빈 슬롯이 없습니다. 카드를 1장 이상 비운 뒤 사용할 수 있습니다.");
+                return;
+              }
+              if (oppHand.length === 0) {
+                alert("상대 패에 빼앗을 카드가 없습니다.");
+                return;
+              }
+
+              setPendingSkill({ player, slot: slot as "is" | "m" | "os", name: PENDING_SKILL.DANHA_GALGORI });
+              setSelectedSlot(null);
+            }}
+            disabled={
+              !isMyTurn ||
+              isStunned(card) ||
+              !!(card as FieldCard).danhaMagicHookConsumed ||
+              (() => {
+                const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
+                const oppHand = player === "A" ? state?.playerB.hand : state?.playerA.hand;
+                if (!allyHand || !oppHand) return true;
+                return allyHand.length >= 6 || oppHand.length === 0;
+              })()
+            }
+            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+              !isMyTurn
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                : isStunned(card)
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
+                  : (card as FieldCard).danhaMagicHookConsumed
+                    ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                    : (() => {
+                        const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
+                        const oppHand = player === "A" ? state?.playerB.hand : state?.playerA.hand;
+                        if (!allyHand || !oppHand) return "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none";
+                        if (allyHand.length >= 6 || oppHand.length === 0) {
+                          return "bg-slate-800 text-sky-700 border-sky-900 cursor-not-allowed opacity-80 shadow-none";
+                        }
+                        return "bg-sky-500 hover:bg-sky-400 text-white border-sky-200/40 shadow-[0_0_15px_rgba(56,189,248,0.55)] active:scale-95";
+                      })()
+            }`}
+          >
+            {(() => {
+              if (!isMyTurn) return "상대 턴";
+              if (isStunned(card)) return "기절 (스킬불가)";
+              if ((card as FieldCard).danhaMagicHookConsumed) return "사용 완료";
+              const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
+              const oppHand = player === "A" ? state?.playerB.hand : state?.playerA.hand;
+              if (allyHand && allyHand.length >= 6) return "패 가득 참";
+              if (oppHand && oppHand.length === 0) return "상대 패 없음";
+              return "마법의 갈고리";
+            })()}
+          </button>
+        )}
+
+        {/* 슈퍼 그린킹 스킬 버튼 — 주문 파괴자(일회성) */}
+        {slot !== "spell" && card.name === UNIT.SUPER_GREEN_KING && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              if (isStunned(card)) {
+                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+                return;
+              }
+              if ((card as FieldCard).superGreenKingSpellBreakerConsumed) return;
+
+              const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
+              if (!opp || normalizeSpellStack(opp).length === 0) {
+                alert("상대 스펠 칸에 제거할 마법이 없습니다.");
+                return;
+              }
+
+              setPendingSkill({ player, slot: slot as "is" | "m" | "os", name: PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER });
+              setSelectedSlot(null);
+            }}
+            disabled={
+              !isMyTurn ||
+              isStunned(card) ||
+              !!(card as FieldCard).superGreenKingSpellBreakerConsumed ||
+              (() => {
+                const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
+                if (!opp) return true;
+                return normalizeSpellStack(opp).length === 0;
+              })()
+            }
+            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+              !isMyTurn
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                : isStunned(card)
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
+                  : (card as FieldCard).superGreenKingSpellBreakerConsumed
+                    ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                    : (() => {
+                        const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
+                        if (!opp || normalizeSpellStack(opp).length === 0) {
+                          return "bg-slate-800 text-emerald-900 border-emerald-950 cursor-not-allowed opacity-80 shadow-none";
+                        }
+                        return "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-200/40 shadow-[0_0_15px_rgba(52,211,153,0.55)] active:scale-95";
+                      })()
+            }`}
+          >
+            {(() => {
+              if (!isMyTurn) return "상대 턴";
+              if (isStunned(card)) return "기절 (스킬불가)";
+              if ((card as FieldCard).superGreenKingSpellBreakerConsumed) return "사용 완료";
+              const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
+              if (opp && normalizeSpellStack(opp).length === 0) return "상대 스펠 없음";
+              return "주문 파괴자";
             })()}
           </button>
         )}
@@ -1155,28 +7508,127 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     );
   };
 
-  const renderHpBar = (card: FieldCard | null, isPlayerA: boolean = false) => {
+  const renderHpBar = (
+    card: FieldCard | null,
+    isPlayerA: boolean = false,
+    layout: "overlay" | "inline" = "overlay",
+    fieldSlot?: "is" | "m" | "os"
+  ) => {
     if (!card || !card.hp || Number(card.hp) <= 0) return null;
     
     const maxHp = Number(card.hp);
     const currentHp = card.currentHp;
-    const percentage = Math.max(0, Math.min(100, (currentHp / maxHp) * 100));
-    
-    // ⭐️ [신규] 반짓고리 적용 시 전용 체력바 색상 (핑크색)
-    let barColor = percentage > 30 ? 'bg-gradient-to-r from-green-500 to-green-400' : 'bg-gradient-to-r from-red-500 to-red-400';
-    if ((card as any).hasBanjitgori) {
+    const barrierRem = Math.max(0, card.hpBarrierAbsorptionRemaining ?? 0);
+    /** 실질 체력 비율 — 반짓고리·저체력 색·백스 처형선 등은 항상 유닛 `hp` 기준 */
+    const realHpPctForTint = maxHp > 0 ? (currentHp / maxHp) * 100 : 0;
+
+    const pool = currentHp + barrierRem;
+    /**
+     * 보호막 합이 실질 최대체력 이상이면: 합을 100%로 두고 녹/하늘 비율만 분할(막대 꽉 참).
+     * 미만이면: (현재+보호막)/maxHp 만큼만 채우고, 그 안은 current/max·barrier/max 비율로 분할.
+     */
+    const useOverflowFullBar = barrierRem > 0 && maxHp > 0 && pool >= maxHp;
+    let realGreenBarPct = 0;
+    let cyanBarPct = 0;
+    if (barrierRem > 0 && maxHp > 0) {
+      if (useOverflowFullBar) {
+        const vt = Math.max(1, pool);
+        realGreenBarPct = Math.min(100, (currentHp / vt) * 100);
+        cyanBarPct = Math.min(100, Math.max(0, (barrierRem / vt) * 100));
+      } else {
+        realGreenBarPct = Math.min(100, (currentHp / maxHp) * 100);
+        cyanBarPct = Math.min(100, Math.max(0, (barrierRem / maxHp) * 100));
+      }
+    } else if (maxHp > 0) {
+      realGreenBarPct = Math.min(100, (currentHp / maxHp) * 100);
+    }
+
+    const eondeokFrozenHp = isEondeokSilenceActive(card);
+    const playerLetter: "A" | "B" = isPlayerA ? "A" : "B";
+    const banjitPinkHpActive =
+      !!(card as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori &&
+      (!state ||
+        !fieldSlot ||
+        !callieBuffBanSuppressesBuffsForVictim(
+          playerLetter,
+          fieldSlot,
+          state.playerA.field,
+          state.playerB.field
+        ));
+    // ⭐️ 반짓고리 적용 시 전용 체력바 색상 (핑크색) — 언덕! [침묵]은 그보다 우선(얼음·하늘색 트랙)
+    let barColor =
+      realHpPctForTint > 30
+        ? "bg-gradient-to-r from-green-500 to-green-400"
+        : "bg-gradient-to-r from-red-500 to-red-400";
+    if (eondeokFrozenHp) {
+      barColor =
+        'bg-gradient-to-r from-sky-600 via-cyan-400 to-sky-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]';
+    } else if (banjitPinkHpActive) {
       barColor = 'bg-gradient-to-r from-pink-500 to-pink-300';
+    }
+
+    const hpTrackFrozenClass = eondeokFrozenHp
+      ? "border-sky-400/60 bg-slate-950 shadow-[inset_0_0_10px_rgba(56,189,248,0.18),0_0_12px_rgba(125,211,252,0.35)]"
+      : "border-slate-700 bg-slate-900 shadow-[0_2px_4px_rgba(0,0,0,0.5)]";
+
+    const inner = (
+      <>
+        <div className="relative z-[2] h-full w-full overflow-hidden rounded-[inherit]">
+          <div
+            className={`absolute left-0 top-0 z-[1] h-full transition-all duration-300 ${barColor}`}
+            style={{ width: `${realGreenBarPct}%` }}
+          />
+          {barrierRem > 0 && cyanBarPct > 0 ? (
+            <div
+              className="absolute top-0 z-[2] h-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-all duration-300"
+              style={{ left: `${realGreenBarPct}%`, width: `${cyanBarPct}%` }}
+              aria-hidden
+            />
+          ) : null}
+        </div>
+        <span className="pointer-events-none absolute inset-0 z-[6] flex flex-wrap items-center justify-center gap-x-0.5 px-0.5 text-center text-[8px] font-black tabular-nums leading-tight text-white drop-shadow-[0_1px_1.5px_rgba(0,0,0,1)] md:text-[9px]">
+          {barrierRem > 0 ? (
+            <>
+              <span>{currentHp}</span>
+              <span className="font-black text-sky-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]">
+                {" "}
+                + {barrierRem}
+              </span>
+            </>
+          ) : (
+            <span>
+              {currentHp} / {maxHp}
+            </span>
+          )}
+        </span>
+      </>
+    );
+
+    const showBaekseuExecuteHpDecor =
+      !!state &&
+      fieldHasBaekseuLastStandExecuteAura(isPlayerA ? state.playerB.field : state.playerA.field);
+    const warnLowHpForExecute = showBaekseuExecuteHpDecor && realHpPctForTint <= 30;
+    const trackWarnClass = warnLowHpForExecute ? " pp-baekseu-exec-hpbar-track--warn" : "";
+    
+    if (layout === "inline") {
+      return (
+        <div
+          className={`relative z-[1] h-3.5 shrink-0 ${fieldUnitWidthClass} rounded-[3px] border overflow-hidden pointer-events-none ${hpTrackFrozenClass}${trackWarnClass}`}
+        >
+          {showBaekseuExecuteHpDecor ? (
+            <div className="pp-baekseu-hp-exec-threshold-line" aria-hidden />
+          ) : null}
+          {inner}
+        </div>
+      );
     }
     
     return (
-      <div className={`absolute ${isPlayerA ? '-bottom-5' : '-top-5'} left-0 w-full h-3.5 bg-slate-900 rounded-[3px] border border-slate-700 overflow-hidden z-20 shadow-[0_2px_4px_rgba(0,0,0,0.5)] pointer-events-none`}>
-        <div 
-          className={`h-full transition-all duration-300 ${barColor}`} 
-          style={{ width: `${percentage}%` }} 
-        />
-        <span className="absolute inset-0 flex items-center justify-center text-[9px] md:text-[10px] font-black text-white drop-shadow-[0_1px_1.5px_rgba(0,0,0,1)] leading-none tracking-tight">
-          {currentHp} / {maxHp}
-        </span>
+      <div className={`absolute ${isPlayerA ? '-bottom-5' : '-top-5'} left-0 w-full h-3.5 rounded-[3px] border overflow-hidden z-[70] pointer-events-none ${hpTrackFrozenClass}${trackWarnClass}`}>
+        {showBaekseuExecuteHpDecor ? (
+          <div className="pp-baekseu-hp-exec-threshold-line" aria-hidden />
+        ) : null}
+        {inner}
       </div>
     );
   };
@@ -1191,9 +7643,21 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     ? { bg: "bg-[#050a14]", border: "border-slate-800", text: "text-slate-200", panel: "bg-slate-900/60 border-slate-700" } 
     : { bg: "bg-slate-100", border: "border-slate-300", text: "text-slate-800", panel: "bg-white border-slate-300 shadow-sm" };
 
-  const fieldCardStyle = "shrink-0 w-[85px] md:w-[100px] lg:w-[120px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  const fieldCardStyle =
+    "shrink-0 w-[85px] md:w-[100px] lg:w-[120px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
   const spellCardStyle = "shrink-0 w-[130px] md:w-[155px] lg:w-[190px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
-  const handCardStyle = "shrink-0 w-[85px] md:w-[110px] lg:w-[135px] aspect-[1/1.58] rounded-[8px] border border-white/10 flex items-center justify-center transition-all shadow-md bg-black/30 overflow-hidden relative";
+  const handSlotOuterStyle =
+    "shrink-0 w-[85px] md:w-[110px] lg:w-[135px] relative overflow-visible";
+  const handCardStyle =
+    "w-full aspect-[1/1.58] rounded-[8px] border border-white/10 flex items-center justify-center transition-all shadow-md bg-black/30 relative overflow-visible";
+  /** 손패 카드 면(이미지·호버 오버레이) — 바깥 셸은 호버 이동·신규 글로우용으로 overflow 유지 */
+  const handCardFaceClipClass =
+    "absolute inset-0 z-[2] overflow-hidden rounded-[8px] flex items-center justify-center";
+  const handNewDrawGlowOverlayClass =
+    "pointer-events-none absolute -inset-[3px] z-[1] rounded-[10px] border border-white/75 shadow-[0_0_14px_4px_rgba(255,255,255,0.38),0_0_4px_1px_rgba(255,255,255,0.92)]";
+  /** 심판 패 6장 교체 모드 — 공격 가능 유닛과 동형의 흰색 맥박 */
+  const simpanHandReplaceSelectableClass =
+    "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-[30]";
 
   if (!state) {
     return (
@@ -1214,21 +7678,140 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     );
   }
 
+  const simpanCenterDisplay =
+    state.simpanHandChoice != null
+      ? {
+          kind: "replace" as const,
+          player: state.simpanHandChoice.player,
+          card: state.simpanHandChoice.pendingCard,
+        }
+      : state.simpanPeekReveal != null
+        ? {
+            kind: "peek" as const,
+            player: state.simpanPeekReveal.player,
+            card: state.simpanPeekReveal.pendingCard,
+          }
+        : null;
+
   const activePlayerState = state.currentTurn === 'A' ? state.playerA : state.playerB;
-  const isDrawDisabled = isInitializing || !state.currentTurn || activePlayerState?.hasDrawnThisTurn || activePlayerState?.hand.length >= 6;
-  const isDrawHighlight = state.currentTurn && !isInitializing && !activePlayerState?.hasDrawnThisTurn && activePlayerState?.hand.length < 6 && state.deckCards.length > 0;
+  const isDrawDisabled =
+    isInitializing ||
+    !state.currentTurn ||
+    activePlayerState?.hasDrawnThisTurn ||
+    activePlayerState?.hand.length >= 6 ||
+    !!state.simpanPeekReveal ||
+    !!state.simpanHandChoice;
+  const isDrawHighlight =
+    state.currentTurn &&
+    !isInitializing &&
+    !activePlayerState?.hasDrawnThisTurn &&
+    activePlayerState?.hand.length < 6 &&
+    state.deckCards.length > 0 &&
+    !state.simpanPeekReveal &&
+    !state.simpanHandChoice;
 
   const isBFieldEmpty = !state.playerB.field.is && !state.playerB.field.m && !state.playerB.field.os;
-  const canAttackPlayerB = attackingSlot && attackingSlot.startsWith("A-") && isBFieldEmpty;
-  
   const isAFieldEmpty = !state.playerA.field.is && !state.playerA.field.m && !state.playerA.field.os;
-  const canAttackPlayerA = attackingSlot && attackingSlot.startsWith("B-") && isAFieldEmpty;
+
+  /** 렴초 등 플레이어 HP 직접 공격 불가 유닛일 때는 상대 패널을 타겟 가능처럼 표시하지 않음 */
+  const strikeAttackerCardForPlayerHp: FieldCard | null = (() => {
+    if (!attackingSlot) return null;
+    const [ap, aslot] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+    if (ap !== "A" && ap !== "B") return null;
+    if (aslot !== "is" && aslot !== "m" && aslot !== "os") return null;
+    return (ap === "A" ? state.playerA.field : state.playerB.field)[aslot] ?? null;
+  })();
+  const canDirectAttackOpponentPlayerHp =
+    strikeAttackerCardForPlayerHp != null &&
+    !isRyeomcho(strikeAttackerCardForPlayerHp) &&
+    !isRanigo(strikeAttackerCardForPlayerHp);
+
+  const canAttackPlayerB =
+    !!attackingSlot &&
+    attackingSlot.startsWith("A-") &&
+    isBFieldEmpty &&
+    canDirectAttackOpponentPlayerHp;
+
+  const canAttackPlayerA =
+    !!attackingSlot &&
+    attackingSlot.startsWith("B-") &&
+    isAFieldEmpty &&
+    canDirectAttackOpponentPlayerHp;
 
   return (
     <div 
       className={`w-full h-screen overflow-auto ${theme.bg} ${theme.text} flex items-center justify-center p-4 relative`}
-      onClick={() => { setSelectedSlot(null); setAttackingSlot(null); setPendingSecondaryAttack(null); setAttackOptionOverride(null); setPendingSkill(null); }} 
+      onClick={() => { setSelectedSlot(null); setAttackingSlot(null); setPendingSecondaryAttack(null); setAttackOptionOverride(null); setPendingSkill(null); setPendingLibutyAllEnemiesAttack(null); }} 
     >
+      {state?.simpanPeekReveal && !simpanPeekFly ? (
+        <div
+          role="presentation"
+          aria-label="클릭하면 패로 이동합니다"
+          className="fixed inset-0 z-[124] cursor-pointer touch-manipulation bg-transparent"
+          onPointerDown={e => {
+            e.preventDefault();
+            simpanPeekSkipToFlyRef.current?.();
+          }}
+        />
+      ) : null}
+      {simpanPeekFly ? (
+        <div
+          aria-hidden
+          className="fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)] pp-simpan-pending-glow"
+          style={{
+            left: 0,
+            top: 0,
+            width: simpanPeekFly.phase === 1 ? simpanPeekFly.to.w : simpanPeekFly.from.w,
+            height: simpanPeekFly.phase === 1 ? simpanPeekFly.to.h : simpanPeekFly.from.h,
+            transform: `translate3d(${simpanPeekFly.phase === 1 ? simpanPeekFly.to.x : simpanPeekFly.from.x}px, ${simpanPeekFly.phase === 1 ? simpanPeekFly.to.y : simpanPeekFly.from.y}px, 0)`,
+            transition:
+              simpanPeekFly.phase === 1
+                ? `transform ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1), width ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1), height ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
+                : "none",
+            willChange: "transform, width, height",
+          }}
+        >
+          {simpanPeekFly.pendingCard.image_url ? (
+            <img
+              src={simpanPeekFly.pendingCard.image_url}
+              alt={simpanPeekFly.pendingCard.name}
+              className={`h-full w-full object-cover ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
+            />
+          ) : (
+            <div
+              className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100 ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
+            >
+              {simpanPeekFly.pendingCard.name}
+            </div>
+          )}
+        </div>
+      ) : null}
+      {handDrag && (
+        <div
+          aria-hidden
+          className="fixed z-[90] pointer-events-none overflow-hidden rounded-[8px] border border-white/15 bg-black/40 shadow-2xl"
+          style={{
+            width: handDrag.width,
+            height: handDrag.height,
+            left: handDrag.clientX - handDrag.offsetX,
+            top: handDrag.clientY - handDrag.offsetY,
+          }}
+        >
+          {handDrag.card.image_url ? (
+            <img
+              src={handDrag.card.image_url}
+              alt={handDrag.card.name}
+              className={`h-full w-full object-cover ${handDrag.opponentCardFlipped ? "rotate-180" : ""}`}
+            />
+          ) : (
+            <span
+              className={`flex h-full items-center justify-center p-2 text-center text-[10px] font-bold leading-tight lg:text-[11px] ${handDrag.player === "B" ? "text-rose-200" : "text-sky-200"} ${handDrag.opponentCardFlipped ? "rotate-180" : ""}`}
+            >
+              {handDrag.card.name}
+            </span>
+          )}
+        </div>
+      )}
 
       {winner && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden">
@@ -1254,12 +7837,340 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
               >
                 로비로 돌아가기
               </button>
+              <button
+                type="button"
+                onClick={() => setIsGameStatsOpen(true)}
+                className="px-10 py-5 bg-emerald-900 hover:bg-emerald-800 text-white rounded-3xl font-black text-xl transition-colors border-2 border-emerald-500 active:scale-95 shadow-2xl w-full sm:w-auto"
+              >
+                게임 통계
+              </button>
               <button 
                 onClick={handleReset}
                 className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto ${winner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
               >
                 다시 플레이
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isGameStatsOpen && state && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setIsGameStatsOpen(false)}
+        >
+          <div
+            className="bg-[#0a1628] border-2 border-slate-600 rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-700 shrink-0">
+              <h2 className="text-xl font-black text-white tracking-wide">게임 통계</h2>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 border border-slate-600"
+                onClick={() => setIsGameStatsOpen(false)}
+              >
+                닫기
+              </button>
+            </div>
+            <div className="px-5 py-4 text-sm text-slate-300 border-b border-slate-800 shrink-0 space-y-1">
+              <p>
+                <span className="text-slate-500">턴 수</span>{" "}
+                <span className="font-mono font-bold text-amber-200">{state.turnCount}</span>
+                {" · "}
+                <span className="text-slate-500">경과</span>{" "}
+                <span className="font-mono font-bold text-sky-200">
+                  {Math.floor((state.elapsedTime || 0) / 60)}분 {(state.elapsedTime || 0) % 60}초
+                </span>
+                {winner && (
+                  <>
+                    {" · "}
+                    <span className="text-slate-500">결과</span>{" "}
+                    <span className="font-black text-white">PLAYER {winner} 승리</span>
+                  </>
+                )}
+              </p>
+              <p className="text-xs text-slate-500">
+                필드에 코스트를 지불하고 배치한 유닛만 집계합니다. 감소된 피해는 반짓고리·방어 패시브·무적 등으로 막거나 줄인 양의 합(추정)입니다. 피해·회복·감소 피해 수치는 표시만 50 단위로 반올림합니다(처치 제외).
+              </p>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-8">
+              <section>
+                <h3 className="text-sm font-black text-emerald-400 mb-3 tracking-wider">유닛</h3>
+                {gameStatsDisplayUnitRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">아직 기록된 유닛이 없습니다.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-slate-700">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-2 px-1">
+                      <label className="flex cursor-pointer items-center gap-2 select-none text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-500 bg-slate-900 text-emerald-600 focus:ring-emerald-500"
+                          checked={gameStatsTeamSplit}
+                          onChange={e => setGameStatsTeamSplit(e.target.checked)}
+                        />
+                        팀 구분
+                      </label>
+                      {gameStatsUnitSortKey !== "default" && (
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                          onClick={() => setGameStatsUnitSortKey("default")}
+                        >
+                          정렬 초기화
+                        </button>
+                      )}
+                    </div>
+                    <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                      <thead className="bg-slate-900/80 text-slate-400 font-bold tracking-wide">
+                        <tr>
+                          <th className="px-3 py-2 whitespace-nowrap">플레이어</th>
+                          <th className="px-3 py-2">
+                            <span className="inline-flex items-center gap-0.5">
+                              이름
+                              <button
+                                type="button"
+                                title="이름 가나다순 (ㄱ→ㅎ, 위에서 아래)"
+                                className={`ml-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "name"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("name")}
+                              >
+                                ↑
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-0.5">
+                              소환 턴
+                              <button
+                                type="button"
+                                title="소환 턴 기준 내림차순"
+                                className={`ml-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "summonedTurn"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("summonedTurn")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              총합 데미지
+                              <button
+                                type="button"
+                                title="총합 데미지 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "damageDealt"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("damageDealt")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              총합 처치
+                              <button
+                                type="button"
+                                title="총합 처치 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "kills"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("kills")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              받은 피해
+                              <button
+                                type="button"
+                                title="받은 피해 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "damageTaken"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("damageTaken")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              회복량
+                              <button
+                                type="button"
+                                title="회복량 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "selfHeal"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("selfHeal")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              회복 지원량
+                              <button
+                                type="button"
+                                title="회복 지원량 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "allyHealGiven"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("allyHealGiven")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                          <th className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center justify-end gap-0.5">
+                              감소된 피해
+                              <button
+                                type="button"
+                                title="감소된 피해 내림차순"
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black leading-none border transition-colors ${
+                                  gameStatsUnitSortKey === "damageMitigated"
+                                    ? "border-emerald-500 bg-emerald-900/50 text-emerald-200"
+                                    : "border-slate-600 bg-slate-800/90 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                                }`}
+                                onClick={() => setGameStatsUnitSortKey("damageMitigated")}
+                              >
+                                ↓
+                              </button>
+                            </span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-slate-200">
+                        {gameStatsDisplayUnitRows.map((row, i) => (
+                          <tr key={`${row.cardName}-${row.summonedTurn}-${row.player}-${i}`} className="border-t border-slate-800 hover:bg-slate-900/40">
+                            <td
+                              className={`px-3 py-2 font-black ${
+                                row.player === "A" ? "text-sky-400" : "text-rose-400"
+                              }`}
+                            >
+                              {row.player}
+                            </td>
+                            <td className="px-3 py-2 font-medium">{row.cardName}</td>
+                            <td className="px-3 py-2 font-mono text-slate-400">{row.summonedTurn}</td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.damageDealt > 0 &&
+                                formatGameStatInteger(row.damageDealt) === gameStatsNumericColumnMax.damageDealt
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {formatGameStatInteger(row.damageDealt)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.kills > 0 &&
+                                row.kills === gameStatsNumericColumnMax.kills
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {row.kills}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.damageTaken > 0 &&
+                                formatGameStatInteger(row.damageTaken) === gameStatsNumericColumnMax.damageTaken
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {formatGameStatInteger(row.damageTaken)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.selfHeal > 0 &&
+                                formatGameStatInteger(row.selfHeal) === gameStatsNumericColumnMax.selfHeal
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {formatGameStatInteger(row.selfHeal)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.allyHealGiven > 0 &&
+                                formatGameStatInteger(row.allyHealGiven) === gameStatsNumericColumnMax.allyHealGiven
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {formatGameStatInteger(row.allyHealGiven)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-mono ${
+                                gameStatsNumericColumnMax &&
+                                gameStatsNumericColumnMax.damageMitigated > 0 &&
+                                formatGameStatInteger(row.damageMitigated) === gameStatsNumericColumnMax.damageMitigated
+                                  ? "font-bold text-amber-300"
+                                  : ""
+                              }`}
+                            >
+                              {formatGameStatInteger(row.damageMitigated)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+              <section>
+                <h3 className="text-sm font-black text-violet-400 mb-3 tracking-wider">마법 카드</h3>
+                <p className="text-xs text-slate-500 mb-3">배치된 마법만 목록으로 표시합니다. 상세 통계는 이후 버전에서 추가됩니다.</p>
+                {state.spellDeployLog.length === 0 ? (
+                  <p className="text-sm text-slate-500">배치된 마법이 없습니다.</p>
+                ) : (
+                  <ul className="rounded-lg border border-slate-700 divide-y divide-slate-800">
+                    {state.spellDeployLog.map(entry => (
+                      <li
+                        key={entry.statsInstanceId}
+                        className="px-3 py-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-200"
+                      >
+                        <span className={`font-black ${entry.player === "A" ? "text-sky-400" : "text-rose-400"}`}>
+                          {entry.player}
+                        </span>
+                        <span className="font-medium">{entry.name}</span>
+                        <span className="text-slate-500 font-mono text-xs">{entry.summonedTurn}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
           </div>
         </div>
@@ -1464,6 +8375,46 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         </div>
       )}
 
+      {pendingLibutyAllEnemiesAttack && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[1px]"
+          onClick={() => setPendingLibutyAllEnemiesAttack(null)}
+        >
+          <div
+            className="absolute bg-[#0a1628] border-2 border-sky-500 rounded-3xl p-5 md:p-6 shadow-[0_0_50px_rgba(14,165,233,0.8)] flex flex-col items-center min-w-[280px] z-[101] animate-[scaleIn_0.15s_ease-out]"
+            style={{
+              top: Math.max(20, pendingLibutyAllEnemiesAttack.position.y - 180) + "px",
+              left:
+                Math.max(140, Math.min(window.innerWidth - 140, pendingLibutyAllEnemiesAttack.position.x)) + "px",
+              transform: "translateX(-50%)",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg md:text-xl font-black text-white mb-4 tracking-wider">리부티 기본 공격</h3>
+            <p className="text-slate-400 text-sm text-center mb-4 px-1">
+              필드에 있는 모든 적 유닛에게 각각 {LIBUTY_BASIC_AOE_DAMAGE} 피해를 줍니다.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                commitLibutyAllEnemiesBasicAttack();
+              }}
+              className="w-full flex flex-col items-center justify-center px-4 py-3 bg-slate-800 hover:bg-rose-600 border border-slate-600 hover:border-rose-300 rounded-2xl text-white font-bold transition-all group active:scale-95"
+            >
+              <span className="text-[10px] text-slate-400 group-hover:text-rose-100 mb-1">전체 적</span>
+              <span className="text-xl md:text-2xl font-black whitespace-nowrap">모든 적 공격</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingLibutyAllEnemiesAttack(null)}
+              className="mt-4 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 text-sm rounded-xl font-bold transition-colors w-full active:scale-95"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
       {pendingSecondaryAttack && (
         <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-amber-600 to-orange-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(245,158,11,0.8)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           추가 피해({pendingSecondaryAttack.damage})를 입힐 적 유닛을 선택하세요! (남은 횟수: {pendingSecondaryAttack.hitsRemaining}회)
@@ -1472,7 +8423,14 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
       {pendingSkill && (
         <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-pink-600 to-purple-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(219,39,119,0.8)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
-          {pendingSkill.name === "마법의 반짓고리" ? `[${pendingSkill.name}] 스킬 발동 대기 중! 연결할 아군 필드 유닛을 선택하세요.` : `[${pendingSkill.name}] 스킬 발동 대기 중! 패에서 버릴 카드를 선택하세요.`}
+          {pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI ||
+          pendingSkill.name === PENDING_SKILL.LIME_BUBBLE_SHIELD
+            ? `[${pendingSkill.name}] 스킬 발동 대기 중! 연결할 아군 필드 유닛을 선택하세요.`
+            : pendingSkill.name === PENDING_SKILL.DANHA_GALGORI
+              ? `[${pendingSkill.name}] 스킬 발동 대기 중! 상대 패에서 빼앗을 카드를 선택하세요.`
+              : pendingSkill.name === PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER
+                ? `[${pendingSkill.name}] 스킬 발동 대기 중! 상대 스펠 칸에서 제거할 마법을 선택하세요.`
+                : `[${pendingSkill.name}] 스킬 발동 대기 중! 패에서 버릴 카드를 선택하세요.`}
         </div>
       )}
 
@@ -1535,7 +8493,6 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       )}
 
       <div className={`relative w-full max-w-[1700px] min-w-[1300px] min-h-[750px] aspect-video flex flex-row gap-6 p-6 rounded-3xl border-2 ${theme.border} shadow-[0_0_50px_rgba(0,0,0,0.6)] bg-gradient-to-b from-[#0a1628] to-[#050a14] overflow-hidden`}>
-        
         {coinTossDisplay && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl animate-[fadeIn_0.3s_ease-out]">
             <div className="flex flex-col items-center">
@@ -1567,6 +8524,16 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-sky-500/20 text-sky-400 transition-colors" onClick={() => { setIsMenuOpen(false); if(onBackToLobby) onBackToLobby(); else window.location.href = '/'; }}>로비로 돌아가기</button>
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-rose-500/20 text-rose-400 transition-colors" onClick={handleReset}>게임 초기화</button>
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-amber-500/20 text-amber-400 transition-colors border-t border-slate-700" onClick={() => { setIsMenuOpen(false); setIsSettingsOpen(true); }}>게임 설정</button>
+                <button
+                  type="button"
+                  className="px-4 py-3 text-left text-xs font-bold hover:bg-emerald-500/20 text-emerald-400 transition-colors border-t border-slate-700"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    setIsGameStatsOpen(true);
+                  }}
+                >
+                  게임 통계
+                </button>
               </div>
             )}
           </div>
@@ -1593,8 +8560,14 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             </button>
             
             <button 
-              onClick={(e) => { e.stopPropagation(); setIsRewindModalOpen(true); }}
-              className="w-full aspect-[1.58/1] border-2 border-slate-600 hover:border-slate-400 border-dashed bg-black/40 hover:bg-black/60 rounded-xl flex flex-col items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 group"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (state.simpanHandChoice) dismissSimpanViaRewind();
+                else setIsRewindModalOpen(true);
+              }}
+              className={`w-full aspect-[1.58/1] border-2 border-slate-600 hover:border-slate-400 border-dashed bg-black/40 hover:bg-black/60 rounded-xl flex flex-col items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 group ${
+                state.simpanHandChoice ? "pp-rewind-simpan-white-blink border-white/50" : ""
+              }`}
             >
               <span className="text-[11px] font-bold text-slate-400 group-hover:text-slate-300 transition-colors">리와인드</span>
               <span className="text-2xl font-black text-slate-500 group-hover:text-slate-300 leading-tight transition-colors">{state.rewindCards.length}</span>
@@ -1605,102 +8578,374 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
         {/* ===================== 2. 중앙 영역 (메인 필드) ===================== */}
         <div className="shrink-0 flex flex-col items-center justify-center relative h-full pl-2 lg:pl-6">
-          <div className="border-2 border-amber-600/30 bg-black/50 rounded-[2.5rem] px-8 py-10 flex flex-col items-center justify-center relative shadow-[inset_0_0_80px_rgba(0,0,0,0.7)]">
+          <div className="border-2 border-amber-600/30 bg-black/50 rounded-[2.5rem] px-6 py-6 flex flex-col items-center justify-center relative shadow-[inset_0_0_80px_rgba(0,0,0,0.7)]">
+            {simpanCenterDisplay && !simpanPeekFly ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 top-[48%] z-[120] flex -translate-y-1/2 flex-col items-center justify-center gap-2 px-4"
+                aria-live="polite"
+              >
+                <div
+                  ref={simpanCenterDisplay.kind === "peek" ? simpanPeekCardMeasureRef : undefined}
+                  className="pp-simpan-pending-glow relative w-[92px] md:w-[105px] lg:w-[118px] aspect-[1/1.58] overflow-visible rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)]"
+                >
+                  <div className="absolute inset-0 overflow-hidden rounded-[8px]">
+                    {simpanCenterDisplay.card.image_url ? (
+                      <img
+                        src={simpanCenterDisplay.card.image_url}
+                        alt={simpanCenterDisplay.card.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100">
+                        {simpanCenterDisplay.card.name}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {simpanCenterDisplay.kind === "replace" ? (
+                  <p className="max-w-[min(100%,22rem)] text-center text-[11px] font-black leading-tight tracking-wide text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]">
+                    교체할 카드를 선택
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             
             {/* ⭐️ Player B 영역 (상단) */}
-            <div className="flex flex-col gap-3 z-10 w-full">
-              <div className="flex justify-between gap-4 w-full">
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerB.field.is, false)}
-                   <div className={getSlotClassName("B", "is", state.playerB.field.is)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "is", "B")} onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
+            <div className="flex flex-col gap-2 z-10 w-full">
+              <div className="flex justify-between gap-4 w-full items-stretch">
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, false)}>{renderStatusBadges("B", "is", state.playerB.field.is, false)}</div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerB.field.is,
+                     renderHpBar(state.playerB.field.is, false, "inline", "is") ?? fieldSlotHpPlaceholder,
+                     false,
+                     "B-is"
+                   )}
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("B", "is", state.playerB.field.is)}
+                     <div className={getSlotClassName("B", "is", state.playerB.field.is)} data-field-drop data-field-player="B" data-field-slot="is" onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
                      {state.playerB.field.is ? (
                        state.playerB.field.is.image_url ? <img src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
                      ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
-                     {renderStatusBadges("B", "is", state.playerB.field.is)}
                      {renderActionMenu("B", "is", state.playerB.field.is)}
+                     </div>
+                     {renderFlashOverlay("B-is", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("B-is", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("B-is", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("B-is", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("B-is", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("B-is", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("B-is", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("B", "is", state.playerB.field.is)}
+                     {renderRyeomchoFieldRing("B", "is", state.playerB.field.is)}
+                     {renderMaryDefenseFieldRing("B", "is", state.playerB.field.is)}
+                     {renderBanjitgoriFieldRing("B", "is", state.playerB.field.is)}
+                     {renderPhilipFacingRing("B", "is", state.playerB.field.is)}
+                     {renderMaengsugyeonPoThreatRing(state.playerB.field.is)}
+                     {renderEondeokSilenceOutline(state.playerB.field.is, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerB.field.is)}
+                     {renderStunSwirlOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
+                     {renderIversonWaitAuraOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
+                     {renderBaekseuInvulnRing(state.playerB.field.is, "rounded-[8px]", "B")}
+                   </div>
+                   </div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-is")}</div>
                    </div>
                  </div>
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerB.field.m, false)}
-                   <div className={getSlotClassName("B", "m", state.playerB.field.m)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "m", "B")} onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.m, false)}>{renderStatusBadges("B", "m", state.playerB.field.m, false)}</div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerB.field.m,
+                     renderHpBar(state.playerB.field.m, false, "inline", "m") ?? fieldSlotHpPlaceholder,
+                     false,
+                     "B-m"
+                   )}
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("B", "m", state.playerB.field.m)}
+                     <div className={getSlotClassName("B", "m", state.playerB.field.m)} data-field-drop data-field-player="B" data-field-slot="m" onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
                      {state.playerB.field.m ? (
                        state.playerB.field.m.image_url ? <img src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
                      ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
-                     {renderStatusBadges("B", "m", state.playerB.field.m)}
                      {renderActionMenu("B", "m", state.playerB.field.m)}
+                     </div>
+                     {renderFlashOverlay("B-m", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("B-m", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("B-m", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("B-m", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("B-m", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("B-m", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("B-m", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("B", "m", state.playerB.field.m)}
+                     {renderRyeomchoFieldRing("B", "m", state.playerB.field.m)}
+                     {renderMaryDefenseFieldRing("B", "m", state.playerB.field.m)}
+                     {renderBanjitgoriFieldRing("B", "m", state.playerB.field.m)}
+                     {renderPhilipFacingRing("B", "m", state.playerB.field.m)}
+                     {renderMaengsugyeonPoThreatRing(state.playerB.field.m)}
+                     {renderEondeokSilenceOutline(state.playerB.field.m, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerB.field.m)}
+                     {renderStunSwirlOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
+                     {renderIversonWaitAuraOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
+                     {renderBaekseuInvulnRing(state.playerB.field.m, "rounded-[8px]", "B")}
+                   </div>
+                   </div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-m")}</div>
                    </div>
                  </div>
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerB.field.os, false)}
-                   <div className={getSlotClassName("B", "os", state.playerB.field.os)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "os", "B")} onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.os, false)}>{renderStatusBadges("B", "os", state.playerB.field.os, false)}</div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerB.field.os,
+                     renderHpBar(state.playerB.field.os, false, "inline", "os") ?? fieldSlotHpPlaceholder,
+                     false,
+                     "B-os"
+                   )}
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("B", "os", state.playerB.field.os)}
+                     <div className={getSlotClassName("B", "os", state.playerB.field.os)} data-field-drop data-field-player="B" data-field-slot="os" onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
                      {state.playerB.field.os ? (
                        state.playerB.field.os.image_url ? <img src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
                      ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
-                     {renderStatusBadges("B", "os", state.playerB.field.os)}
                      {renderActionMenu("B", "os", state.playerB.field.os)}
+                     </div>
+                     {renderFlashOverlay("B-os", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("B-os", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("B-os", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("B-os", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("B-os", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("B-os", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("B-os", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("B", "os", state.playerB.field.os)}
+                     {renderRyeomchoFieldRing("B", "os", state.playerB.field.os)}
+                     {renderMaryDefenseFieldRing("B", "os", state.playerB.field.os)}
+                     {renderBanjitgoriFieldRing("B", "os", state.playerB.field.os)}
+                     {renderPhilipFacingRing("B", "os", state.playerB.field.os)}
+                     {renderMaengsugyeonPoThreatRing(state.playerB.field.os)}
+                     {renderEondeokSilenceOutline(state.playerB.field.os, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerB.field.os)}
+                     {renderStunSwirlOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
+                     {renderIversonWaitAuraOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
+                     {renderBaekseuInvulnRing(state.playerB.field.os, "rounded-[8px]", "B")}
+                  </div>
+                   </div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-os")}</div>
                    </div>
                  </div>
               </div>
               <div className="flex justify-start w-full mt-2">
-                 <div className={`${spellCardStyle} border-purple-500/30 bg-purple-950/20 ${state.playerB.field.spell && !attackingSlot ? 'cursor-pointer hover:border-purple-400/80' : ''}`} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "spell", "B")} onClick={(e) => handleFieldClick(e, "B", "spell", state.playerB.field.spell)}>
-                   {state.playerB.field.spell ? (
-                     state.playerB.field.spell.image_url ? (
-                       <img src={state.playerB.field.spell.image_url} alt="Spell" className="w-full h-full object-contain rotate-90 scale-[1.58]" />
-                     ) : (
-                       <span className="text-xs font-bold text-center leading-tight p-2 text-purple-200">{state.playerB.field.spell.name}</span>
-                     )
-                   ) : <span className="absolute -right-14 text-xs font-bold text-purple-400/80 whitespace-nowrap">스펠</span>}
-                   {renderActionMenu("B", "spell", state.playerB.field.spell)}
-                 </div>
+                <div className="flex flex-row items-center gap-1">
+                  <div
+                    className={`${spellCardStyle} overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    data-field-drop
+                    data-field-player="B"
+                    data-field-slot="spell"
+                    onClick={e =>
+                      handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))
+                    }
+                  >
+                    {renderFlashOverlay("B-spell", "rounded-[8px]")}
+                    {getTopSpellFromField(state.playerB.field) ? (
+                      getTopSpellFromField(state.playerB.field)!.image_url ? (
+                        <img
+                          src={getTopSpellFromField(state.playerB.field)!.image_url!}
+                          alt="Spell"
+                          className="h-full w-full object-contain rotate-90 scale-[1.58]"
+                        />
+                      ) : (
+                        <span className="p-2 text-center text-xs font-bold leading-tight text-purple-200">
+                          {getTopSpellFromField(state.playerB.field)!.name}
+                        </span>
+                      )
+                    ) : null}
+                    {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
+                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
+                  </div>
+                  {normalizeSpellStack(state.playerB.field).length > 1 ? (
+                    <button
+                      type="button"
+                      title="겹친 스펠 순환 (맨 위 → 맨 아래)"
+                      className="flex h-9 min-w-[2.25rem] shrink-0 cursor-pointer items-center justify-center rounded-md border-2 border-purple-400/70 bg-slate-950/90 px-1.5 text-sm font-black tabular-nums text-purple-100 shadow-md hover:border-purple-300 hover:bg-slate-900"
+                      onClick={e => handleSpellStackShuffleClick(e, "B")}
+                    >
+                      {normalizeSpellStack(state.playerB.field).length}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
 
             {/* 중앙선 */}
-            <div className="w-[120%] h-[2px] bg-gradient-to-r from-transparent via-amber-500/80 to-transparent shadow-[0_0_20px_rgba(245,158,11,0.9)] shrink-0 my-8 z-0"></div>
+            <div className="w-[120%] h-[2px] bg-gradient-to-r from-transparent via-amber-500/80 to-transparent shadow-[0_0_20px_rgba(245,158,11,0.9)] shrink-0 my-5 z-0"></div>
 
             {/* ⭐️ Player A 영역 (하단) */}
-            <div className="flex flex-col gap-3 z-10 w-full">
-              <div className="flex justify-end w-full mb-2">
-                 <div className={`${spellCardStyle} border-purple-500/30 bg-purple-950/20 ${state.playerA.field.spell && !attackingSlot ? 'cursor-pointer hover:border-purple-400/80' : state.currentTurn === 'A' && !attackingSlot ? 'hover:border-purple-400 transition-colors' : ''}`} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "spell", "A")} onClick={(e) => handleFieldClick(e, "A", "spell", state.playerA.field.spell)}>
-                   {state.playerA.field.spell ? (
-                     state.playerA.field.spell.image_url ? (
-                       <img src={state.playerA.field.spell.image_url} alt="Spell" className="w-full h-full object-contain -rotate-90 scale-[1.58]" />
-                     ) : (
-                       <span className="text-xs font-bold text-center leading-tight p-2 text-purple-200">{state.playerA.field.spell.name}</span>
-                     )
-                   ) : <span className="absolute -left-14 text-xs font-bold text-purple-400/80 whitespace-nowrap">스펠</span>}
-                   {renderActionMenu("A", "spell", state.playerA.field.spell)}
-                 </div>
+            <div className="flex flex-col gap-2 z-10 w-full">
+              <div className="mb-2 flex w-full justify-end">
+                <div className="flex flex-row items-center gap-1">
+                  {normalizeSpellStack(state.playerA.field).length > 1 ? (
+                    <button
+                      type="button"
+                      title="겹친 스펠 순환 (맨 위 → 맨 아래)"
+                      className="flex h-9 min-w-[2.25rem] shrink-0 cursor-pointer items-center justify-center rounded-md border-2 border-purple-400/70 bg-slate-950/90 px-1.5 text-sm font-black tabular-nums text-purple-100 shadow-md hover:border-purple-300 hover:bg-slate-900"
+                      onClick={e => handleSpellStackShuffleClick(e, "A")}
+                    >
+                      {normalizeSpellStack(state.playerA.field).length}
+                    </button>
+                  ) : null}
+                  <div
+                    className={`${spellCardStyle} overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    data-field-drop
+                    data-field-player="A"
+                    data-field-slot="spell"
+                    onClick={e =>
+                      handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))
+                    }
+                  >
+                    {renderFlashOverlay("A-spell", "rounded-[8px]")}
+                    {getTopSpellFromField(state.playerA.field) ? (
+                      getTopSpellFromField(state.playerA.field)!.image_url ? (
+                        <img
+                          src={getTopSpellFromField(state.playerA.field)!.image_url!}
+                          alt="Spell"
+                          className="h-full w-full object-contain -rotate-90 scale-[1.58]"
+                        />
+                      ) : (
+                        <span className="p-2 text-center text-xs font-bold leading-tight text-purple-200">
+                          {getTopSpellFromField(state.playerA.field)!.name}
+                        </span>
+                      )
+                    ) : null}
+                    {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
+                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between gap-4 w-full">
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerA.field.is, true)}
-                   <div className={getSlotClassName("A", "is", state.playerA.field.is)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "is", "A")} onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
+              <div className="flex justify-between gap-4 w-full items-stretch">
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("A", "is", state.playerA.field.is)}
+                     <div className={getSlotClassName("A", "is", state.playerA.field.is)} data-field-drop data-field-player="A" data-field-slot="is" onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
                      {state.playerA.field.is ? (
                        state.playerA.field.is.image_url ? <img src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
                      ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
-                     {renderStatusBadges("A", "is", state.playerA.field.is)}
                      {renderActionMenu("A", "is", state.playerA.field.is)}
+                     </div>
+                     {renderFlashOverlay("A-is", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("A-is", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("A-is", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("A-is", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("A-is", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("A-is", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("A-is", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("A", "is", state.playerA.field.is)}
+                     {renderRyeomchoFieldRing("A", "is", state.playerA.field.is)}
+                     {renderMaryDefenseFieldRing("A", "is", state.playerA.field.is)}
+                     {renderBanjitgoriFieldRing("A", "is", state.playerA.field.is)}
+                     {renderPhilipFacingRing("A", "is", state.playerA.field.is)}
+                     {renderMaengsugyeonPoThreatRing(state.playerA.field.is)}
+                     {renderEondeokSilenceOutline(state.playerA.field.is, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerA.field.is)}
+                     {renderStunSwirlOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
+                     {renderIversonWaitAuraOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
+                     {renderBaekseuInvulnRing(state.playerA.field.is, "rounded-[8px]", "A")}
+                   </div>
+                   </div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerA.field.is,
+                     renderHpBar(state.playerA.field.is, true, "inline", "is") ?? fieldSlotHpPlaceholder,
+                     true,
+                     "A-is"
+                   )}
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.is, true)}>{renderStatusBadges("A", "is", state.playerA.field.is, true)}</div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-is")}</div>
                    </div>
                  </div>
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerA.field.m, true)}
-                   <div className={getSlotClassName("A", "m", state.playerA.field.m)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "m", "A")} onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("A", "m", state.playerA.field.m)}
+                     <div className={getSlotClassName("A", "m", state.playerA.field.m)} data-field-drop data-field-player="A" data-field-slot="m" onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
                      {state.playerA.field.m ? (
                        state.playerA.field.m.image_url ? <img src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
                      ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
-                     {renderStatusBadges("A", "m", state.playerA.field.m)}
                      {renderActionMenu("A", "m", state.playerA.field.m)}
+                     </div>
+                     {renderFlashOverlay("A-m", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("A-m", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("A-m", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("A-m", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("A-m", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("A-m", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("A-m", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("A", "m", state.playerA.field.m)}
+                     {renderRyeomchoFieldRing("A", "m", state.playerA.field.m)}
+                     {renderMaryDefenseFieldRing("A", "m", state.playerA.field.m)}
+                     {renderBanjitgoriFieldRing("A", "m", state.playerA.field.m)}
+                     {renderPhilipFacingRing("A", "m", state.playerA.field.m)}
+                     {renderMaengsugyeonPoThreatRing(state.playerA.field.m)}
+                     {renderEondeokSilenceOutline(state.playerA.field.m, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerA.field.m)}
+                     {renderStunSwirlOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
+                     {renderIversonWaitAuraOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
+                     {renderBaekseuInvulnRing(state.playerA.field.m, "rounded-[8px]", "A")}
+                   </div>
+                   </div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerA.field.m,
+                     renderHpBar(state.playerA.field.m, true, "inline", "m") ?? fieldSlotHpPlaceholder,
+                     true,
+                     "A-m"
+                   )}
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.m, true)}>{renderStatusBadges("A", "m", state.playerA.field.m, true)}</div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-m")}</div>
                    </div>
                  </div>
-                 <div className="relative shrink-0 flex flex-col items-center">
-                   {renderHpBar(state.playerA.field.os, true)}
-                   <div className={getSlotClassName("A", "os", state.playerA.field.os)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, "os", "A")} onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
+                 <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
+                   <div className={unitSlotOuterClass}>
+                     {renderMaengsugyeonPoFacingEnemyRect("A", "os", state.playerA.field.os)}
+                     <div className={getSlotClassName("A", "os", state.playerA.field.os)} data-field-drop data-field-player="A" data-field-slot="os" onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
                      {state.playerA.field.os ? (
                        state.playerA.field.os.image_url ? <img src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
                      ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
-                     {renderStatusBadges("A", "os", state.playerA.field.os)}
                      {renderActionMenu("A", "os", state.playerA.field.os)}
+                     </div>
+                     {renderFlashOverlay("A-os", "rounded-[8px]")}
+                     {renderGeunyangMojaHitFlameOverlay("A-os", "rounded-[8px]")}
+                     {renderDiagoHitFlameOverlay("A-os", "rounded-[8px]")}
+                     {renderMomoHitFlameOverlay("A-os", "rounded-[8px]")}
+                     {renderGhostoneClawHitOverlay("A-os", "rounded-[8px]")}
+                     {renderIversonClawHitOverlay("A-os", "rounded-[8px]")}
+                     {renderEristinaHitLineOverlay("A-os", "rounded-[8px]")}
+                     {renderCheolgibyeongFieldRing("A", "os", state.playerA.field.os)}
+                     {renderRyeomchoFieldRing("A", "os", state.playerA.field.os)}
+                     {renderMaryDefenseFieldRing("A", "os", state.playerA.field.os)}
+                     {renderBanjitgoriFieldRing("A", "os", state.playerA.field.os)}
+                     {renderPhilipFacingRing("A", "os", state.playerA.field.os)}
+                     {renderMaengsugyeonPoThreatRing(state.playerA.field.os)}
+                     {renderEondeokSilenceOutline(state.playerA.field.os, "rounded-[8px]")}
+                     {renderStackingGaugeFieldRings(state.playerA.field.os)}
+                     {renderStunSwirlOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
+                     {renderIversonWaitAuraOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
+                     {renderBaekseuInvulnRing(state.playerA.field.os, "rounded-[8px]", "A")}
+                   </div>
+                   </div>
+                   {renderHpRowWithOptionalDKGauge(
+                     state.playerA.field.os,
+                     renderHpBar(state.playerA.field.os, true, "inline", "os") ?? fieldSlotHpPlaceholder,
+                     true,
+                     "A-os"
+                   )}
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.os, true)}>{renderStatusBadges("A", "os", state.playerA.field.os, true)}</div>
+                   <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-os")}</div>
                    </div>
                  </div>
               </div>
@@ -1717,34 +8962,67 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             <div className="w-full flex justify-center gap-2 lg:gap-4 px-2">
             {Array.from({ length: 6 }).map((_, i) => {
                 const card = state.playerB.hand[i];
-                const isSkillTargetB = pendingSkill && pendingSkill.player === 'B' && state.currentTurn === 'B' && card;
+                const momoDiscardHandB =
+                  pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
+                  pendingSkill.player === "B" &&
+                  state.currentTurn === "B" &&
+                  !!card;
+                const danhaStealFromHandB =
+                  pendingSkill?.name === PENDING_SKILL.DANHA_GALGORI &&
+                  pendingSkill.player === "A" &&
+                  state.currentTurn === "A" &&
+                  !!card;
+                const simpanPickHandB = state.simpanHandChoice?.player === "B" && !!card;
+                const simpanPeekBlockDragB = state.simpanPeekReveal?.player === "B";
+                const canPointerDragB =
+                  state.currentTurn === "B" && !!card && !pendingSkill && !simpanPickHandB && !simpanPeekBlockDragB;
+                const isDragSourceB = handDrag?.player === "B" && handDrag.cardIndex === i;
                 
                 return (
+                  <div key={i} ref={el => { handSlotOuterRefsB.current[i] = el; }} className={handSlotOuterStyle}>
                   <div 
-                    key={i} 
                     onClick={(e) => {
-                      if (isSkillTargetB) {
+                      if (simpanPickHandB) {
+                        e.stopPropagation();
+                        resolveSimpanHandPick("B", i);
+                      } else if (momoDiscardHandB) {
                         e.stopPropagation();
                         handleSkillDiscard(i, "B");
+                      } else if (danhaStealFromHandB) {
+                        e.stopPropagation();
+                        handleDanhaSteal(i, "B");
                       }
                     }}
-                    className={`${handCardStyle} group ${card ? (isSkillTargetB && pendingSkill.name === "먹보" ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : 'border-rose-400/40 bg-rose-950/60 cursor-pointer hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300') : 'border-dashed border-slate-700/50 bg-transparent'}`} 
-                    draggable={state.currentTurn === 'B' && !!card && !pendingSkill} 
-                    onDragStart={(e) => handleDragStart(e, i, "B")}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragB ? "select-none" : ""}`}
+                    onPointerDown={card && canPointerDragB ? (e) => beginHandDrag(e, i, "B", card) : undefined}
+                    onPointerMove={handDrag ? updateHandDrag : undefined}
+                    onPointerUp={handDrag ? finishHandDrag : undefined}
+                    onPointerCancel={handDrag ? cancelHandDrag : undefined}
+                    onLostPointerCapture={card && canPointerDragB ? (e) => {
+                      if (activeHandDragRef.current?.pointerId !== e.pointerId) return;
+                      activeHandDragRef.current = null;
+                      setHandDrag(null);
+                      setHandDragHoverSlotKey(null);
+                    } : undefined}
                   >
+                    {card && ppSimHandNewGlowToken(card) ? (
+                      <div className={handNewDrawGlowOverlayClass} aria-hidden />
+                    ) : null}
                      {card ? (
-                       <>
+                       <div className={handCardFaceClipClass}>
                          {card.image_url ? <img src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{card.name}</span>}
                          
-                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill ? 'hidden' : ''}`}>
-                           <button onClick={(e) => { e.stopPropagation(); if(onOpenDetail) onOpenDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
+                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
+                           <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
                              상세 보기
                            </button>
                          </div>
-                       </>
+                       </div>
                      ) : (
                        <IconDeck className="w-8 h-8 text-rose-300 opacity-20" />
                      )}
+                  </div>
+                    {renderFlashOverlay(`hand-B-${i}`, "rounded-[8px]")}
                   </div>
                 )
               })}
@@ -1756,7 +9034,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             
             <div className="flex flex-col justify-between gap-3 flex-1">
               <div 
-                className={`flex flex-col border-2 rounded-xl py-3 h-full justify-center transition-colors 
+                className={`relative flex flex-col overflow-visible border-2 rounded-xl py-3 h-full justify-center transition-colors 
                   ${canAttackPlayerB ? 'border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair' : 
                     state.currentTurn === 'B' ? 'border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.15)] bg-black/30' : 'border-slate-700 bg-black/30'}`}
                 onClick={(e) => {
@@ -1766,6 +9044,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                   }
                 }}
               >
+                {renderFlashOverlay("player-B", "rounded-xl")}
                 <div className="flex justify-between items-center mb-1 px-4 pointer-events-none">
                   <span className="text-sm font-bold text-slate-400">Player B</span>
                   <span className="text-rose-500 font-black text-base transition-all">{state.playerB.hp}</span>
@@ -1782,10 +9061,13 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                     <div key={i} className={`h-3.5 rounded-[3px] border transition-all duration-300 ${i < state.playerB.tokens ? 'bg-orange-500 border-orange-300' : 'bg-slate-800 border-slate-700'}`} />
                   ))}
                 </div>
+                <div className="pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-xl">
+                  {renderCombatPopups("player-B")}
+                </div>
               </div>
               
               <div 
-                className={`flex flex-col border-2 rounded-xl py-3 h-full justify-center transition-colors 
+                className={`relative flex flex-col overflow-visible border-2 rounded-xl py-3 h-full justify-center transition-colors 
                   ${canAttackPlayerA ? 'border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair' : 
                     state.currentTurn === 'A' ? 'border-sky-500 shadow-[0_0_15px_rgba(14,165,233,0.15)] bg-black/30' : 'border-slate-700 bg-black/30'}`}
                 onClick={(e) => {
@@ -1795,6 +9077,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                   }
                 }}
               >
+                {renderFlashOverlay("player-A", "rounded-xl")}
                 <div className="flex justify-between items-center mb-1 px-4 pointer-events-none">
                   <span className="text-sm font-bold text-slate-400">Player A</span>
                   <span className="text-sky-500 font-black text-base transition-all">{state.playerA.hp}</span>
@@ -1810,6 +9093,9 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
                   {Array.from({ length: 10 }).map((_, i) => (
                     <div key={i} className={`h-3.5 rounded-[3px] border transition-all duration-300 ${i < state.playerA.tokens ? 'bg-orange-500 border-orange-300 shadow-[0_0_6px_rgba(249,115,22,0.6)]' : 'bg-slate-800 border-slate-700'}`} />
                   ))}
+                </div>
+                <div className="pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-xl">
+                  {renderCombatPopups("player-A")}
                 </div>
               </div>
             </div>
@@ -1856,34 +9142,67 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
             <div className="w-full flex justify-center gap-2 lg:gap-4 px-2">
               {Array.from({ length: 6 }).map((_, i) => {
                 const card = state.playerA.hand[i];
-                const isSkillTargetA = pendingSkill && pendingSkill.player === 'A' && state.currentTurn === 'A' && card;
+                const momoDiscardHandA =
+                  pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
+                  pendingSkill.player === "A" &&
+                  state.currentTurn === "A" &&
+                  !!card;
+                const danhaStealFromHandA =
+                  pendingSkill?.name === PENDING_SKILL.DANHA_GALGORI &&
+                  pendingSkill.player === "B" &&
+                  state.currentTurn === "B" &&
+                  !!card;
+                const simpanPickHandA = state.simpanHandChoice?.player === "A" && !!card;
+                const simpanPeekBlockDragA = state.simpanPeekReveal?.player === "A";
+                const canPointerDragA =
+                  state.currentTurn === "A" && !!card && !pendingSkill && !simpanPickHandA && !simpanPeekBlockDragA;
+                const isDragSourceA = handDrag?.player === "A" && handDrag.cardIndex === i;
 
                 return (
+                  <div key={i} ref={el => { handSlotOuterRefsA.current[i] = el; }} className={handSlotOuterStyle}>
                   <div 
-                    key={i} 
                     onClick={(e) => {
-                      if (isSkillTargetA) {
+                      if (simpanPickHandA) {
+                        e.stopPropagation();
+                        resolveSimpanHandPick("A", i);
+                      } else if (momoDiscardHandA) {
                         e.stopPropagation();
                         handleSkillDiscard(i, "A");
+                      } else if (danhaStealFromHandA) {
+                        e.stopPropagation();
+                        handleDanhaSteal(i, "A");
                       }
                     }}
-                    className={`${handCardStyle} group ${card ? (isSkillTargetA && pendingSkill.name === "먹보" ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : 'border-sky-400/50 cursor-pointer hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300') : 'border-dashed border-slate-700/50 bg-transparent'}`} 
-                    draggable={state.currentTurn === 'A' && !!card && !pendingSkill} 
-                    onDragStart={(e) => handleDragStart(e, i, "A")}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragA ? "select-none" : ""}`}
+                    onPointerDown={card && canPointerDragA ? (e) => beginHandDrag(e, i, "A", card) : undefined}
+                    onPointerMove={handDrag ? updateHandDrag : undefined}
+                    onPointerUp={handDrag ? finishHandDrag : undefined}
+                    onPointerCancel={handDrag ? cancelHandDrag : undefined}
+                    onLostPointerCapture={card && canPointerDragA ? (e) => {
+                      if (activeHandDragRef.current?.pointerId !== e.pointerId) return;
+                      activeHandDragRef.current = null;
+                      setHandDrag(null);
+                      setHandDragHoverSlotKey(null);
+                    } : undefined}
                   >
+                    {card && ppSimHandNewGlowToken(card) ? (
+                      <div className={handNewDrawGlowOverlayClass} aria-hidden />
+                    ) : null}
                      {card ? (
-                       <>
+                       <div className={handCardFaceClipClass}>
                          {card.image_url ? <img src={card.image_url} alt={card.name} className="w-full h-full object-cover group-hover:opacity-100 transition-opacity animate-[fadeIn_0.3s_ease-out]" /> : <span className="text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200">{card.name}</span>}
                          
-                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill ? 'hidden' : ''}`}>
-                           <button onClick={(e) => { e.stopPropagation(); if(onOpenDetail) onOpenDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-sky-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
+                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandA ? "hidden" : ""}`}>
+                           <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-sky-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
                              상세 보기
                            </button>
                          </div>
-                       </>
+                       </div>
                      ) : (
                        <IconDeck className="w-8 h-8 text-sky-300 opacity-20" />
                      )}
+                  </div>
+                    {renderFlashOverlay(`hand-A-${i}`, "rounded-[8px]")}
                   </div>
                 )
               })}

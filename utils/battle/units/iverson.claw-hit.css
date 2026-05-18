@@ -1,0 +1,98 @@
+/* 아이버슨 기본 공격 적중 — 고스톤과 동형 3직선 손톱 자국, 녹색·약간 큼 */
+
+@keyframes pp-iv-claw-line-draw {
+  0% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  10% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.92;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-iv-claw-glint {
+  0% {
+    filter: brightness(0.88);
+  }
+  11% {
+    filter: brightness(1.5);
+  }
+  100% {
+    filter: brightness(0.68);
+  }
+}
+
+.pp-iv-claw-hit {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* 50% 확률 좌우 반전 — 클러스터(회전 포함) 전체 미러 */
+.pp-iv-claw-mirror {
+  transform: scaleX(-1);
+}
+
+/* 고스톤 대비 약 12% 가량 확대 (74%→84%, 104→118, 56%→64%, 92→106, gap 11→13, 선 6→7px) */
+.pp-iv-claw-cluster {
+  --pp-iv-claw-dur: 0.38s;
+  position: relative;
+  width: min(84%, 118px);
+  height: min(64%, 106px);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 13px;
+  transform: rotate(14deg);
+  transform-origin: center center;
+}
+
+.pp-iv-claw-cluster.pp-iv-claw-cluster--secondary {
+  transform: rotate(-14deg);
+}
+
+.pp-iv-claw-arm {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 78%;
+  transform-origin: 50% 100%;
+}
+
+.pp-iv-claw-line {
+  width: 7px;
+  height: 100%;
+  min-height: 42px;
+  border-radius: 999px;
+  transform-origin: 50% 100%;
+  background: linear-gradient(
+    to bottom,
+    rgba(4, 28, 12, 0) 0%,
+    rgba(8, 52, 22, 0.92) 12%,
+    rgba(22, 120, 58, 0.98) 42%,
+    rgba(12, 88, 40, 0.95) 72%,
+    rgba(6, 40, 18, 0.65) 92%,
+    rgba(2, 18, 8, 0) 100%
+  );
+  box-shadow:
+    0 0 6px rgba(34, 197, 94, 0.95),
+    0 0 16px rgba(16, 120, 56, 0.55),
+    inset 0 0 2px rgba(187, 247, 208, 0.35);
+  animation:
+    pp-iv-claw-line-draw var(--pp-iv-claw-dur) cubic-bezier(0.2, 0.85, 0.36, 1) forwards,
+    pp-iv-claw-glint var(--pp-iv-claw-dur) ease-out forwards;
+}

@@ -1,0 +1,95 @@
+/* 고스톤 기본 공격 적중 — 어두운 파란 손톱 자국 3선 */
+
+/* 살짝 긴 가시 시간: 빠른 스트로크 유지 + 잔상 조금 유지 후 소거 */
+@keyframes pp-gs-claw-line-draw {
+  0% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  10% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.92;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-gs-claw-glint {
+  0% {
+    filter: brightness(0.85);
+  }
+  11% {
+    filter: brightness(1.45);
+  }
+  100% {
+    filter: brightness(0.65);
+  }
+}
+
+.pp-gs-claw-hit {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* 세 직선 동일 각도(평행) + 1차: 시계 방향 기울기 */
+.pp-gs-claw-cluster {
+  --pp-gs-claw-dur: 0.38s;
+  position: relative;
+  width: min(74%, 104px);
+  height: min(56%, 92px);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 11px;
+  transform: rotate(14deg);
+  transform-origin: center center;
+}
+
+/* 연쇄(2차) 피격: 동일 파형, 기울기만 반대 */
+.pp-gs-claw-cluster.pp-gs-claw-cluster--secondary {
+  transform: rotate(-14deg);
+}
+
+.pp-gs-claw-arm {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 78%;
+  transform-origin: 50% 100%;
+}
+
+.pp-gs-claw-line {
+  width: 6px;
+  height: 100%;
+  min-height: 36px;
+  border-radius: 999px;
+  transform-origin: 50% 100%;
+  background: linear-gradient(
+    to bottom,
+    rgba(8, 20, 45, 0) 0%,
+    rgba(15, 35, 72, 0.92) 12%,
+    rgba(28, 58, 108, 0.98) 42%,
+    rgba(18, 42, 88, 0.95) 72%,
+    rgba(10, 24, 52, 0.65) 92%,
+    rgba(5, 12, 28, 0) 100%
+  );
+  box-shadow:
+    0 0 5px rgba(30, 70, 130, 0.95),
+    0 0 14px rgba(20, 50, 110, 0.5),
+    inset 0 0 2px rgba(180, 210, 255, 0.28);
+  animation:
+    pp-gs-claw-line-draw var(--pp-gs-claw-dur) cubic-bezier(0.2, 0.85, 0.36, 1) forwards,
+    pp-gs-claw-glint var(--pp-gs-claw-dur) ease-out forwards;
+}

@@ -1,0 +1,32 @@
+/* 곤충 전문가 — 히든 스펠 3초 공개 시 윤곽 밖 흰색 광휘 */
+
+@keyframes pp-gonchung-hidden-reveal-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pp-gonchung-hidden-reveal-aura {
+  pointer-events: none;
+  position: absolute;
+  inset: -14px;
+  z-index: 16;
+  border-radius: 12px;
+  animation: pp-gonchung-hidden-reveal-glow-pulse 1.15s ease-in-out infinite;
+  background: radial-gradient(
+    ellipse 105% 95% at 50% 50%,
+    rgba(255, 255, 255, 0.38) 0%,
+    rgba(255, 255, 255, 0.14) 42%,
+    transparent 72%
+  );
+  box-shadow:
+    0 0 22px rgba(255, 255, 255, 0.95),
+    0 0 44px rgba(255, 255, 255, 0.62),
+    0 0 68px rgba(255, 255, 255, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
+  mix-blend-mode: screen;
+}

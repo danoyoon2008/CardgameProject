@@ -4,6 +4,8 @@
 
 import { FieldCard } from "../types/game";
 import { applyDamageMods } from "./cardEffects";
+import { CHEOLGIBYEONG_ID, CHEOLGIBYEONG_REDUCTION_LOG } from "./battle/units/cheolgibyeong";
+import { isIversonAttackLocked, iversonLiberationLabel } from "./battle/units/iverson";
 
 // ─────────────────────────────────────────
 // 공격력 파싱
@@ -82,7 +84,7 @@ export const calculateDamage = (
   const finalDamage = applyDamageMods(targetCard, rawDamage, isSecondaryHit);
 
   if (targetCard.hasBanjitgori) reductions.push("반짓고리 (-25%)");
-  if (targetCard.name === "철기병") reductions.push("방어력 (-200, 최소 100)");
+  if (targetCard.name === CHEOLGIBYEONG_ID) reductions.push(CHEOLGIBYEONG_REDUCTION_LOG);
 
   return { finalDamage, wasReduced: finalDamage < original, reductions };
 };
@@ -96,28 +98,53 @@ export interface AttackValidation {
   reason?: string;
 }
 
+/** [집중 사격] 등은 여기서 면제하지 않음 — 유닛당 1공격·턴당 2공격권만 검사합니다. 동일 적 중복 허용은 각 뷰에서 별도 처리. */
 export const validateAttack = (params: {
   attackerCard: FieldCard;
   currentTurnKey: string;
   attacksUsedThisTurn: number;
   isSilenced: boolean;
-  hasConcentratedFire: boolean;
+  isStunned: boolean;
+  /** 시작의 망령 처치 연쇄(2차 이상) — 턴당 공격권 소모 없이 이어지는 동일 공격으로 간주 */
+  bypassTurnAttackBudget?: boolean;
+  /** 시작의 망령: 적 필드가 비어 있고 턴 공격권이 남았을 때, 이미 필드 유닛을 공격한 뒤 상대 플레이어 HP만 추가로 노림 */
+  overrideHasAttackedCheck?: boolean;
 }): AttackValidation => {
-  const { attackerCard, currentTurnKey, attacksUsedThisTurn, isSilenced, hasConcentratedFire } = params;
+  const {
+    attackerCard,
+    currentTurnKey,
+    attacksUsedThisTurn,
+    isSilenced,
+    isStunned,
+    bypassTurnAttackBudget,
+    overrideHasAttackedCheck,
+  } = params;
 
   if (isSilenced) {
     return { canAttack: false, reason: "이 유닛은 [침묵] 상태이므로 기본 공격을 할 수 없습니다." };
+  }
+
+  if (isStunned) {
+    return { canAttack: false, reason: "이 유닛은 [기절] 상태이므로 기본 공격을 할 수 없습니다." };
+  }
+
+  if (isIversonAttackLocked(attackerCard)) {
+    const lib = iversonLiberationLabel(attackerCard);
+    return {
+      canAttack: false,
+      reason: lib ?? "아이버슨은 아직 기본 공격을 할 수 없습니다.",
+    };
   }
 
   if (attackerCard.summonedTurn === currentTurnKey) {
     return { canAttack: false, reason: "소환한 턴에는 공격할 수 없습니다. 다음 턴부터 공격 가능합니다." };
   }
 
-  if (attackerCard.hasAttacked && !hasConcentratedFire) {
+  if (!overrideHasAttackedCheck && attackerCard.hasAttacked) {
     return { canAttack: false, reason: "이 유닛은 이미 이번 턴에 공격했습니다." };
   }
 
-  if (attacksUsedThisTurn >= 2 && !hasConcentratedFire) {
+  if (!bypassTurnAttackBudget && attacksUsedThisTurn >= 2) {
     return { canAttack: false, reason: "이번 턴의 공격권을 모두 사용했습니다. (턴당 최대 2회)" };
   }
 

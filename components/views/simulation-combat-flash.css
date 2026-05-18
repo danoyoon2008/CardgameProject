@@ -1,0 +1,2162 @@
+/* SimulationView에서만 import — 번들에 포함되어 Tailwind 처리와 무관하게 적용 */
+
+@keyframes pp-combat-flash-pulse {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pp-combat-flash-layer--damage {
+  animation: pp-combat-flash-pulse 0.68s ease-out forwards;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 48%,
+    rgba(239, 68, 68, 0.65) 0%,
+    rgba(239, 68, 68, 0.18) 42%,
+    transparent 70%
+  );
+  box-shadow:
+    inset 0 0 0 3px rgb(252, 165, 165),
+    inset 0 0 36px rgba(239, 68, 68, 0.45);
+}
+
+.pp-combat-flash-layer--heal {
+  animation: pp-combat-flash-pulse 0.68s ease-out forwards;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 48%,
+    rgba(34, 197, 94, 0.58) 0%,
+    rgba(34, 197, 94, 0.15) 42%,
+    transparent 70%
+  );
+  box-shadow:
+    inset 0 0 0 3px rgb(134, 239, 172),
+    inset 0 0 36px rgba(34, 197, 94, 0.4);
+}
+
+/* ========== 능력 발동 이펙트: 카드 외곽선 너머 정사각·사각형 명멸(고스톤·필립·철기병·에리스티나 등) ========== */
+
+/* 능력 발동 이펙트 — 고스톤(적 처치 시): 보라·인디고 중심 */
+@keyframes pp-combat-flash-pulse-ghostone {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.98;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pp-combat-flash-layer--ghostone-kill {
+  /* 능력 발동 이펙트 — 고스톤(카드 내부층) */
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(72, 48, 138, 0.9) 0%,
+    rgba(48, 32, 108, 0.58) 32%,
+    rgba(28, 18, 78, 0.28) 54%,
+    rgba(16, 12, 52, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(168, 150, 248, 0.52),
+    inset 0 0 48px rgba(72, 48, 152, 0.56),
+    inset 0 0 100px rgba(38, 24, 98, 0.42);
+}
+
+/* 고스톤 — 윤곽 밖 오라(능력 발동 이펙트) */
+@keyframes pp-combat-flash-aura-ghostone {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+.pp-combat-flash-layer--ghostone-kill-aura {
+  /* 능력 발동 이펙트 — 고스톤(외곽 확장층) */
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(92, 58, 175, 0.42) 0%,
+    rgba(62, 38, 138, 0.26) 36%,
+    rgba(40, 24, 98, 0.15) 58%,
+    rgba(24, 14, 62, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(108, 72, 205, 0.44),
+    0 0 72px 44px rgba(72, 48, 158, 0.3),
+    0 0 110px 64px rgba(42, 28, 105, 0.22),
+    0 0 0 1px rgba(188, 168, 255, 0.16);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 시작의 망령 처치(고스톤과 동형 규격·짙은 고동 갈색, 윤곽 밖 명멸 가시성 보강) */
+.pp-combat-flash-layer--starting-wraith-chain-kill {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(58, 36, 22, 0.98) 0%,
+    rgba(38, 24, 14, 0.78) 28%,
+    rgba(26, 16, 10, 0.52) 50%,
+    rgba(16, 10, 6, 0.3) 68%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(98, 68, 48, 0.58),
+    inset 0 0 48px rgba(44, 28, 18, 0.7),
+    inset 0 0 100px rgba(24, 15, 10, 0.58);
+}
+
+.pp-combat-flash-layer--starting-wraith-chain-kill-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(78, 50, 34, 0.52) 0%,
+    rgba(52, 34, 22, 0.4) 34%,
+    rgba(34, 22, 14, 0.24) 56%,
+    rgba(22, 14, 9, 0.1) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 48px 26px rgba(62, 40, 26, 0.45),
+    0 0 80px 50px rgba(42, 28, 18, 0.32),
+    0 0 120px 72px rgba(28, 18, 11, 0.22),
+    0 0 0 2px rgba(118, 86, 58, 0.28);
+  filter: blur(0.65px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 No.31 소멸(적 유닛 즉시 제거 — 고스톤 처치와 동형 규격·파랑·시안 톤) */
+.pp-combat-flash-layer--somyeol-spell-erase {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(30, 90, 168, 0.92) 0%,
+    rgba(20, 70, 140, 0.6) 32%,
+    rgba(12, 48, 98, 0.3) 54%,
+    rgba(8, 32, 72, 0.12) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(186, 230, 253, 0.58),
+    inset 0 0 48px rgba(56, 189, 248, 0.58),
+    inset 0 0 100px rgba(14, 100, 165, 0.45);
+}
+
+.pp-combat-flash-layer--somyeol-spell-erase-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(56, 189, 248, 0.48) 0%,
+    rgba(14, 165, 233, 0.3) 36%,
+    rgba(8, 112, 168, 0.18) 58%,
+    rgba(6, 70, 110, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(56, 189, 248, 0.46),
+    0 0 72px 44px rgba(14, 165, 233, 0.34),
+    0 0 110px 64px rgba(8, 112, 168, 0.24),
+    0 0 0 1px rgba(224, 242, 254, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 방어막 필드 배치(고스톤과 동형 타이밍·형태, 녹색) */
+.pp-combat-flash-layer--spell-bangeomak-ally-pulse {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(34, 197, 94, 0.9) 0%,
+    rgba(22, 163, 74, 0.58) 32%,
+    rgba(14, 95, 48, 0.28) 54%,
+    rgba(10, 62, 32, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(187, 247, 208, 0.52),
+    inset 0 0 48px rgba(34, 197, 94, 0.56),
+    inset 0 0 100px rgba(16, 90, 48, 0.42);
+}
+
+.pp-combat-flash-layer--spell-bangeomak-ally-pulse-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(74, 222, 128, 0.42) 0%,
+    rgba(34, 197, 94, 0.26) 36%,
+    rgba(20, 120, 62, 0.15) 58%,
+    rgba(12, 72, 38, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(52, 211, 153, 0.44),
+    0 0 72px 44px rgba(34, 197, 94, 0.3),
+    0 0 110px 64px rgba(20, 110, 58, 0.22),
+    0 0 0 1px rgba(220, 252, 231, 0.2);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 No.26 휴게소의 안식(방어막과 동형·따뜻한 금색) */
+.pp-combat-flash-layer--spell-hyugesojaui-ansik-ally-pulse {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(251, 191, 36, 0.92) 0%,
+    rgba(245, 158, 11, 0.62) 30%,
+    rgba(217, 119, 6, 0.34) 52%,
+    rgba(146, 64, 14, 0.14) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(254, 243, 199, 0.55),
+    inset 0 0 48px rgba(251, 191, 36, 0.52),
+    inset 0 0 100px rgba(180, 83, 9, 0.38);
+}
+
+.pp-combat-flash-layer--spell-hyugesojaui-ansik-ally-pulse-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(252, 211, 77, 0.44) 0%,
+    rgba(251, 191, 36, 0.28) 36%,
+    rgba(217, 119, 6, 0.16) 58%,
+    rgba(120, 53, 15, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(251, 191, 36, 0.48),
+    0 0 72px 44px rgba(245, 158, 11, 0.34),
+    0 0 110px 64px rgba(217, 119, 6, 0.22),
+    0 0 0 1px rgba(254, 252, 232, 0.24);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 집중 사격 필드 배치(고스톤과 동형, 붉은색) */
+.pp-combat-flash-layer--spell-jipjung-ally-pulse {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(220, 38, 38, 0.9) 0%,
+    rgba(185, 28, 28, 0.58) 32%,
+    rgba(120, 22, 22, 0.28) 54%,
+    rgba(70, 14, 14, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(254, 202, 202, 0.52),
+    inset 0 0 48px rgba(220, 38, 38, 0.56),
+    inset 0 0 100px rgba(110, 20, 20, 0.42);
+}
+
+.pp-combat-flash-layer--spell-jipjung-ally-pulse-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(248, 113, 113, 0.42) 0%,
+    rgba(239, 68, 68, 0.26) 36%,
+    rgba(180, 40, 40, 0.15) 58%,
+    rgba(90, 20, 20, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(248, 113, 113, 0.44),
+    0 0 72px 44px rgba(220, 38, 38, 0.3),
+    0 0 110px 64px rgba(140, 30, 30, 0.22),
+    0 0 0 1px rgba(254, 226, 226, 0.2);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 No.47 철벽 필드 배치(고스톤과 동형·방어막과 동일 레이어, 밝은 흰·슬레이트 톤) */
+.pp-combat-flash-layer--spell-cheolbyeok-ally-pulse {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(248, 250, 252, 0.94) 0%,
+    rgba(226, 232, 240, 0.68) 32%,
+    rgba(203, 213, 225, 0.38) 54%,
+    rgba(148, 163, 184, 0.14) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, 0.72),
+    inset 0 0 48px rgba(241, 245, 249, 0.58),
+    inset 0 0 100px rgba(226, 232, 240, 0.42);
+}
+
+.pp-combat-flash-layer--spell-cheolbyeok-ally-pulse-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(248, 250, 252, 0.52) 0%,
+    rgba(226, 232, 240, 0.32) 36%,
+    rgba(148, 163, 184, 0.18) 58%,
+    rgba(100, 116, 139, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(241, 245, 249, 0.5),
+    0 0 72px 44px rgba(226, 232, 240, 0.34),
+    0 0 110px 64px rgba(148, 163, 184, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.35);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 오리에트의 초상 보호막(고스톤과 동형, 하늘색 — 단하 갈고리와 동일 팔레트) */
+.pp-combat-flash-layer--oriet-shield-ally-pulse {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(56, 189, 248, 0.92) 0%,
+    rgba(14, 165, 233, 0.62) 32%,
+    rgba(8, 112, 168, 0.32) 54%,
+    rgba(6, 60, 94, 0.12) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(186, 230, 253, 0.58),
+    inset 0 0 48px rgba(56, 189, 248, 0.52),
+    inset 0 0 100px rgba(12, 100, 155, 0.38);
+}
+
+.pp-combat-flash-layer--oriet-shield-ally-pulse-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(125, 211, 252, 0.48) 0%,
+    rgba(56, 189, 248, 0.3) 36%,
+    rgba(14, 116, 175, 0.18) 58%,
+    rgba(8, 70, 110, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(56, 189, 248, 0.42),
+    0 0 72px 44px rgba(14, 165, 233, 0.32),
+    0 0 110px 64px rgba(8, 112, 168, 0.22),
+    0 0 0 1px rgba(224, 242, 254, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 캘리 [버프 금지] 부여(고스톤과 동형·밝은 회색) */
+.pp-combat-flash-layer--kalli-buff-ban {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(248, 250, 252, 0.94) 0%,
+    rgba(226, 232, 240, 0.68) 32%,
+    rgba(203, 213, 225, 0.38) 54%,
+    rgba(148, 163, 184, 0.14) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, 0.72),
+    inset 0 0 48px rgba(241, 245, 249, 0.58),
+    inset 0 0 100px rgba(226, 232, 240, 0.42);
+}
+
+.pp-combat-flash-layer--kalli-buff-ban-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(248, 250, 252, 0.52) 0%,
+    rgba(226, 232, 240, 0.34) 36%,
+    rgba(203, 213, 225, 0.18) 58%,
+    rgba(148, 163, 184, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(248, 250, 252, 0.48),
+    0 0 72px 44px rgba(226, 232, 240, 0.32),
+    0 0 110px 64px rgba(203, 213, 225, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.32);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 단하「마법의 갈고리」(고스톤 처치와 동형 타이밍·형태, 하늘색) */
+.pp-combat-flash-layer--danha-magic-hook {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(56, 189, 248, 0.92) 0%,
+    rgba(14, 165, 233, 0.62) 32%,
+    rgba(8, 112, 168, 0.32) 54%,
+    rgba(6, 60, 94, 0.12) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(186, 230, 253, 0.58),
+    inset 0 0 48px rgba(56, 189, 248, 0.52),
+    inset 0 0 100px rgba(12, 100, 155, 0.38);
+}
+
+.pp-combat-flash-layer--danha-magic-hook-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(125, 211, 252, 0.48) 0%,
+    rgba(56, 189, 248, 0.3) 36%,
+    rgba(14, 116, 175, 0.18) 58%,
+    rgba(8, 70, 110, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(56, 189, 248, 0.42),
+    0 0 72px 44px rgba(14, 165, 233, 0.32),
+    0 0 110px 64px rgba(8, 112, 168, 0.22),
+    0 0 0 1px rgba(224, 242, 254, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 곤충 전문가「A) 탐색」(danha와 동형·흰색) */
+.pp-combat-flash-layer--gonchung-hidden-peek {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(248, 250, 252, 0.58) 32%,
+    rgba(226, 232, 240, 0.28) 54%,
+    rgba(203, 213, 225, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, 0.72),
+    inset 0 0 48px rgba(255, 255, 255, 0.48),
+    inset 0 0 100px rgba(241, 245, 249, 0.35);
+}
+
+.pp-combat-flash-layer--gonchung-hidden-peek-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(255, 255, 255, 0.52) 0%,
+    rgba(248, 250, 252, 0.32) 36%,
+    rgba(226, 232, 240, 0.16) 58%,
+    rgba(203, 213, 225, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(255, 255, 255, 0.55),
+    0 0 72px 44px rgba(248, 250, 252, 0.38),
+    0 0 110px 64px rgba(226, 232, 240, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.28);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 슈퍼 그린킹「주문 파괴자」(고스톤 처치와 동형 수치·형태, 녹색 팔레트) */
+.pp-combat-flash-layer--super-green-king-spell-breaker {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(22, 110, 56, 0.9) 0%,
+    rgba(14, 80, 42, 0.58) 32%,
+    rgba(8, 50, 28, 0.28) 54%,
+    rgba(4, 30, 18, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(167, 243, 208, 0.52),
+    inset 0 0 48px rgba(34, 197, 94, 0.56),
+    inset 0 0 100px rgba(14, 90, 48, 0.42);
+}
+
+.pp-combat-flash-layer--super-green-king-spell-breaker-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(52, 168, 90, 0.42) 0%,
+    rgba(28, 120, 62, 0.26) 36%,
+    rgba(16, 78, 40, 0.15) 58%,
+    rgba(8, 48, 26, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(48, 180, 92, 0.44),
+    0 0 72px 44px rgba(30, 130, 68, 0.3),
+    0 0 110px 64px rgba(18, 88, 46, 0.22),
+    0 0 0 1px rgba(209, 250, 229, 0.16);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 슈퍼 그린킹「주문 파괴자」— 스펠 슬롯 전용(가로 슬롯: 타원·바깥 광택을 가로에 맞춤, 회전 없음) */
+.pp-combat-flash-layer--super-green-king-spell-breaker--spell-land {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 122% 68% at 50% 50%,
+    rgba(22, 110, 56, 0.9) 0%,
+    rgba(14, 80, 42, 0.58) 28%,
+    rgba(8, 50, 28, 0.28) 50%,
+    rgba(4, 30, 18, 0.1) 68%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(167, 243, 208, 0.52),
+    inset 0 0 52px rgba(34, 197, 94, 0.56),
+    inset 0 0 100px rgba(14, 90, 48, 0.42);
+}
+
+.pp-combat-flash-layer--super-green-king-spell-breaker-aura--spell-land {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 58% at 50% 50%,
+    rgba(52, 168, 90, 0.42) 0%,
+    rgba(28, 120, 62, 0.26) 34%,
+    rgba(16, 78, 40, 0.15) 56%,
+    rgba(8, 48, 26, 0.07) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 56px 26px rgba(48, 180, 92, 0.42),
+    0 0 92px 40px rgba(30, 130, 68, 0.3),
+    0 0 120px 52px rgba(18, 88, 46, 0.2),
+    0 0 0 1px rgba(209, 250, 229, 0.16);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 슈퍼 테슬라(진한 네이비·코발트 팔레트) */
+.pp-combat-flash-layer--super-tesla-spell-trigger {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(37, 99, 235, 0.94) 0%,
+    rgba(29, 78, 216, 0.68) 28%,
+    rgba(23, 37, 84, 0.42) 50%,
+    rgba(15, 23, 42, 0.18) 68%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(147, 197, 253, 0.42),
+    inset 0 0 48px rgba(30, 64, 175, 0.55),
+    inset 0 0 100px rgba(15, 23, 42, 0.42);
+}
+
+.pp-combat-flash-layer--super-tesla-spell-trigger-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(59, 130, 246, 0.4) 0%,
+    rgba(37, 99, 235, 0.26) 36%,
+    rgba(30, 58, 138, 0.16) 58%,
+    rgba(15, 23, 42, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(37, 99, 235, 0.38),
+    0 0 72px 44px rgba(29, 78, 216, 0.28),
+    0 0 110px 64px rgba(23, 37, 84, 0.2),
+    0 0 0 1px rgba(191, 219, 254, 0.18);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--super-tesla-spell-trigger--spell-land {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 122% 68% at 50% 50%,
+    rgba(37, 99, 235, 0.94) 0%,
+    rgba(29, 78, 216, 0.68) 26%,
+    rgba(23, 37, 84, 0.42) 48%,
+    rgba(15, 23, 42, 0.18) 66%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(147, 197, 253, 0.42),
+    inset 0 0 52px rgba(30, 64, 175, 0.58),
+    inset 0 0 100px rgba(15, 23, 42, 0.42);
+}
+
+.pp-combat-flash-layer--super-tesla-spell-trigger-aura--spell-land {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 58% at 50% 50%,
+    rgba(59, 130, 246, 0.36) 0%,
+    rgba(37, 99, 235, 0.24) 34%,
+    rgba(30, 58, 138, 0.14) 56%,
+    rgba(15, 23, 42, 0.08) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 56px 26px rgba(37, 99, 235, 0.36),
+    0 0 92px 40px rgba(29, 78, 216, 0.26),
+    0 0 120px 52px rgba(23, 37, 84, 0.18),
+    0 0 0 1px rgba(191, 219, 254, 0.16);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 다크나이트(적 유닛 처치 회복): 인디고 + 살짝 바이올렛, 고스톤보다 강한 광채 */
+.pp-combat-flash-layer--darkknight-kill {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(88, 72, 198, 0.97) 0%,
+    rgba(62, 48, 165, 0.72) 26%,
+    rgba(44, 36, 132, 0.48) 48%,
+    rgba(30, 24, 98, 0.26) 66%,
+    rgba(18, 14, 62, 0.1) 78%,
+    transparent 88%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(196, 181, 253, 0.72),
+    inset 0 0 0 2px rgba(167, 139, 250, 0.45),
+    inset 0 0 56px rgba(99, 85, 210, 0.68),
+    inset 0 0 100px rgba(72, 58, 175, 0.56),
+    inset 0 0 150px rgba(48, 38, 128, 0.42);
+}
+
+.pp-combat-flash-layer--darkknight-kill-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(118, 95, 235, 0.55) 0%,
+    rgba(82, 65, 200, 0.4) 32%,
+    rgba(58, 46, 158, 0.26) 54%,
+    rgba(38, 32, 108, 0.14) 72%,
+    rgba(22, 18, 72, 0.06) 82%,
+    transparent 90%
+  );
+  box-shadow:
+    0 0 52px 28px rgba(139, 92, 246, 0.5),
+    0 0 88px 50px rgba(99, 78, 220, 0.38),
+    0 0 128px 72px rgba(67, 56, 180, 0.28),
+    0 0 0 2px rgba(216, 201, 255, 0.28);
+  filter: blur(0.65px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 맥셀렌드(적 유닛 처치): 붉은 광채 — 다크나이트 처치와 동형 타이밍 */
+.pp-combat-flash-layer--maxelland-kill {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(220, 38, 38, 0.96) 0%,
+    rgba(185, 28, 28, 0.74) 26%,
+    rgba(127, 29, 29, 0.48) 48%,
+    rgba(69, 10, 10, 0.26) 66%,
+    rgba(40, 6, 6, 0.1) 78%,
+    transparent 88%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(254, 202, 202, 0.68),
+    inset 0 0 0 2px rgba(248, 113, 113, 0.48),
+    inset 0 0 56px rgba(220, 38, 38, 0.62),
+    inset 0 0 100px rgba(153, 27, 27, 0.52),
+    inset 0 0 150px rgba(69, 10, 10, 0.38);
+}
+
+.pp-combat-flash-layer--maxelland-kill-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(252, 165, 165, 0.52) 0%,
+    rgba(239, 68, 68, 0.38) 32%,
+    rgba(185, 28, 28, 0.24) 54%,
+    rgba(127, 29, 29, 0.12) 72%,
+    rgba(69, 10, 10, 0.05) 82%,
+    transparent 90%
+  );
+  box-shadow:
+    0 0 52px 28px rgba(248, 113, 113, 0.48),
+    0 0 88px 50px rgba(239, 68, 68, 0.34),
+    0 0 128px 72px rgba(185, 28, 28, 0.24),
+    0 0 0 2px rgba(254, 226, 226, 0.32);
+  filter: blur(0.65px);
+  mix-blend-mode: screen;
+}
+
+/* 맥셀렌드 [투지] 4칸 만축 — 카드 슬롯 외곽: 빨강 ↔ 주황 펄스(밝은 로즈/흰색 톤 없음) */
+@keyframes pp-maxelland-full-perimeter-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(185, 28, 28, 0.98),
+      0 0 10px rgba(220, 38, 38, 0.9),
+      0 0 22px rgba(185, 28, 28, 0.55),
+      0 0 36px rgba(127, 29, 29, 0.36),
+      inset 0 0 0 1px rgba(220, 38, 38, 0.32);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(249, 115, 22, 0.94),
+      0 0 16px rgba(251, 146, 60, 0.88),
+      0 0 30px rgba(234, 88, 12, 0.58),
+      0 0 48px rgba(194, 65, 12, 0.4),
+      inset 0 0 0 1px rgba(254, 215, 170, 0.4);
+  }
+}
+
+.pp-maxelland-full-tenacity-perimeter-glow {
+  animation: pp-maxelland-full-perimeter-glow 1.75s ease-in-out infinite;
+}
+
+/* 다크나이트 소울 게이지 5칸 만축 — 바깥 테두리 보라 상시 광채 */
+@keyframes pp-darkknight-gauge-full-glow {
+  0%,
+  100% {
+    border-color: rgba(167, 139, 250, 0.82);
+    box-shadow:
+      0 0 5px rgba(167, 139, 250, 0.7),
+      0 0 12px rgba(124, 58, 237, 0.48),
+      inset 0 0 8px rgba(91, 33, 182, 0.22);
+  }
+  50% {
+    border-color: rgba(216, 201, 255, 0.95);
+    box-shadow:
+      0 0 9px rgba(196, 181, 253, 0.9),
+      0 0 20px rgba(139, 92, 246, 0.58),
+      inset 0 0 11px rgba(109, 40, 217, 0.32);
+  }
+}
+
+.pp-darkknight-gauge-frame--full {
+  box-sizing: border-box;
+  border: 1px solid rgba(183, 156, 255, 0.88);
+  border-radius: 4px;
+  animation: pp-darkknight-gauge-full-glow 2.2s ease-in-out infinite;
+}
+
+/* 소울 게이지 1칸 충전 시 — 게이지 블록 바깥 테두리 보라 명멸 */
+@keyframes pp-darkknight-gauge-charge-border-blink {
+  0% {
+    border-color: rgba(167, 139, 250, 0.08);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    border-color: rgba(233, 213, 255, 0.98);
+    box-shadow:
+      0 0 0 1px rgba(196, 181, 253, 0.92),
+      0 0 8px 3px rgba(139, 92, 246, 0.72),
+      0 0 18px 6px rgba(91, 33, 182, 0.42);
+  }
+  72% {
+    border-color: rgba(180, 148, 248, 0.45);
+    box-shadow:
+      0 0 0 1px rgba(167, 139, 250, 0.55),
+      0 0 12px 4px rgba(124, 58, 237, 0.38);
+  }
+  100% {
+    border-color: rgba(167, 139, 250, 0.02);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.pp-darkknight-gauge-charge-border-ring {
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  animation: pp-darkknight-gauge-charge-border-blink 0.62s ease-out forwards;
+}
+
+/* 맥셀렌드 [투지] 게이지 4칸 만축 — 바깥 테두리: 빨강 ↔ 주황 광채 */
+@keyframes pp-maxelland-gauge-full-glow {
+  0%,
+  100% {
+    border-color: rgba(220, 38, 38, 0.9);
+    box-shadow:
+      0 0 5px rgba(239, 68, 68, 0.62),
+      0 0 12px rgba(185, 28, 28, 0.48),
+      inset 0 0 8px rgba(127, 29, 29, 0.28);
+  }
+  50% {
+    border-color: rgba(249, 115, 22, 0.92);
+    box-shadow:
+      0 0 9px rgba(251, 146, 60, 0.82),
+      0 0 20px rgba(234, 88, 12, 0.52),
+      inset 0 0 11px rgba(154, 52, 18, 0.32);
+  }
+}
+
+.pp-maxelland-gauge-frame--full {
+  box-sizing: border-box;
+  border: 1px solid rgba(239, 68, 68, 0.88);
+  border-radius: 4px;
+  animation: pp-maxelland-gauge-full-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes pp-maxelland-gauge-charge-border-blink {
+  0% {
+    border-color: rgba(248, 113, 113, 0.08);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    border-color: rgba(251, 146, 60, 0.95);
+    box-shadow:
+      0 0 0 1px rgba(249, 115, 22, 0.88),
+      0 0 8px 3px rgba(234, 88, 12, 0.68),
+      0 0 18px 6px rgba(220, 38, 38, 0.42);
+  }
+  72% {
+    border-color: rgba(239, 68, 68, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(220, 38, 38, 0.58),
+      0 0 12px 4px rgba(194, 65, 12, 0.38);
+  }
+  100% {
+    border-color: rgba(248, 113, 113, 0.02);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.pp-maxelland-gauge-charge-border-ring {
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  animation: pp-maxelland-gauge-charge-border-blink 0.62s ease-out forwards;
+}
+
+@keyframes pp-maxelland-tenacity-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(220, 38, 38, 0.42),
+      0 0 14px rgba(185, 28, 28, 0.32),
+      inset 0 0 12px rgba(127, 29, 29, 0.14);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(249, 115, 22, 0.48),
+      0 0 22px rgba(251, 146, 60, 0.4),
+      inset 0 0 14px rgba(194, 65, 12, 0.2);
+  }
+}
+
+.pp-maxelland-tenacity-field-ring-overlay {
+  animation: pp-maxelland-tenacity-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 소울 만축 다크나이트 기본 공격 적중 — 카드 밖 순간 보라 섬광(외곽선 너머) */
+@keyframes pp-combat-flash-dk-fullsoul-hit-burst {
+  0% {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1.01);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.028);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.045);
+  }
+}
+
+.pp-combat-flash-layer--darkknight-fullsoul-hit-burst {
+  animation: pp-combat-flash-dk-fullsoul-hit-burst 0.72s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 96% at 50% 48%,
+    rgba(216, 201, 255, 0.42) 0%,
+    rgba(167, 139, 250, 0.32) 28%,
+    rgba(124, 58, 237, 0.18) 48%,
+    rgba(76, 29, 149, 0.08) 66%,
+    transparent 82%
+  );
+  box-shadow:
+    0 0 14px 8px rgba(139, 92, 246, 0.5),
+    0 0 26px 16px rgba(91, 33, 182, 0.36),
+    0 0 44px 24px rgba(49, 46, 129, 0.22),
+    0 0 0 1px rgba(233, 213, 255, 0.22);
+  filter: blur(0.5px);
+  mix-blend-mode: screen;
+}
+
+/* 소울 만축 다크나이트 기본 공격 적중 — 카드 윤곽 인디고 명멸(내층, 버스트보다 위) */
+@keyframes pp-combat-flash-dk-fullsoul-hit-outline {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  52% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pp-combat-flash-layer--darkknight-fullsoul-hit {
+  animation: pp-combat-flash-dk-fullsoul-hit-outline 0.72s ease-out forwards;
+  background: radial-gradient(
+    ellipse 92% 88% at 50% 50%,
+    rgba(49, 46, 129, 0.16) 0%,
+    rgba(67, 56, 202, 0.08) 36%,
+    transparent 70%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(199, 210, 254, 0.98),
+    inset 0 0 0 2px rgba(79, 70, 229, 0.82),
+    inset 0 0 36px rgba(55, 48, 163, 0.48),
+    inset 0 0 64px rgba(49, 46, 129, 0.28);
+}
+
+/* 맥셀렌드 [투지] 만축 기본 공격 적중 — 다크나이트 만축 타격과 동형(동일 키프레임·0.72s)·주황색 */
+.pp-combat-flash-layer--maxelland-fullgauge-hit-burst {
+  animation: pp-combat-flash-dk-fullsoul-hit-burst 0.72s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 96% at 50% 48%,
+    rgba(255, 237, 213, 0.44) 0%,
+    rgba(254, 215, 170, 0.34) 28%,
+    rgba(251, 146, 60, 0.2) 48%,
+    rgba(194, 65, 12, 0.09) 66%,
+    transparent 82%
+  );
+  box-shadow:
+    0 0 14px 8px rgba(251, 146, 60, 0.52),
+    0 0 26px 16px rgba(249, 115, 22, 0.38),
+    0 0 44px 24px rgba(194, 65, 12, 0.24),
+    0 0 0 1px rgba(255, 247, 237, 0.28);
+  filter: blur(0.5px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--maxelland-fullgauge-hit {
+  animation: pp-combat-flash-dk-fullsoul-hit-outline 0.72s ease-out forwards;
+  background: radial-gradient(
+    ellipse 92% 88% at 50% 50%,
+    rgba(124, 45, 18, 0.16) 0%,
+    rgba(234, 88, 12, 0.09) 36%,
+    transparent 70%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(254, 243, 199, 0.98),
+    inset 0 0 0 2px rgba(234, 88, 12, 0.84),
+    inset 0 0 36px rgba(249, 115, 22, 0.46),
+    inset 0 0 64px rgba(154, 52, 18, 0.28);
+}
+
+/* 필립·철기병·에리스티나 반짓고리 연결 공용 펄스 타이밍 (능력 발동 이펙트 동형) */
+@keyframes pp-combat-flash-pulse-philip {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.98;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pp-combat-flash-layer--philip-summon {
+  /* 능력 발동 이펙트 — 필립(필드 소환·패시브, 노란·골드) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(120, 90, 18, 0.72) 0%,
+    rgba(88, 62, 12, 0.5) 32%,
+    rgba(52, 38, 8, 0.24) 54%,
+    rgba(28, 22, 6, 0.08) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(253, 224, 71, 0.62),
+    inset 0 0 48px rgba(202, 138, 4, 0.48),
+    inset 0 0 100px rgba(120, 80, 8, 0.36);
+}
+
+/* 필립 등 — 외곽 오라(능력 발동 이펙트 동형) */
+@keyframes pp-combat-flash-aura-philip {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+.pp-combat-flash-layer--philip-summon-aura {
+  /* 능력 발동 이펙트 — 필립(외곽 확장층) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(200, 150, 28, 0.36) 0%,
+    rgba(150, 110, 18, 0.22) 38%,
+    rgba(88, 64, 12, 0.12) 60%,
+    rgba(48, 36, 8, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(250, 204, 21, 0.38),
+    0 0 72px 44px rgba(202, 138, 4, 0.26),
+    0 0 110px 64px rgba(120, 80, 12, 0.18),
+    0 0 0 1px rgba(254, 243, 199, 0.2);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--pyred-summon {
+  /* 능력 발동 이펙트 — 파이레드(필드 패시브 연동, 붉은 톤 — 필립과 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(220, 38, 38, 0.84) 0%,
+    rgba(185, 28, 28, 0.56) 32%,
+    rgba(127, 29, 29, 0.28) 54%,
+    rgba(69, 10, 10, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(254, 202, 202, 0.62),
+    inset 0 0 48px rgba(239, 68, 68, 0.48),
+    inset 0 0 100px rgba(153, 27, 27, 0.34);
+}
+
+.pp-combat-flash-layer--pyred-summon-aura {
+  /* 능력 발동 이펙트 — 파이레드(외곽 확장층, 붉은 톤) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(252, 165, 165, 0.4) 0%,
+    rgba(239, 68, 68, 0.25) 38%,
+    rgba(185, 28, 28, 0.14) 60%,
+    rgba(127, 29, 29, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(248, 113, 113, 0.36),
+    0 0 72px 44px rgba(239, 68, 68, 0.24),
+    0 0 110px 64px rgba(153, 27, 27, 0.16),
+    0 0 0 1px rgba(254, 226, 226, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--morning-mood-summon {
+  /* 능력 발동 이펙트 — 모닝 무드(필드 패시브 연동, 연두 톤 — 파이레드와 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(163, 230, 53, 0.84) 0%,
+    rgba(132, 204, 22, 0.58) 32%,
+    rgba(101, 163, 13, 0.3) 54%,
+    rgba(63, 98, 18, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(236, 252, 203, 0.64),
+    inset 0 0 48px rgba(190, 242, 100, 0.5),
+    inset 0 0 100px rgba(132, 204, 22, 0.36);
+}
+
+.pp-combat-flash-layer--morning-mood-summon-aura {
+  /* 능력 발동 이펙트 — 모닝 무드(외곽 확장층, 연두 톤) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(217, 249, 157, 0.42) 0%,
+    rgba(190, 242, 100, 0.27) 38%,
+    rgba(132, 204, 22, 0.15) 60%,
+    rgba(77, 124, 15, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(217, 249, 157, 0.38),
+    0 0 72px 44px rgba(190, 242, 100, 0.26),
+    0 0 110px 64px rgba(132, 204, 22, 0.18),
+    0 0 0 1px rgba(254, 252, 232, 0.24);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--starting-tree-summon {
+  /* 능력 발동 이펙트 — 시작의 나무(필드 배치, 녹색 톤 — 파이레드와 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(34, 197, 94, 0.8) 0%,
+    rgba(22, 163, 74, 0.54) 32%,
+    rgba(21, 128, 61, 0.26) 54%,
+    rgba(20, 83, 45, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(187, 247, 208, 0.62),
+    inset 0 0 48px rgba(74, 222, 128, 0.46),
+    inset 0 0 100px rgba(22, 163, 74, 0.34);
+}
+
+.pp-combat-flash-layer--starting-tree-summon-aura {
+  /* 능력 발동 이펙트 — 시작의 나무(외곽 확장층, 녹색 톤) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(187, 247, 208, 0.38) 0%,
+    rgba(74, 222, 128, 0.24) 38%,
+    rgba(34, 197, 94, 0.14) 60%,
+    rgba(21, 128, 61, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(134, 239, 172, 0.34),
+    0 0 72px 44px rgba(74, 222, 128, 0.24),
+    0 0 110px 64px rgba(34, 197, 94, 0.16),
+    0 0 0 1px rgba(220, 252, 231, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 No.7 언덕!(적 유닛 적중, 밝은 하늘·시안 톤 — 필드 소환과 동형 레이어) */
+.pp-combat-flash-layer--eondeok-spell {
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(56, 189, 248, 0.82) 0%,
+    rgba(14, 165, 233, 0.55) 32%,
+    rgba(2, 132, 199, 0.28) 54%,
+    rgba(7, 89, 133, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(224, 242, 254, 0.72),
+    inset 0 0 48px rgba(125, 211, 252, 0.5),
+    inset 0 0 100px rgba(14, 165, 233, 0.38);
+}
+
+.pp-combat-flash-layer--eondeok-spell-aura {
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(224, 242, 254, 0.42) 0%,
+    rgba(125, 211, 252, 0.3) 38%,
+    rgba(56, 189, 248, 0.16) 60%,
+    rgba(14, 165, 233, 0.07) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(186, 230, 253, 0.42),
+    0 0 72px 44px rgba(125, 211, 252, 0.28),
+    0 0 110px 64px rgba(56, 189, 248, 0.18),
+    0 0 0 1px rgba(240, 249, 255, 0.28);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 스펠 No.19 번개(적중 — 낙뢰·강섬광 후 페이드아웃) */
+@keyframes pp-combat-flash-beonggae-strike-core {
+  0% {
+    opacity: 0;
+    filter: brightness(1) saturate(1);
+  }
+  3% {
+    opacity: 1;
+    filter: brightness(2.8) saturate(1.35);
+  }
+  6% {
+    opacity: 0.12;
+    filter: brightness(1) saturate(1);
+  }
+  9% {
+    opacity: 1;
+    filter: brightness(3.2) saturate(1.5);
+  }
+  13% {
+    opacity: 0.35;
+    filter: brightness(1.15) saturate(1.1);
+  }
+  16% {
+    opacity: 0.98;
+    filter: brightness(2.4) saturate(1.3);
+  }
+  22% {
+    opacity: 0.08;
+    filter: brightness(1) saturate(1);
+  }
+  28% {
+    opacity: 0.82;
+    filter: brightness(2.1) saturate(1.22);
+  }
+  34% {
+    opacity: 0.22;
+    filter: brightness(1.05) saturate(1.02);
+  }
+  38% {
+    opacity: 0.58;
+    filter: brightness(1.75) saturate(1.12);
+  }
+  /* 잔광 → 부드러운 페이드아웃 */
+  48% {
+    opacity: 0.32;
+    filter: brightness(1.12) saturate(1.03);
+  }
+  58% {
+    opacity: 0.18;
+    filter: brightness(1.06) saturate(1.01);
+  }
+  70% {
+    opacity: 0.09;
+    filter: brightness(1.02) saturate(1);
+  }
+  84% {
+    opacity: 0.03;
+    filter: brightness(1) saturate(1);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(1) saturate(1);
+  }
+}
+
+@keyframes pp-combat-flash-beonggae-strike-aura {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  4% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+  10% {
+    opacity: 0.2;
+    transform: scale(0.98);
+  }
+  15% {
+    opacity: 0.95;
+    transform: scale(1.06);
+  }
+  24% {
+    opacity: 0.08;
+    transform: scale(1.08);
+  }
+  32% {
+    opacity: 0.72;
+    transform: scale(1.04);
+  }
+  38% {
+    opacity: 0.42;
+    transform: scale(1.06);
+  }
+  /* 오라 페이드아웃 */
+  50% {
+    opacity: 0.24;
+    transform: scale(1.08);
+  }
+  62% {
+    opacity: 0.12;
+    transform: scale(1.09);
+  }
+  76% {
+    opacity: 0.05;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+.pp-combat-flash-layer--beonggae-spell {
+  animation: pp-combat-flash-beonggae-strike-core 1.28s ease-out forwards;
+  background:
+    linear-gradient(
+      175deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(224, 231, 255, 0.55) 14%,
+      rgba(96, 165, 250, 0.35) 32%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 95% 125% at 50% 18%,
+      rgba(255, 255, 255, 0.88) 0%,
+      rgba(147, 197, 253, 0.75) 18%,
+      rgba(59, 130, 246, 0.82) 38%,
+      rgba(37, 99, 235, 0.55) 52%,
+      rgba(30, 64, 175, 0.28) 68%,
+      rgba(23, 37, 84, 0.1) 80%,
+      transparent 90%
+    );
+  box-shadow:
+    inset 0 0 0 5px rgba(255, 255, 255, 0.92),
+    inset 0 -20px 60px rgba(59, 130, 246, 0.55),
+    inset 0 0 80px rgba(147, 197, 253, 0.65),
+    inset 0 0 140px rgba(37, 99, 235, 0.5),
+    0 0 60px 28px rgba(191, 219, 254, 0.55),
+    0 0 100px 48px rgba(96, 165, 250, 0.4);
+}
+
+.pp-combat-flash-layer--beonggae-spell-aura {
+  animation: pp-combat-flash-beonggae-strike-aura 1.22s ease-out forwards;
+  background: radial-gradient(
+    ellipse 85% 130% at 50% 12%,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(191, 219, 254, 0.42) 22%,
+    rgba(96, 165, 250, 0.32) 42%,
+    rgba(37, 99, 235, 0.2) 62%,
+    rgba(30, 58, 138, 0.08) 78%,
+    transparent 88%
+  );
+  box-shadow:
+    0 0 50px 28px rgba(147, 197, 253, 0.65),
+    0 0 90px 52px rgba(59, 130, 246, 0.45),
+    0 0 140px 80px rgba(37, 99, 235, 0.32),
+    0 0 0 2px rgba(239, 246, 255, 0.45);
+  filter: blur(1.1px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--cheolgibyeong-summon {
+  /* 능력 발동 이펙트 — 철기병(필드 소환, 회색·은빛 — 필립과 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(72, 78, 88, 0.78) 0%,
+    rgba(52, 56, 64, 0.52) 32%,
+    rgba(34, 38, 44, 0.26) 54%,
+    rgba(20, 22, 26, 0.09) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(200, 206, 216, 0.58),
+    inset 0 0 48px rgba(130, 138, 150, 0.42),
+    inset 0 0 100px rgba(72, 78, 88, 0.34);
+}
+
+.pp-combat-flash-layer--ryeomcho-summon {
+  /* 능력 발동 이펙트 — 렴초(필드 소환, 베이지·샌드 톤 — 철기병과 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(220, 200, 158, 0.78) 0%,
+    rgba(185, 162, 118, 0.52) 32%,
+    rgba(148, 128, 92, 0.28) 54%,
+    rgba(112, 95, 68, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 246, 220, 0.58),
+    inset 0 0 48px rgba(212, 186, 140, 0.46),
+    inset 0 0 100px rgba(168, 145, 102, 0.34);
+}
+
+.pp-combat-flash-layer--ryeomcho-summon-aura {
+  /* 능력 발동 이펙트 — 렴초(외곽 확장층, 베이지) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(238, 222, 190, 0.38) 0%,
+    rgba(208, 186, 148, 0.24) 38%,
+    rgba(175, 152, 115, 0.14) 60%,
+    rgba(128, 108, 78, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(245, 225, 185, 0.34),
+    0 0 72px 44px rgba(210, 185, 140, 0.22),
+    0 0 110px 64px rgba(165, 140, 100, 0.15),
+    0 0 0 1px rgba(255, 248, 232, 0.26);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--diago-summon {
+  /* 능력 발동 이펙트 — 다이아고(필드 소환, 연두·민트 톤 — 렴초와 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(106, 198, 120, 0.78) 0%,
+    rgba(74, 168, 98, 0.52) 32%,
+    rgba(52, 128, 78, 0.28) 54%,
+    rgba(34, 88, 58, 0.1) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(204, 250, 210, 0.58),
+    inset 0 0 48px rgba(134, 220, 150, 0.46),
+    inset 0 0 100px rgba(74, 180, 100, 0.34);
+}
+
+.pp-combat-flash-layer--diago-summon-aura {
+  /* 능력 발동 이펙트 — 다이아고(외곽 확장층, 연두) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(178, 240, 190, 0.38) 0%,
+    rgba(120, 210, 140, 0.24) 38%,
+    rgba(74, 170, 100, 0.14) 60%,
+    rgba(42, 120, 70, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(150, 230, 170, 0.34),
+    0 0 72px 44px rgba(90, 200, 120, 0.22),
+    0 0 110px 64px rgba(52, 160, 90, 0.15),
+    0 0 0 1px rgba(220, 252, 228, 0.28);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--geomeun-hwangje-summon {
+  /* 능력 발동 이펙트 — 검은 황제(필드 소환, 회색 톤 — 다이아고와 동형 타이밍) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(198, 202, 212, 0.85) 0%,
+    rgba(158, 164, 178, 0.62) 32%,
+    rgba(118, 126, 142, 0.38) 54%,
+    rgba(82, 88, 100, 0.16) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(236, 238, 244, 0.65),
+    inset 0 0 48px rgba(176, 182, 194, 0.5),
+    inset 0 0 100px rgba(132, 140, 154, 0.34);
+}
+
+.pp-combat-flash-layer--geomeun-hwangje-summon-aura {
+  /* 능력 발동 이펙트 — 검은 황제(외곽 확장층, 은회색·어두운 배경에서 가독) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(218, 222, 230, 0.48) 0%,
+    rgba(178, 184, 196, 0.32) 38%,
+    rgba(138, 146, 160, 0.18) 60%,
+    rgba(96, 102, 114, 0.08) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(200, 206, 218, 0.45),
+    0 0 72px 44px rgba(150, 158, 172, 0.32),
+    0 0 110px 64px rgba(110, 118, 132, 0.2),
+    0 0 0 1px rgba(240, 242, 248, 0.38);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--iron-kiwi-summon {
+  /* 능력 발동 이펙트 — 아이언 키위(필드 소환, 매우 밝은 은회색 — 범위 살짝 축소) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 108% 96% at 50% 46%,
+    rgba(248, 250, 255, 0.88) 0%,
+    rgba(228, 232, 242, 0.66) 32%,
+    rgba(200, 208, 224, 0.4) 54%,
+    rgba(168, 178, 198, 0.14) 72%,
+    transparent 80%
+  );
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, 0.68),
+    inset 0 0 36px rgba(236, 240, 250, 0.52),
+    inset 0 0 78px rgba(210, 218, 235, 0.36);
+}
+
+.pp-combat-flash-layer--iron-kiwi-summon-aura {
+  /* 능력 발동 이펙트 — 아이언 키위(외곽 확장층, TSX -inset-8 과 맞춤·살짝 작게) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 92% 88% at 50% 50%,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(238, 242, 250, 0.28) 40%,
+    rgba(215, 222, 235, 0.16) 62%,
+    rgba(185, 195, 215, 0.06) 78%,
+    transparent 86%
+  );
+  box-shadow:
+    0 0 28px 14px rgba(255, 255, 255, 0.34),
+    0 0 52px 30px rgba(230, 236, 248, 0.22),
+    0 0 78px 48px rgba(200, 210, 230, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.28);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--cheolgibyeong-summon-aura {
+  /* 능력 발동 이펙트 — 철기병(외곽 확장층) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(148, 156, 168, 0.34) 0%,
+    rgba(100, 108, 118, 0.2) 38%,
+    rgba(62, 68, 76, 0.11) 60%,
+    rgba(36, 40, 46, 0.05) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(180, 188, 200, 0.32),
+    0 0 72px 44px rgba(120, 128, 140, 0.22),
+    0 0 110px 64px rgba(72, 78, 88, 0.14),
+    0 0 0 1px rgba(226, 232, 240, 0.18);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+.pp-combat-flash-layer--eristina-banjitgori {
+  /* 능력 발동 이펙트 — 에리스티나(반짓고리 연결, 핑크 톤) */
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(157, 23, 77, 0.74) 0%,
+    rgba(131, 24, 67, 0.52) 32%,
+    rgba(88, 28, 58, 0.26) 54%,
+    rgba(52, 18, 38, 0.09) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(251, 113, 133, 0.68),
+    inset 0 0 48px rgba(219, 39, 119, 0.52),
+    inset 0 0 100px rgba(157, 23, 77, 0.4);
+}
+
+.pp-combat-flash-layer--eristina-banjitgori-aura {
+  /* 능력 발동 이펙트 — 에리스티나(외곽 확장층) */
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(236, 72, 153, 0.4) 0%,
+    rgba(190, 24, 93, 0.24) 38%,
+    rgba(131, 24, 67, 0.14) 60%,
+    rgba(72, 16, 44, 0.07) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(244, 114, 182, 0.42),
+    0 0 72px 44px rgba(219, 39, 119, 0.3),
+    0 0 110px 64px rgba(157, 23, 77, 0.22),
+    0 0 0 1px rgba(252, 231, 243, 0.22);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 라임「방울 보호막」연결(밝은 하늘·시안 톤, 에리스티나와 동형 타이밍) */
+.pp-combat-flash-layer--lime-bubble-shield {
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(14, 165, 233, 0.72) 0%,
+    rgba(2, 132, 199, 0.52) 30%,
+    rgba(7, 89, 133, 0.26) 54%,
+    rgba(15, 23, 42, 0.08) 72%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(125, 211, 252, 0.78),
+    inset 0 0 48px rgba(56, 189, 248, 0.5),
+    inset 0 0 100px rgba(14, 165, 233, 0.38);
+}
+
+.pp-combat-flash-layer--lime-bubble-shield-aura {
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(186, 230, 253, 0.55) 0%,
+    rgba(56, 189, 248, 0.34) 36%,
+    rgba(14, 165, 233, 0.2) 58%,
+    rgba(12, 74, 110, 0.08) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(125, 211, 252, 0.48),
+    0 0 72px 44px rgba(56, 189, 248, 0.34),
+    0 0 110px 64px rgba(14, 165, 233, 0.22),
+    0 0 0 1px rgba(240, 249, 255, 0.35);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 전설의 검 충전 — 카드 윤곽 밖 하늘색 섬광만 반복 명멸(카드 면에는 덮지 않음) */
+@keyframes pp-legendary-sword-charge-sky-flicker {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.92;
+    transform: scale(1.03);
+  }
+}
+
+.pp-legendary-sword-charge-aura {
+  animation: pp-legendary-sword-charge-sky-flicker 0.52s ease-in-out infinite;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(224, 242, 254, 0.62) 0%,
+    rgba(56, 189, 248, 0.42) 34%,
+    rgba(14, 165, 233, 0.22) 58%,
+    rgba(12, 74, 110, 0.07) 78%,
+    transparent 88%
+  );
+  box-shadow:
+    0 0 46px 26px rgba(125, 211, 252, 0.55),
+    0 0 86px 52px rgba(56, 189, 248, 0.32),
+    0 0 120px 72px rgba(14, 165, 233, 0.18),
+    0 0 0 1px rgba(240, 249, 255, 0.4);
+  filter: blur(0.75px);
+  mix-blend-mode: screen;
+}
+
+/* 연격 대상 선택 중 — 바깥 섬광 명멸 속도 2배 */
+.pp-legendary-sword-charge-aura--fast {
+  animation-duration: 0.26s;
+}
+
+/* 전설의 검 충전·연격 선택 중 — 카드 윤곽(슬롯 테두리) 파랑·시안 명멸 */
+@keyframes pp-legendary-sword-charge-border-flicker {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(59, 130, 246, 0.45),
+      0 0 10px rgba(56, 189, 248, 0.28),
+      inset 0 0 0 1px rgba(125, 211, 252, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(96, 165, 250, 0.92),
+      0 0 20px rgba(56, 189, 248, 0.62),
+      0 0 36px rgba(14, 165, 233, 0.38),
+      inset 0 0 0 1px rgba(224, 242, 254, 0.45);
+  }
+}
+
+.pp-legendary-sword-charge-border {
+  animation: pp-legendary-sword-charge-border-flicker 0.52s ease-in-out infinite;
+}
+
+.pp-legendary-sword-charge-border--fast {
+  animation-duration: 0.26s;
+}
+
+/* 반짓고리 부여 대상: 카드 윤곽 핑크 링(z는 SimulationView에서 렴초/철기병보다 위, 필립보다 아래) */
+@keyframes pp-banjitgori-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(244, 114, 182, 0.88),
+      0 0 16px rgba(236, 72, 153, 0.5),
+      0 0 28px rgba(219, 39, 119, 0.3),
+      inset 0 0 0 1px rgba(251, 207, 232, 0.34);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(251, 113, 133, 0.95),
+      0 0 24px rgba(244, 114, 182, 0.64),
+      0 0 40px rgba(236, 72, 153, 0.38),
+      inset 0 0 0 1px rgba(252, 231, 243, 0.46);
+  }
+}
+
+.pp-banjitgori-field-ring-overlay {
+  animation: pp-banjitgori-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 다크나이트 소울 5칸 만축: 반짓고리와 동형 — 파랑에 보라(인디고·바이올렛) 섞인 톤 */
+@keyframes pp-darkknight-soul-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(67, 56, 202, 0.92),
+      0 0 10px rgba(91, 33, 182, 0.36),
+      0 0 20px rgba(36, 20, 80, 0.22),
+      inset 0 0 0 1px rgba(165, 180, 252, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(99, 102, 241, 0.78),
+      0 0 14px rgba(109, 40, 217, 0.44),
+      0 0 26px rgba(49, 46, 120, 0.27),
+      inset 0 0 0 1px rgba(196, 181, 253, 0.26);
+  }
+}
+
+.pp-darkknight-soul-field-ring-overlay {
+  animation: pp-darkknight-soul-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 필립 마주 패시브: 별도 오버레이만 사용 — z-30으로 반짓고리·렴초·철기병 링보다 항상 위 */
+@keyframes pp-philip-facing-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(250, 204, 21, 0.88),
+      0 0 16px rgba(234, 179, 8, 0.55),
+      0 0 28px rgba(250, 204, 21, 0.28),
+      inset 0 0 0 1px rgba(254, 249, 195, 0.32);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(253, 224, 71, 0.98),
+      0 0 24px rgba(250, 204, 21, 0.72),
+      0 0 40px rgba(234, 179, 8, 0.38),
+      inset 0 0 0 1px rgba(254, 252, 232, 0.45);
+  }
+}
+
+.pp-philip-facing-ring-overlay {
+  animation: pp-philip-facing-glow 2.4s ease-in-out infinite;
+}
+
+/* 맹수견 포 — 안쪽 윤곽은 고정 빨간 2px 링, 그 바깥만 얇은 붉은 글로우가 펄스 */
+@keyframes pp-maengsugyeon-po-outer-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgb(220, 38, 38),
+      0 0 6px 2px rgba(248, 113, 113, 0.34),
+      0 0 12px 3px rgba(239, 68, 68, 0.16),
+      0 0 20px 5px rgba(220, 38, 38, 0.07);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgb(220, 38, 38),
+      0 0 11px 3px rgba(248, 113, 113, 0.46),
+      0 0 20px 5px rgba(239, 68, 68, 0.22),
+      0 0 28px 7px rgba(220, 38, 38, 0.1);
+  }
+}
+
+.pp-maengsugyeon-po-threat-ring-overlay {
+  animation: pp-maengsugyeon-po-outer-glow 2.4s ease-in-out infinite;
+}
+
+/* 렴초 필드 체류: 카드 윤곽 베이지 링(필립 마주 링과 동형 타이밍) */
+@keyframes pp-ryeomcho-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(212, 196, 168, 0.9),
+      0 0 16px rgba(232, 220, 200, 0.52),
+      0 0 28px rgba(196, 181, 153, 0.32),
+      inset 0 0 0 1px rgba(245, 235, 220, 0.34);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(232, 213, 185, 0.96),
+      0 0 24px rgba(212, 196, 168, 0.62),
+      0 0 40px rgba(196, 181, 153, 0.4),
+      inset 0 0 0 1px rgba(252, 248, 240, 0.48);
+  }
+}
+
+.pp-ryeomcho-field-ring-overlay {
+  animation: pp-ryeomcho-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 철기병 필드 체류: 카드 윤곽 회색·은빛 링(필드 소환 이펙트 톤과 맞춤, 렴초 링과 동형 타이밍) */
+@keyframes pp-cheolgibyeong-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(180, 188, 200, 0.88),
+      0 0 16px rgba(140, 148, 160, 0.5),
+      0 0 28px rgba(100, 108, 120, 0.28),
+      inset 0 0 0 1px rgba(210, 216, 226, 0.32);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(200, 208, 218, 0.95),
+      0 0 24px rgba(160, 168, 182, 0.62),
+      0 0 40px rgba(120, 128, 142, 0.36),
+      inset 0 0 0 1px rgba(226, 232, 240, 0.44);
+  }
+}
+
+.pp-cheolgibyeong-field-ring-overlay {
+  animation: pp-cheolgibyeong-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 필립 기본 공격: 철기병과 동일 타이밍·규격 — 주황·노랑 코어 + 착지 후 파동 1회 */
+@keyframes pp-philip-hit-core {
+  0% {
+    transform: scale(0.38);
+    opacity: 0;
+  }
+  22% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  58% {
+    transform: scale(1.03);
+    opacity: 0.82;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-philip-hit-wave {
+  0% {
+    transform: scale(0.16);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.88;
+  }
+  100% {
+    transform: scale(2.38);
+    opacity: 0;
+  }
+}
+
+.pp-philip-hit-core {
+  transform-origin: center;
+  animation: pp-philip-hit-core 0.34s cubic-bezier(0.34, 1.02, 0.54, 1) forwards;
+  background: radial-gradient(
+    circle at 50% 45%,
+    #fef9c3 0%,
+    #fbbf24 42%,
+    #ea580c 100%
+  );
+  box-shadow:
+    0 0 14px 5px rgba(251, 191, 36, 0.6),
+    0 0 28px 12px rgba(234, 88, 12, 0.38),
+    inset 0 0 10px rgba(255, 251, 235, 0.45);
+}
+
+.pp-philip-hit-wave {
+  transform-origin: center;
+  opacity: 0;
+  animation: pp-philip-hit-wave 0.5s cubic-bezier(0.33, 0.65, 0.25, 1) 0.03s forwards;
+  background: radial-gradient(
+    circle,
+    transparent 36%,
+    rgba(253, 224, 71, 0.58) 44%,
+    rgba(245, 158, 11, 0.42) 51%,
+    rgba(234, 88, 12, 0.26) 58%,
+    transparent 66%
+  );
+  mix-blend-mode: screen;
+  filter: blur(0.3px);
+}
+
+/* 철기병 기본 공격: 중앙 회색 코어 착지 + 약 30ms 후 파동 1회(동시에 이어짐) */
+@keyframes pp-cheolgibyeong-hit-core {
+  0% {
+    transform: scale(0.38);
+    opacity: 0;
+  }
+  22% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  58% {
+    transform: scale(1.03);
+    opacity: 0.82;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-cheolgibyeong-hit-wave {
+  0% {
+    transform: scale(0.16);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.88;
+  }
+  100% {
+    transform: scale(2.38);
+    opacity: 0;
+  }
+}
+
+.pp-cheolgibyeong-hit-core {
+  transform-origin: center;
+  animation: pp-cheolgibyeong-hit-core 0.34s cubic-bezier(0.34, 1.02, 0.54, 1) forwards;
+  background: radial-gradient(
+    circle at 50% 45%,
+    #e2e8f0 0%,
+    #64748b 48%,
+    #334155 100%
+  );
+  box-shadow:
+    0 0 14px 5px rgba(100, 116, 139, 0.55),
+    0 0 28px 12px rgba(51, 65, 85, 0.42),
+    inset 0 0 10px rgba(241, 245, 249, 0.35);
+}
+
+.pp-cheolgibyeong-hit-wave {
+  transform-origin: center;
+  opacity: 0;
+  animation: pp-cheolgibyeong-hit-wave 0.5s cubic-bezier(0.33, 0.65, 0.25, 1) 0.03s forwards;
+  background: radial-gradient(
+    circle,
+    transparent 36%,
+    rgba(148, 163, 184, 0.55) 44%,
+    rgba(71, 85, 105, 0.4) 51%,
+    rgba(51, 65, 85, 0.25) 58%,
+    transparent 66%
+  );
+  mix-blend-mode: screen;
+  filter: blur(0.3px);
+}
+
+/* 메리 [방어력 +400]: 반짓고리(z-29)보다 아래(z-27) — 밝은 회색 윤곽 상시 */
+@keyframes pp-mary-defense-field-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(248, 250, 252, 0.95),
+      0 0 14px rgba(241, 245, 249, 0.58),
+      0 0 26px rgba(226, 232, 240, 0.4),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(255, 255, 255, 0.9),
+      0 0 20px rgba(248, 250, 252, 0.68),
+      0 0 36px rgba(241, 245, 249, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+  }
+}
+
+.pp-mary-defense-field-ring-overlay {
+  animation: pp-mary-defense-field-glow 2.4s ease-in-out infinite;
+}
+
+/* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
+.pp-combat-flash-layer--pakki-death-curse {
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(180, 110, 14, 0.72) 0%,
+    rgba(146, 82, 10, 0.5) 32%,
+    rgba(110, 58, 8, 0.24) 54%,
+    rgba(72, 38, 6, 0.08) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(253, 224, 71, 0.62),
+    inset 0 0 48px rgba(245, 158, 11, 0.48),
+    inset 0 0 100px rgba(217, 119, 6, 0.36);
+}
+
+.pp-combat-flash-layer--pakki-death-curse-aura {
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(253, 211, 77, 0.36) 0%,
+    rgba(251, 191, 36, 0.22) 38%,
+    rgba(217, 119, 6, 0.12) 60%,
+    rgba(146, 64, 14, 0.06) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(250, 204, 21, 0.38),
+    0 0 72px 44px rgba(245, 158, 11, 0.26),
+    0 0 110px 64px rgba(217, 119, 6, 0.18),
+    0 0 0 1px rgba(254, 243, 199, 0.2);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 아이버슨 — 소환 대기 종료(짙은 녹색, 시작의 나무와 동형·더 어두운 톤) */
+.pp-combat-flash-layer--iverson-attack-ready {
+  animation: pp-combat-flash-pulse-philip 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(6, 95, 70, 0.92) 0%,
+    rgba(4, 78, 56, 0.62) 32%,
+    rgba(2, 44, 34, 0.32) 54%,
+    rgba(2, 26, 22, 0.12) 70%,
+    transparent 82%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(134, 239, 172, 0.55),
+    inset 0 0 48px rgba(5, 150, 105, 0.52),
+    inset 0 0 100px rgba(4, 120, 87, 0.4);
+}
+
+.pp-combat-flash-layer--iverson-attack-ready-aura {
+  animation: pp-combat-flash-aura-philip 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(52, 211, 153, 0.28) 0%,
+    rgba(16, 185, 129, 0.18) 38%,
+    rgba(5, 122, 85, 0.1) 60%,
+    rgba(2, 44, 34, 0.05) 76%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(16, 185, 129, 0.32),
+    0 0 72px 44px rgba(5, 122, 85, 0.22),
+    0 0 110px 64px rgba(4, 78, 56, 0.14),
+    0 0 0 1px rgba(209, 250, 229, 0.18);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+/* 아이버슨 대기 게이지 — 50% 이상 시 트랙 윤곽 초록 명멸, 75% 이상 시 주기 2배(0.6s) */
+@keyframes pp-iverson-wait-gauge-outline-flicker {
+  0%,
+  100% {
+    border-color: rgba(100, 116, 139, 0.88);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(34, 197, 94, 0.12);
+  }
+  50% {
+    border-color: rgba(52, 211, 153, 0.92);
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.14),
+      0 0 0 2px rgba(34, 197, 94, 0.5),
+      0 0 10px rgba(16, 185, 129, 0.42);
+  }
+}
+
+.pp-iverson-wait-gauge-track--flicker {
+  animation: pp-iverson-wait-gauge-outline-flicker 1.2s ease-in-out infinite;
+}
+
+.pp-iverson-wait-gauge-track--flicker-fast {
+  animation: pp-iverson-wait-gauge-outline-flicker 0.6s ease-in-out infinite;
+}
+
+/* 백스 패시브 후 — 회색 윤곽 + 바깥 정적 글로우(무적 종료 후·처형 오라 구간) */
+.pp-baekseu-invuln-field-ring-overlay {
+  box-shadow:
+    0 0 0 2px rgba(226, 232, 240, 0.95),
+    0 0 12px 4px rgba(203, 213, 225, 0.5),
+    0 0 28px 12px rgba(148, 163, 184, 0.28);
+}
+
+/* [무적] 틱 동안 — 윤곽선은 고정, 바깥 글로우만 느리게 명멸 */
+@keyframes pp-baekseu-invuln-glow-slow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(248, 250, 252, 0.98),
+      0 0 16px 6px rgba(226, 232, 240, 0.3),
+      0 0 38px 18px rgba(203, 213, 225, 0.2),
+      0 0 68px 38px rgba(148, 163, 184, 0.16),
+      0 0 100px 56px rgba(100, 116, 139, 0.09);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(248, 250, 252, 0.98),
+      0 0 28px 12px rgba(226, 232, 240, 0.58),
+      0 0 56px 30px rgba(203, 213, 225, 0.45),
+      0 0 100px 52px rgba(148, 163, 184, 0.36),
+      0 0 140px 72px rgba(100, 116, 139, 0.22);
+  }
+}
+
+.pp-baekseu-invuln-field-ring-overlay--invulnerable {
+  animation: pp-baekseu-invuln-glow-slow-pulse 3.4s ease-in-out infinite;
+}
+
+/* 백스 처형 오라 — 적 체력바 10% 지점(이 선 왼쪽·이하 체크 시 처형) */
+.pp-baekseu-hp-exec-threshold-line {
+  position: absolute;
+  left: 10%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 1px;
+  background: linear-gradient(
+    to bottom,
+    rgba(148, 163, 184, 0.35) 0%,
+    rgba(226, 232, 240, 0.98) 22%,
+    rgba(226, 232, 240, 0.98) 78%,
+    rgba(148, 163, 184, 0.35) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.45),
+    0 0 6px rgba(226, 232, 240, 0.55);
+}
+
+@keyframes pp-baekseu-hpbar-warn-outline {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(248, 113, 113, 0.55),
+      0 0 0 1px rgba(239, 68, 68, 0.45),
+      0 0 10px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(252, 165, 165, 0.75),
+      0 0 0 2px rgba(220, 38, 38, 0.85),
+      0 0 16px rgba(220, 38, 38, 0.55);
+  }
+}
+
+.pp-baekseu-exec-hpbar-track--warn {
+  animation: pp-baekseu-hpbar-warn-outline 1.05s ease-in-out infinite;
+}
+
+/* No.51 심판 — 패 6장 만석 시 중앙 대기 카드 흰색 섬광 */
+@keyframes pp-simpan-pending-white-flash {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.55),
+      0 0 14px 3px rgba(255, 255, 255, 0.35),
+      0 0 28px 8px rgba(255, 255, 255, 0.12);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.95),
+      0 0 22px 6px rgba(255, 255, 255, 0.65),
+      0 0 40px 14px rgba(255, 255, 255, 0.28);
+    filter: brightness(1.12);
+  }
+}
+
+.pp-simpan-pending-glow {
+  animation: pp-simpan-pending-white-flash 0.85s ease-in-out infinite;
+}
+
+@keyframes pp-rewind-simpan-white-blink {
+  0%,
+  100% {
+    opacity: 0.82;
+    border-color: rgba(255, 255, 255, 0.35);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.12);
+  }
+  50% {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 0 26px 5px rgba(255, 255, 255, 0.32);
+  }
+}
+
+.pp-rewind-simpan-white-blink {
+  animation: pp-rewind-simpan-white-blink 2.1s ease-in-out infinite;
+}

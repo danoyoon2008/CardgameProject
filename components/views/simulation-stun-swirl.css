@@ -1,0 +1,60 @@
+/* [기절] — 단일 소라형 나선 (진한 보라, SimulationView 전용) */
+
+@keyframes pp-stun-spiral-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pp-stun-spiral-pulse {
+  0%,
+  100% {
+    opacity: 0.88;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pp-stun-swirl-mount {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.pp-stun-swirl-core {
+  position: relative;
+  isolation: isolate;
+  width: min(58%, 8rem);
+  aspect-ratio: 1;
+  filter: drop-shadow(0 0 2px rgba(250, 245, 255, 0.35)) drop-shadow(0 0 5px rgba(91, 33, 182, 0.95))
+    drop-shadow(0 0 14px rgba(59, 7, 100, 0.85)) drop-shadow(0 0 22px rgba(76, 29, 149, 0.55));
+  animation: pp-stun-spiral-pulse 2.2s ease-in-out infinite;
+}
+
+.pp-stun-swirl-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.pp-stun-spiral-group {
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
+  animation: pp-stun-spiral-spin 2.65s linear infinite;
+}
+
+/* 단일 나선 곡선 — 진한 보라 + 라운드 끝으로 가독성 강화 */
+.pp-stun-swirl-path {
+  fill: none;
+  stroke: #4c1d95;
+  stroke-width: 4.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

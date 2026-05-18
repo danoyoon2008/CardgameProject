@@ -1,0 +1,132 @@
+/* 다이아고 기본 공격 적중 — 그냥 모자 화염과 동형 애니메이션, 연두·라임 톤 */
+
+@keyframes pp-diago-core-pop {
+  0% {
+    transform: scale(0.12);
+    opacity: 0;
+  }
+  40% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-diago-ring-expand {
+  0% {
+    transform: scale(0.35);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-diago-spark1 {
+  0% {
+    transform: translate(0, 0) scale(0.25);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(14px, -18px) scale(0.45);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-diago-spark2 {
+  0% {
+    transform: translate(0, 0) scale(0.25);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-16px, -10px) scale(0.45);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-diago-spark3 {
+  0% {
+    transform: translate(0, 0) scale(0.25);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(5px, 20px) scale(0.45);
+    opacity: 0;
+  }
+}
+
+.pp-diago-flame-wrap {
+  position: relative;
+  width: min(58%, 78px);
+  height: min(58%, 78px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+}
+
+.pp-diago-flame-core {
+  position: absolute;
+  width: 32%;
+  min-width: 16px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 38% 28%,
+    #f0fff8 0%,
+    #bbf7d0 20%,
+    #4ade80 48%,
+    #16a34a 76%,
+    transparent 80%
+  );
+  box-shadow:
+    0 0 14px 6px rgba(120, 220, 140, 0.9),
+    0 0 28px 12px rgba(52, 200, 100, 0.55),
+    0 0 40px 18px rgba(22, 130, 60, 0.35);
+  animation: pp-diago-core-pop 0.44s ease-out forwards;
+  mix-blend-mode: screen;
+}
+
+.pp-diago-flame-ring {
+  position: absolute;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(180, 250, 200, 0.88);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.65);
+  animation: pp-diago-ring-expand 0.5s ease-out forwards;
+}
+
+.pp-diago-flame-spark {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #86efac 55%, transparent 72%);
+  box-shadow: 0 0 6px #4ade80;
+}
+
+.pp-diago-flame-spark--1 {
+  animation: pp-diago-spark1 0.44s ease-out forwards;
+}
+
+.pp-diago-flame-spark--2 {
+  animation: pp-diago-spark2 0.44s ease-out 0.02s forwards;
+}
+
+.pp-diago-flame-spark--3 {
+  animation: pp-diago-spark3 0.44s ease-out 0.04s forwards;
+}

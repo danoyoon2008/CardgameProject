@@ -13,7 +13,9 @@ export {
   hasTauntUnit,
   isTaunting,
   isSilenced,
+  isStunned,
   type AttackContext,
+  type ActiveStatusBattleContext,
   type FieldContext,
   type DamageModContext,
 } from "./cardEffects";

@@ -58,9 +58,44 @@ export function useGameLogic() {
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) { setAuthReady(true); return; }
-    supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthReady(true); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setUser(session?.user ?? null); });
-    return () => subscription.unsubscribe();
+
+    let cancelled = false;
+    /** 망·VPN 등에서 getSession 이 끝나지 않을 때 UI 가 영구 로딩에 걸리지 않도록 */
+    const SESSION_INIT_MS = 15_000;
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      console.warn(`[Supabase auth] ${SESSION_INIT_MS / 1000}s 내 세션 응답 없음 — 게스트로 계속합니다.`);
+      setUser(null);
+      setAuthReady(true);
+    }, SESSION_INIT_MS);
+
+    const clearInitTimeout = () => window.clearTimeout(timeoutId);
+
+    supabase.auth
+      .getSession()
+      .then(({ data: { session }, error }) => {
+        clearInitTimeout();
+        if (cancelled) return;
+        if (error) console.error("[Supabase auth] getSession 오류:", error.message);
+        setUser(session?.user ?? null);
+        setAuthReady(true);
+      })
+      .catch((err) => {
+        clearInitTimeout();
+        if (cancelled) return;
+        console.error("[Supabase auth] getSession 실패 — 게스트로 계속합니다.", err);
+        setUser(null);
+        setAuthReady(true);
+      });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => {
+      cancelled = true;
+      clearInitTimeout();
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

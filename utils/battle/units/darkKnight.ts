@@ -1,0 +1,81 @@
+import type { FieldCard } from "../../../types/game";
+import type { PostAttackFn } from "../effectTypes";
+import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "../attackModifier";
+import { UNIT } from "../unitIds";
+
+export const DARK_KNIGHT_ID = UNIT.DARK_KNIGHT;
+
+/** 소울 게이지 최대 칸 수 */
+export const DARK_KNIGHT_GAUGE_CAP = 5 as const;
+
+/** [역린] — 게이지 1칸당 기본 공격력 보너스 */
+export const YORIN_ATK_BONUS_PER_SOUL = 100;
+
+/** 필드 효과 뱃지 라벨 (`getActiveStatuses` / UI 정렬 키) */
+export const YORIN_STATUS_BADGE = "[역린]";
+
+type FieldSlice = {
+  field: {
+    is: FieldCard | null;
+    m: FieldCard | null;
+    os: FieldCard | null;
+  };
+};
+
+/** 유효 소울 칸(0~CAP)에 따른 [역린] 공격력 보정 합 */
+export function getDarkKnightYorinAtkBonus(card: FieldCard | null | undefined): number {
+  if (!card || card.name !== DARK_KNIGHT_ID) return 0;
+  const stacks = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
+  return stacks * YORIN_ATK_BONUS_PER_SOUL;
+}
+
+/** 1차·연쇄 등 파싱된 수치에 [역린] 보너스 합산 */
+export function applyDarkKnightYorinToAttackDamage(
+  attacker: FieldCard,
+  primaryDamage: number,
+  secondaryDamage: number,
+  options?: AttackModifierOptions
+): { primaryDamage: number; secondaryDamage: number } {
+  const b = getDarkKnightYorinAtkBonus(attacker);
+  return applyFlatAttackModifierByPattern(primaryDamage, secondaryDamage, b, options);
+}
+
+/** 처치 시 회복: 상대 최대 체력의 25%, 최소 600 */
+export function darkKnightHealOnKillFromVictimMaxHp(maxHp: number): number {
+  const mh = Number(maxHp);
+  if (!Number.isFinite(mh) || mh <= 0) return 600;
+  return Math.max(600, Math.floor(mh * 0.25));
+}
+
+export const postAttackDarkKnight: PostAttackFn = (card, ctx) => {
+  if (card.name !== DARK_KNIGHT_ID || !ctx.targetDestroyed) return {};
+  const mh = ctx.targetMaxHpWhenDestroyed;
+  if (mh == null || !Number.isFinite(mh) || mh <= 0) return {};
+  const heal = darkKnightHealOnKillFromVictimMaxHp(mh);
+  const cap = Number(card.hp);
+  return { currentHp: Math.min(cap, card.currentHp + heal) };
+};
+
+/**
+ * 아군·적 구분 없이 유닛 1명이 필드에서 처치될 때 호출합니다.
+ * 살아 있는 모든 다크나이트의 `darkKnightSoulGauge`를 1 충전(상한 적용).
+ */
+export function incrementDarkKnightGaugesOnUnitDeath(newPA: FieldSlice, newPB: FieldSlice): void {
+  for (const p of [newPA, newPB]) {
+    for (const slot of ["is", "m", "os"] as const) {
+      const c = p.field[slot];
+      if (!c || c.name !== DARK_KNIGHT_ID || c.currentHp <= 0) continue;
+      const cur = typeof c.darkKnightSoulGauge === "number" ? c.darkKnightSoulGauge : 0;
+      if (cur >= DARK_KNIGHT_GAUGE_CAP) continue;
+      p.field[slot] = {
+        ...c,
+        darkKnightSoulGauge: Math.min(DARK_KNIGHT_GAUGE_CAP, cur + 1),
+      };
+    }
+  }
+}
+
+export function darkKnightSoulGaugeFull(card: FieldCard | null | undefined): boolean {
+  if (!card || card.name !== DARK_KNIGHT_ID) return false;
+  return (card.darkKnightSoulGauge ?? 0) >= DARK_KNIGHT_GAUGE_CAP;
+}
