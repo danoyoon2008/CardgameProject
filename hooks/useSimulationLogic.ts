@@ -47,8 +47,8 @@ import {
   CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS,
   HYUGESOJAUI_ANSIK_SPELL_ID,
   HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER,
-  HYUGESOJAUI_ANSIK_TURN_HEALS_AFTER_PLACEMENT,
-  applyHyugesojauiAnsikHealAlliesOnce,
+  HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS,
+  applyHyugesojauiAnsikHealAttempt,
   applyHyugesojauiAnsikTurnStartForOwner,
   isInvulnerableFromBaekseuOrCheolbyeok,
   callieBuffBanSuppressesBuffsForVictim,
@@ -442,6 +442,12 @@ export function useSimulationLogic(cards: CardRow[]) {
       if (tb.expiredBangEomakToRewind) rewindCards = [...rewindCards, tb.expiredBangEomakToRewind];
       if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
       if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
+      if (ta.expiredHyugesojauiAnsikToRewind) {
+        rewindCards = [...rewindCards, ta.expiredHyugesojauiAnsikToRewind];
+      }
+      if (tb.expiredHyugesojauiAnsikToRewind) {
+        rewindCards = [...rewindCards, tb.expiredHyugesojauiAnsikToRewind];
+      }
 
       const nextTurn = isA ? "B" : "A";
       let fieldA = { ...resetFieldUnits(prev.playerA.field), spellStack: ta.nextStack };
@@ -454,7 +460,6 @@ export function useSimulationLogic(cards: CardRow[]) {
       });
       fieldA = hyu.nextPlayerAField;
       fieldB = hyu.nextPlayerBField;
-      if (hyu.rewindSpell) rewindCards = [...rewindCards, hyu.rewindSpell];
 
       return {
         ...prev,
@@ -633,7 +638,7 @@ export function useSimulationLogic(cards: CardRow[]) {
       card.cheolbyeokAllyInvulnEndTurnTicksRemaining = CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS;
     }
     if (slot === "spell" && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
-      card.hyugesojauiAnsikTurnHealsRemaining = HYUGESOJAUI_ANSIK_TURN_HEALS_AFTER_PLACEMENT;
+      card.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
     }
 
     const typeStr = String(card.type || "").toLowerCase();
@@ -696,8 +701,8 @@ export function useSimulationLogic(cards: CardRow[]) {
         };
       }
       if (isSpellSlot && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
-        const hr = applyHyugesojauiAnsikHealAlliesOnce(updatedField, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
-        updatedField = { ...updatedField, is: hr.nextField.is, m: hr.nextField.m, os: hr.nextField.os };
+        const hr = applyHyugesojauiAnsikHealAttempt(updatedField, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
+        updatedField = hr.nextField;
       }
 
       if (isPlayerA) {

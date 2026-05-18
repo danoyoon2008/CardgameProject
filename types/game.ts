@@ -86,7 +86,9 @@ export interface FieldCard extends CardRow {
   /** 스펠 No.47 철벽 — 필드 스펠 칸에 올라간 동안 아군 전원 [무적] 오라, 남은 턴 넘김 횟수(2*턴=4, 만료 시 리와인드) */
   cheolbyeokAllyInvulnEndTurnTicksRemaining?: number;
 
-  /** 스펠 No.26 휴게소의 안식 — 배치 직후 1회 회복 후, 본인 턴 시작 시마다 남은 추가 회복 횟수(0이 되면 리와인드) */
+  /** 스펠 No.26 휴게소의 안식 — 남은 턴 넘김 횟수(3×턴=6, 만료 시 리와인드) */
+  hyugesojauiAnsikEndTurnTicksRemaining?: number;
+  /** @deprecated — `hyugesojauiAnsikEndTurnTicksRemaining` */
   hyugesojauiAnsikTurnHealsRemaining?: number;
 
   /**
@@ -104,6 +106,8 @@ export interface FieldCard extends CardRow {
   legendarySwordArmingEndTurnTicksRemaining?: number;
   /** 충전 완료 후, 자신의 턴이 되면 자동 연격이 발동될 때까지 대기 */
   legendarySwordArmed?: boolean;
+  /** 충전 중 시전자가 턴 종료를 누르면 후광·윤곽 깜빡임 2배 */
+  legendarySwordChargeFastBlink?: boolean;
 }
 
 /** 시뮬레이션 한쪽 필드 — 유닛 슬롯 + 스펠 겹침(맨 끝이 스펠 칸에 보이는 카드) */

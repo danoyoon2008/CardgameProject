@@ -72,5 +72,56 @@ export function initializeLegendarySwordFieldCard(card: FieldCard): FieldCard {
   return {
     ...card,
     legendarySwordArmingEndTurnTicksRemaining: LEGENDARY_SWORD_ARMING_END_TURN_TICKS,
+    legendarySwordArmed: false,
+    legendarySwordChargeFastBlink: false,
+  };
+}
+
+export function isLegendarySwordCharging(card: FieldCard | null | undefined): boolean {
+  return (
+    !!card &&
+    card.name === UNIT.LEGENDARY_SWORD &&
+    (card.legendarySwordArmingEndTurnTicksRemaining ?? 0) > 0 &&
+    !card.legendarySwordArmed
+  );
+}
+
+export function isLegendarySwordArmed(card: FieldCard | null | undefined): boolean {
+  return !!card && card.name === UNIT.LEGENDARY_SWORD && !!card.legendarySwordArmed;
+}
+
+export function stripLegendarySwordForRewind(card: FieldCard): FieldCard {
+  const {
+    legendarySwordArmingEndTurnTicksRemaining: _a,
+    legendarySwordArmed: _b,
+    legendarySwordChargeFastBlink: _f,
+    ...rest
+  } = card;
+  return rest as FieldCard;
+}
+
+/** 필드 소유자 턴 종료 시 충전 중 전설의 검 후광 가속 */
+export function applyEndTurnLegendarySwordArmingTickToFieldUnit(
+  u: FieldCard,
+  fieldOwnerEndedTurn: boolean
+): FieldCard {
+  if (u.name !== UNIT.LEGENDARY_SWORD) return u;
+  let next = u;
+  if (fieldOwnerEndedTurn && isLegendarySwordCharging(next)) {
+    next = { ...next, legendarySwordChargeFastBlink: true };
+  }
+  return applyEndTurnLegendarySwordArmingTick(next);
+}
+
+export function applyEndTurnLegendarySwordArmingTickForFieldOwner(
+  field: { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null },
+  fieldOwner: "A" | "B",
+  endingTurnPlayer: "A" | "B"
+): { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null } {
+  const ownerEnded = fieldOwner === endingTurnPlayer;
+  return {
+    is: field.is ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.is, ownerEnded) : null,
+    m: field.m ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.m, ownerEnded) : null,
+    os: field.os ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.os, ownerEnded) : null,
   };
 }

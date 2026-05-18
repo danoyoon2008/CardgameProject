@@ -1,6 +1,7 @@
 /**
  * 스펠 No.26 휴게소의 안식 — 자기 스펠 칸 배치.
- * 사용 시 아군 전원 500 회복, 이후 본인 턴이 돌아올 때마다 500 회복을 2회 더(총 3회) 후 리와인드.
+ * 배치 시 아군 전원 500 회복, 이후 3×턴(양측 턴 종료 합 6회) 동안
+ * 시전자 턴이 시작될 때마다 아군 전원 500 회복 시도(최대 체력이어도 연출).
  */
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { normalizeSpellStack } from "../fieldSpellAccess";
@@ -9,7 +10,10 @@ export const HYUGESOJAUI_ANSIK_SPELL_ID = "휴게소의 안식" as const;
 
 export const HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER = 500;
 
-/** 배치 직후 남는 '내 턴 시작 시' 추가 회복 횟수(총 3회 회복 후 리와인드) */
+/** 3×턴 = 배치 턴 이후 양측 턴 종료 합 6회 */
+export const HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS = 6;
+
+/** @deprecated — `hyugesojauiAnsikEndTurnTicksRemaining` 사용 */
 export const HYUGESOJAUI_ANSIK_TURN_HEALS_AFTER_PLACEMENT = 2;
 
 export type HyugesojauiAnsikCombatPatch = {
@@ -23,6 +27,13 @@ export function isHyugesojauiAnsikSpellCard(c: FieldCard | null | undefined): bo
   return !!c && c.name === HYUGESOJAUI_ANSIK_SPELL_ID;
 }
 
+export function isHyugesojauiAnsikActiveOnSpell(spell: FieldCard | null | undefined): boolean {
+  return (
+    isHyugesojauiAnsikSpellCard(spell) &&
+    (spell!.hyugesojauiAnsikEndTurnTicksRemaining ?? spell!.hyugesojauiAnsikTurnHealsRemaining ?? 0) > 0
+  );
+}
+
 function cloneSimulationPlayerField(field: SimulationPlayerField): SimulationPlayerField {
   return {
     is: field.is ? { ...field.is } : null,
@@ -32,46 +43,103 @@ function cloneSimulationPlayerField(field: SimulationPlayerField): SimulationPla
   };
 }
 
+function stripHyugesojauiRuntimeFields(spell: FieldCard): FieldCard {
+  const {
+    hyugesojauiAnsikEndTurnTicksRemaining: _e,
+    hyugesojauiAnsikTurnHealsRemaining: _h,
+    ...rest
+  } = spell;
+  return rest as FieldCard;
+}
+
+export type HyugesojauiAnsikHealSlotResult = {
+  slot: "is" | "m" | "os";
+  healed: number;
+};
+
 /**
- * 아군 is/m/os 각각에 최대 `amount` 회복(최대 체력 상한).
- * `field`는 복제본이어야 함(원본 변이 금지).
+ * 살아 있는 아군 유닛마다 회복 시도. `healed`는 0일 수 있으나 슬롯은 VFX 대상에 포함.
  */
-export function applyHyugesojauiAnsikHealAlliesOnce(
+export function applyHyugesojauiAnsikHealAttempt(
   field: SimulationPlayerField,
   amount: number
 ): {
   nextField: SimulationPlayerField;
   combatPatches: HyugesojauiAnsikCombatPatch[];
-  slotHeals: Array<{ slot: "is" | "m" | "os"; healed: number }>;
+  perSlot: HyugesojauiAnsikHealSlotResult[];
 } {
   const f = cloneSimulationPlayerField(field);
   const combatPatches: HyugesojauiAnsikCombatPatch[] = [];
-  const slotHeals: Array<{ slot: "is" | "m" | "os"; healed: number }> = [];
+  const perSlot: HyugesojauiAnsikHealSlotResult[] = [];
 
   for (const slot of ["is", "m", "os"] as const) {
     const u = f[slot];
     if (!u || (u.currentHp ?? 0) <= 0) continue;
     const headroom = Math.max(0, Number(u.hp) - u.currentHp);
     const healed = Math.min(amount, headroom);
-    if (healed <= 0) continue;
-    f[slot] = { ...u, currentHp: u.currentHp + healed };
-    slotHeals.push({ slot, healed });
-    if (u.statsInstanceId) {
-      combatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healed } });
+    perSlot.push({ slot, healed });
+    if (healed > 0) {
+      f[slot] = { ...u, currentHp: u.currentHp + healed };
+      if (u.statsInstanceId) {
+        combatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healed } });
+      }
     }
   }
 
-  return { nextField: f, combatPatches, slotHeals };
+  return { nextField: f, combatPatches, perSlot };
+}
+
+/** @deprecated — `applyHyugesojauiAnsikHealAttempt` 사용 */
+export function applyHyugesojauiAnsikHealAlliesOnce(
+  field: SimulationPlayerField,
+  amount: number
+): {
+  nextField: SimulationPlayerField;
+  combatPatches: HyugesojauiAnsikCombatPatch[];
+  slotHeals: HyugesojauiAnsikHealSlotResult[];
+} {
+  const r = applyHyugesojauiAnsikHealAttempt(field, amount);
+  return {
+    nextField: r.nextField,
+    combatPatches: r.combatPatches,
+    slotHeals: r.perSlot.filter(s => s.healed > 0),
+  };
+}
+
+/** 턴 넘김 1회마다 스펠 칸 휴게소의 안식 틱 — 0이 되면 스펠 제거·리와인드용 카드 반환 */
+export function applyEndTurnHyugesojauiAnsikSpellToField(spell: FieldCard | null): {
+  nextSpell: FieldCard | null;
+  expiredToRewind: FieldCard | null;
+} {
+  if (!isHyugesojauiAnsikSpellCard(spell)) {
+    return { nextSpell: spell, expiredToRewind: null };
+  }
+  const n =
+    spell!.hyugesojauiAnsikEndTurnTicksRemaining ??
+    (spell!.hyugesojauiAnsikTurnHealsRemaining != null
+      ? spell!.hyugesojauiAnsikTurnHealsRemaining! * 2
+      : 0);
+  if (n <= 0) {
+    return { nextSpell: null, expiredToRewind: stripHyugesojauiRuntimeFields(spell!) };
+  }
+  const next = n - 1;
+  if (next <= 0) {
+    return { nextSpell: null, expiredToRewind: stripHyugesojauiRuntimeFields(spell!) };
+  }
+  return {
+    nextSpell: { ...spell!, hyugesojauiAnsikEndTurnTicksRemaining: next },
+    expiredToRewind: null,
+  };
 }
 
 export type HyugesojauiAnsikTurnStartVfx = {
   allyPlayer: "A" | "B";
-  slotHeals: Array<{ slot: "is" | "m" | "os"; healed: number }>;
+  perSlot: HyugesojauiAnsikHealSlotResult[];
 };
 
 /**
- * `player`의 턴이 막 시작될 때(상대가 턴 종료한 직후) 호출.
- * 맨 위 스펠이 휴게소의 안식이면 아군 500 회복, 남은 횟수 감소, 0이면 스택에서 제거해 리와인드 카드로 반환.
+ * `nextTurnOwner`의 턴이 막 시작될 때(상대가 턴 종료한 직후) 호출.
+ * 맨 위 스펠이 활성 휴게소의 안식이면 아군 500 회복 시도(연출은 살아 있는 아군 전원).
  */
 export function applyHyugesojauiAnsikTurnStartForOwner(args: {
   nextTurnOwner: "A" | "B";
@@ -80,7 +148,6 @@ export function applyHyugesojauiAnsikTurnStartForOwner(args: {
 }): {
   nextPlayerAField: SimulationPlayerField;
   nextPlayerBField: SimulationPlayerField;
-  rewindSpell: FieldCard | null;
   combatPatches: HyugesojauiAnsikCombatPatch[];
   vfx: HyugesojauiAnsikTurnStartVfx | null;
 } {
@@ -92,55 +159,31 @@ export function applyHyugesojauiAnsikTurnStartForOwner(args: {
     return {
       nextPlayerAField: pa,
       nextPlayerBField: pb,
-      rewindSpell: null,
       combatPatches: [],
       vfx: null,
     };
   }
   const top = stack[stack.length - 1]!;
-  if (!isHyugesojauiAnsikSpellCard(top)) {
+  if (!isHyugesojauiAnsikActiveOnSpell(top)) {
     return {
       nextPlayerAField: pa,
       nextPlayerBField: pb,
-      rewindSpell: null,
-      combatPatches: [],
-      vfx: null,
-    };
-  }
-  const rem = top.hyugesojauiAnsikTurnHealsRemaining ?? 0;
-  if (rem <= 0) {
-    return {
-      nextPlayerAField: pa,
-      nextPlayerBField: pb,
-      rewindSpell: null,
       combatPatches: [],
       vfx: null,
     };
   }
 
-  const healR = applyHyugesojauiAnsikHealAlliesOnce(side, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
+  const healR = applyHyugesojauiAnsikHealAttempt(side, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
   Object.assign(side, { is: healR.nextField.is, m: healR.nextField.m, os: healR.nextField.os });
 
-  const nextRem = rem - 1;
-  let rewindSpell: FieldCard | null = null;
-  if (nextRem <= 0) {
-    stack.pop();
-    const { hyugesojauiAnsikTurnHealsRemaining: _h, ...rest } = top;
-    rewindSpell = rest as FieldCard;
-  } else {
-    stack[stack.length - 1] = { ...top, hyugesojauiAnsikTurnHealsRemaining: nextRem };
-  }
-  side.spellStack = stack;
-
-  const vfx: HyugesojauiAnsikTurnStartVfx = {
-    allyPlayer: args.nextTurnOwner,
-    slotHeals: healR.slotHeals,
-  };
+  const vfx: HyugesojauiAnsikTurnStartVfx | null =
+    healR.perSlot.length > 0
+      ? { allyPlayer: args.nextTurnOwner, perSlot: healR.perSlot }
+      : null;
 
   return {
     nextPlayerAField: pa,
     nextPlayerBField: pb,
-    rewindSpell,
     combatPatches: healR.combatPatches,
     vfx,
   };

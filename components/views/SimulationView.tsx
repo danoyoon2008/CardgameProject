@@ -1,4 +1,4 @@
-// components/views/SimulationView.tsx
+﻿// components/views/SimulationView.tsx
 "use client";
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
@@ -107,6 +107,17 @@ import {
   rotateSpellStackTopToBottom,
   normalizeSpellStack,
   getTopSpellFromField,
+  applyEndTurnLegendarySwordArmingTickForFieldOwner,
+  initializeLegendarySwordFieldCard,
+  isLegendarySwordCharging,
+  isLegendarySwordArmed,
+  stripLegendarySwordForRewind,
+  LEGENDARY_SWORD_FIRST_HIT_DAMAGE,
+  LEGENDARY_SWORD_HIT_PLAYER_MARK,
+  LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE,
+  legendarySwordSecondHitBaseFromFirstTarget,
+  countLivingFieldUnits,
+  resolveLegendarySwordStrikeOnUnit,
   isJipjungSagyeokSpellCard,
   BUFF_BAN_BADGE,
   callieBuffBanSuppressesBuffsForVictim,
@@ -196,8 +207,8 @@ interface SimulationState {
   simpanPeekReveal: {
     player: "A" | "B";
     pendingCard: CardRow;
-    /** 생략·"simpan" = 심판, "draw" = 턴당 일반 덱 드로우 연출 */
-    peekKind?: "simpan" | "draw";
+    /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장 */
+    peekKind?: "simpan" | "draw" | "opening";
   } | null;
   simpanPeekQueue: { player: "A" | "B"; pendingCard: CardRow }[];
   /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
@@ -279,9 +290,16 @@ type SimpanPeekFlyVisualState = {
   to: { x: number; y: number; w: number; h: number };
   /** 0: 시작 위치 고정, 1: 목적지로 전환(전환 CSS 적용) */
   phase: 0 | 1;
+  flyMs?: number;
+  /** 게임 시작 초기 지급 — 신규 드로우 흰 윤곽·섬광 없음 */
+  isOpening?: boolean;
 };
 
+const SIMPAN_PEEK_PREVIEW_MS = 1750;
 const SIMPAN_PEEK_HAND_FLY_MS = 600;
+/** 게임 시작 초기 4장 — 짧은 중앙 노출 후 빠른 패 이동(신규 드로우 윤곽·클릭 스킵 없음) */
+const OPENING_PEEK_PREVIEW_MS = 0;
+const OPENING_PEEK_HAND_FLY_MS = 280;
 
 function isSpellCardRow(row: CardRow): boolean {
   const typeStr = String(row.type || "").toLowerCase();
@@ -413,6 +431,7 @@ type FlashOverlayKind =
   | "beonggaeSpell"
   | "somyeolSpellErase"
   | "danhaMagicHook"
+  | "legendarySwordSkill"
   | "superGreenKingSpellBreaker"
   | "kalliBuffBan";
 
@@ -626,6 +645,14 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     slot: "is" | "m" | "os";
     position: { x: number; y: number };
   } | null>(null);
+
+  const [pendingLegendarySwordStrike, setPendingLegendarySwordStrike] = useState<{
+    ownerPlayer: "A" | "B";
+    swordSlot: "is" | "m" | "os";
+    phase: 1 | 2;
+    hitTargets: string[];
+  } | null>(null);
+  const legendarySwordAutoOpenResolvedKeyRef = useRef<string | null>(null);
   
   const [pendingSkill, setPendingSkill] = useState<{
     player: "A" | "B";
@@ -649,6 +676,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   /** 동일 피크에 대해 타임아웃·클릭 스킵이 중복 실행되지 않도록 */
   const simpanPeekRevealTransitionStartedRef = useRef(false);
   const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
+  /** 게임 시작 초기 드로우 1장 연출 완료 시 resolve */
+  const openingDrawWaitRef = useRef<(() => void) | null>(null);
   const simulationStateRef = useRef<SimulationState | null>(null);
   const winnerStateRef = useRef<"A" | "B" | null>(null);
 
@@ -656,6 +685,38 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     simulationStateRef.current = state;
     winnerStateRef.current = winner;
   }, [state, winner]);
+
+  const completeSimpanPeekRevealToHand = (
+    prev: SimulationState,
+    player: "A" | "B",
+    pendingCard: CardRow
+  ): SimulationState | null => {
+    if (!prev.simpanPeekReveal) return null;
+    if (
+      prev.simpanPeekReveal.player !== player ||
+      prev.simpanPeekReveal.pendingCard !== pendingCard
+    ) {
+      return null;
+    }
+    const peekKind = prev.simpanPeekReveal.peekKind ?? "simpan";
+    const cardForHand =
+      peekKind === "opening"
+        ? pendingCard
+        : markPpSimHandNewGlow(pendingCard, `pp-hng-${++ppSimHandGlowSeqRef.current}`);
+    const key = player === "A" ? "playerA" : "playerB";
+    const pslive = player === "A" ? prev.playerA : prev.playerB;
+    const merged: SimulationState = {
+      ...prev,
+      simpanPeekReveal: null,
+      [key]: { ...pslive, hand: [...pslive.hand, cardForHand] },
+    };
+    if (peekKind === "opening") {
+      openingDrawWaitRef.current?.();
+      openingDrawWaitRef.current = null;
+      return merged;
+    }
+    return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+  };
 
   /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸 적 유닛 / 자기 스펠칸(방어막 등) */
   const resolveHandDragHoverFieldKey = (clientX: number, clientY: number): string | null => {
@@ -861,7 +922,11 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const INFO_FLOAT_MS = 2900;
   /** 철기병 본인 이펙트 후, 같은 진영 나머지 아군 이펙트까지 간격(ms) */
   const CHEOLGIBYEONG_ALLY_ABILITY_FLASH_DELAY_MS = 700;
-const ATTACK_DISABLED_UNITS = new Set(["모닝 무드", "시작의 나무", "전설의 검"]);
+const ATTACK_DISABLED_UNITS = new Set<string>([
+  UNIT.MORNING_MOOD,
+  UNIT.STARTING_TREE,
+  UNIT.LEGENDARY_SWORD,
+]);
 
 const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   !!card && ATTACK_DISABLED_UNITS.has(String(card.name ?? ""));
@@ -899,6 +964,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     philipBasicHit: 700,
     cheolgibyeongBasicHit: 700,
     danhaMagicHook: 820,
+    legendarySwordSkill: 820,
     superGreenKingSpellBreaker: 820,
     kalliBuffBan: 820,
   };
@@ -1387,6 +1453,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     triggerCardFlash(slotKey, "heal");
   };
 
+  const showLegendarySwordSkillHit = (slotKey: string, amount: number) => {
+    pushCombatPopup(slotKey, "damage", amount);
+    triggerCardFlash(slotKey, "legendarySwordSkill");
+  };
+
+  /** 연격 개시 시 전설의 검 본인에게만 능력 발동 이펙트(데미지 숫자 없음) */
+  const playLegendarySwordStrikeOpenOnSelf = (owner: "A" | "B", swordSlot: "is" | "m" | "os") => {
+    triggerCardFlash(`${owner}-${swordSlot}`, "legendarySwordSkill");
+  };
+
   const renderCombatPopups = (slotKey: string) => {
     const entries = combatPopups[slotKey];
     if (!entries?.length) return null;
@@ -1680,20 +1756,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       );
     }
-    /* 능력 발동 이펙트 — 단하「마법의 갈고리」(고스톤과 동형·하늘색) */
-    if (snap.kind === "danhaMagicHook") {
+    /* 능력 발동 이펙트 — 단하「마법의 갈고리」/ 전설의 검 연격(고스톤과 동형·하늘색) */
+    if (snap.kind === "danhaMagicHook" || snap.kind === "legendarySwordSkill") {
+      const k = snap.kind === "danhaMagicHook" ? "danha" : "leg-sword";
       return (
         <div
-          key={`${slotKey}-${snap.id}-danha-wrap`}
+          key={`${slotKey}-${snap.id}-${k}-wrap`}
           className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
           aria-hidden
         >
           <div
-            key={`${slotKey}-${snap.id}-danha-aura`}
+            key={`${slotKey}-${snap.id}-${k}-aura`}
             className={`pp-combat-flash-layer--danha-magic-hook-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
           />
           <div
-            key={`${slotKey}-${snap.id}-danha-inner`}
+            key={`${slotKey}-${snap.id}-${k}-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--danha-magic-hook`}
           />
         </div>
@@ -2280,10 +2357,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setDarkKnightGaugeChargePulseBySlot({});
     setCombatPopups({});
     setSimpanPeekFly(null);
+    openingDrawWaitRef.current = null;
     
     let currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
-    let pAHand: CardRow[] = [];
-    let pBHand: CardRow[] = [];
 
     setState({
       currentTurn: null,
@@ -2308,16 +2384,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     await delay(800);
 
+    const OPENING_DRAW_ANIMATION_TIMEOUT_MS =
+      OPENING_PEEK_PREVIEW_MS + OPENING_PEEK_HAND_FLY_MS + 200;
+
+    const revealOpeningDraw = (player: "A" | "B", card: CardRow): Promise<void> =>
+      new Promise(resolve => {
+        let safetyId: number | null = null;
+        const finish = () => {
+          if (openingDrawWaitRef.current !== finish) return;
+          openingDrawWaitRef.current = null;
+          if (safetyId != null) window.clearTimeout(safetyId);
+          resolve();
+        };
+        openingDrawWaitRef.current = finish;
+        safetyId = window.setTimeout(finish, OPENING_DRAW_ANIMATION_TIMEOUT_MS);
+        setState(prev => {
+          if (!prev) {
+            finish();
+            return prev;
+          }
+          return {
+            ...prev,
+            deckCards: currentDeck,
+            simpanPeekReveal: {
+              player,
+              pendingCard: stripPpSimHandNewGlow(card),
+              peekKind: "opening",
+            },
+            simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+          };
+        });
+      });
+
     for (let i = 0; i < 4; i++) {
       const cardA = currentDeck.pop()!;
-      pAHand = [...pAHand, cardA];
-      setState(prev => ({...prev!, deckCards: currentDeck, playerA: { ...prev!.playerA, hand: pAHand }}));
-      await delay(300);
+      await revealOpeningDraw("A", cardA);
 
       const cardB = currentDeck.pop()!;
-      pBHand = [...pBHand, cardB];
-      setState(prev => ({...prev!, deckCards: currentDeck, playerB: { ...prev!.playerB, hand: pBHand }}));
-      await delay(300);
+      await revealOpeningDraw("B", cardB);
     }
 
     await delay(500);
@@ -2388,6 +2492,94 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.turnTimeLeft]); 
 
+  /** No.16 전설의 검 — 충전 완료 후 자신의 턴 시작 시 연격 자동 개시 */
+  useEffect(() => {
+    if (!state?.currentTurn || winner || isInitializing || pendingLegendarySwordStrike) return;
+
+    const owner = state.currentTurn;
+    const ownerField = owner === "A" ? state.playerA.field : state.playerB.field;
+    let swordSlot: "is" | "m" | "os" | null = null;
+    for (const s of ["is", "m", "os"] as const) {
+      if (isLegendarySwordArmed(ownerField[s])) {
+        swordSlot = s;
+        break;
+      }
+    }
+    if (!swordSlot) return;
+
+    const openKey = `${state.turnCount}-${owner}-${swordSlot}`;
+    if (legendarySwordAutoOpenResolvedKeyRef.current === openKey) return;
+    legendarySwordAutoOpenResolvedKeyRef.current = openKey;
+    playLegendarySwordStrikeOpenOnSelf(owner, swordSlot);
+
+    const enemy = owner === "A" ? "B" : "A";
+    const enemyFieldAtOpen = enemy === "A" ? state.playerA.field : state.playerB.field;
+    const livingAtOpen = countLivingFieldUnits(enemyFieldAtOpen);
+
+    if (livingAtOpen === 0) {
+      setState(prev => {
+        if (!prev || prev.currentTurn !== owner) return prev;
+        const ownerKey = owner === "A" ? "playerA" : "playerB";
+        const enemyKey = enemy === "A" ? "playerA" : "playerB";
+        const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
+        const sword = newOwner.field[swordSlot!];
+        if (!isLegendarySwordArmed(sword)) return prev;
+        newOwner.field[swordSlot!] = { ...sword!, legendarySwordArmed: false };
+
+        const newEnemy = { ...prev[enemyKey] };
+        newEnemy.hp = Math.max(0, newEnemy.hp - LEGENDARY_SWORD_FIRST_HIT_DAMAGE);
+
+        const enemyFieldAfter =
+          enemy === "A" ? prev.playerA.field : prev.playerB.field;
+        if (countLivingFieldUnits(enemyFieldAfter) === 0) {
+          newEnemy.hp = Math.max(0, newEnemy.hp - LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE);
+          const stripped = stripLegendarySwordForRewind(sword!);
+          newOwner.field[swordSlot!] = null;
+          return {
+            ...prev,
+            [ownerKey]: newOwner,
+            [enemyKey]: newEnemy,
+            rewindCards: [...prev.rewindCards, stripped],
+          };
+        }
+
+        return { ...prev, [ownerKey]: newOwner, [enemyKey]: newEnemy };
+      });
+
+      showLegendarySwordSkillHit(`player-${enemy}`, LEGENDARY_SWORD_FIRST_HIT_DAMAGE);
+      if (countLivingFieldUnits(enemyFieldAtOpen) === 0) {
+        showLegendarySwordSkillHit(`player-${enemy}`, LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE);
+        return;
+      }
+
+      setPendingLegendarySwordStrike({
+        ownerPlayer: owner,
+        swordSlot,
+        phase: 2,
+        hitTargets: [LEGENDARY_SWORD_HIT_PLAYER_MARK],
+      });
+      return;
+    }
+
+    setState(prev => {
+      if (!prev || prev.currentTurn !== owner) return prev;
+      const ownerKey = owner === "A" ? "playerA" : "playerB";
+      const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
+      const sword = newOwner.field[swordSlot!];
+      if (!isLegendarySwordArmed(sword)) return prev;
+      newOwner.field[swordSlot!] = { ...sword!, legendarySwordArmed: false };
+      return { ...prev, [ownerKey]: newOwner };
+    });
+
+    setPendingLegendarySwordStrike({
+      ownerPlayer: owner,
+      swordSlot,
+      phase: 1,
+      hitTargets: [],
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.currentTurn, state?.turnCount, winner, isInitializing, pendingLegendarySwordStrike]);
+
   useEffect(() => {
     if (!state?.simpanPeekReveal) {
       simpanPeekSkipToFlyRef.current = null;
@@ -2395,6 +2587,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     simpanPeekRevealTransitionStartedRef.current = false;
+
+    const peekKind = state.simpanPeekReveal.peekKind ?? "simpan";
+    const previewMs =
+      peekKind === "opening" ? OPENING_PEEK_PREVIEW_MS : SIMPAN_PEEK_PREVIEW_MS;
+    const flyMs =
+      peekKind === "opening" ? OPENING_PEEK_HAND_FLY_MS : SIMPAN_PEEK_HAND_FLY_MS;
 
     const run = () => {
       if (simpanPeekRevealTransitionStartedRef.current) return;
@@ -2420,24 +2618,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             simpanPeekRevealTransitionStartedRef.current = false;
             return prev;
           }
-          if (
-            prev.simpanPeekReveal.player !== player ||
-            prev.simpanPeekReveal.pendingCard !== pendingCard
-          ) {
+          const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard);
+          if (!merged) {
             simpanPeekRevealTransitionStartedRef.current = false;
             return prev;
           }
-          ppSimHandGlowSeqRef.current += 1;
-          const marked = markPpSimHandNewGlow(pendingCard, `pp-hng-${ppSimHandGlowSeqRef.current}`);
-          const key = player === "A" ? "playerA" : "playerB";
-          const pslive = player === "A" ? prev.playerA : prev.playerB;
-          const peekKind = prev.simpanPeekReveal.peekKind ?? "simpan";
-          const merged: SimulationState = {
-            ...prev,
-            simpanPeekReveal: null,
-            [key]: { ...pslive, hand: [...pslive.hand, marked] },
-          };
-          return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+          return merged;
         });
         return;
       }
@@ -2458,6 +2644,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           from: { x: fr.left, y: fr.top, w: fr.width, h: fr.height },
           to: { x: tr.left, y: tr.top, w: tr.width, h: tr.height },
           phase: 0,
+          flyMs,
+          isOpening: peekKind === "opening",
         });
       });
     };
@@ -2470,12 +2658,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       run();
     };
 
-    simpanPeekSkipToFlyRef.current = skip;
+    simpanPeekSkipToFlyRef.current = peekKind === "opening" ? null : skip;
+
+    if (previewMs <= 0) {
+      const rafId = requestAnimationFrame(() => {
+        run();
+      });
+      return () => {
+        cancelAnimationFrame(rafId);
+        simpanPeekSkipToFlyRef.current = null;
+      };
+    }
 
     const id = window.setTimeout(() => {
       simpanPeekRevealTimerRef.current = null;
       run();
-    }, 1750);
+    }, previewMs);
     simpanPeekRevealTimerRef.current = id;
 
     return () => {
@@ -2505,30 +2703,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (!simpanPeekFly || simpanPeekFly.phase !== 1) return;
-    const { player, pendingCard } = simpanPeekFly;
+    const { player, pendingCard, flyMs = SIMPAN_PEEK_HAND_FLY_MS } = simpanPeekFly;
     const tid = window.setTimeout(() => {
       setSimpanPeekFly(null);
       setState(prev => {
         if (!prev?.simpanPeekReveal) return prev;
-        if (
-          prev.simpanPeekReveal.player !== player ||
-          prev.simpanPeekReveal.pendingCard !== pendingCard
-        ) {
-          return prev;
-        }
-        ppSimHandGlowSeqRef.current += 1;
-        const marked = markPpSimHandNewGlow(pendingCard, `pp-hng-${ppSimHandGlowSeqRef.current}`);
-        const key = player === "A" ? "playerA" : "playerB";
-        const pslive = player === "A" ? prev.playerA : prev.playerB;
-        const peekKind = prev.simpanPeekReveal.peekKind ?? "simpan";
-        const merged: SimulationState = {
-          ...prev,
-          simpanPeekReveal: null,
-          [key]: { ...pslive, hand: [...pslive.hand, marked] },
-        };
-        return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+        const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard);
+        return merged ?? prev;
       });
-    }, SIMPAN_PEEK_HAND_FLY_MS + 50);
+    }, flyMs + 50);
     return () => window.clearTimeout(tid);
   }, [simpanPeekFly]);
 
@@ -2589,6 +2772,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleEndTurn = (player: "A" | "B") => {
+    if (pendingLegendarySwordStrike) {
+      alert("전설의 검 연격이 끝날 때까지 턴을 넘길 수 없습니다.");
+      return;
+    }
     if (!state || state.currentTurn !== player || isInitializing || winner) return;
     if (state.simpanHandChoice || state.simpanPeekReveal || simpanPeekFly) {
       alert("[연출] 중앙 카드가 패로 합류할 때까지, 또는 심판 대기 카드를 정리한 뒤 턴을 넘겨 주세요.");
@@ -2596,52 +2783,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     setSelectedSlot(null);
     setAttackingSlot(null); 
-    setPendingSecondaryAttack(null); 
+    setPendingSecondaryAttack(null);
+    setPendingLegendarySwordStrike(null);
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
-    setPendingSkill(null); 
+    setPendingSkill(null);
     setAttackOptionOverride(null);
-    setIsDrawModalOpen(false); 
+    setIsDrawModalOpen(false);
 
     setState(prev => {
       if (!prev) return prev;
       const isA = player === "A";
 
-      const resetFieldUnits = (f: PlayerState["field"]) => ({
-        is: f.is
-          ? {
-              ...applyEndTurnEondeokSilenceTickToFieldUnit(
-                applyEndTurnIversonWaitTickToFieldUnit(
-                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.is))
-                )
-              ),
-              hasAttacked: false,
-              hasBeenAttackedThisTurn: false,
-            }
-          : null,
-        m: f.m
-          ? {
-              ...applyEndTurnEondeokSilenceTickToFieldUnit(
-                applyEndTurnIversonWaitTickToFieldUnit(
-                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.m))
-                )
-              ),
-              hasAttacked: false,
-              hasBeenAttackedThisTurn: false,
-            }
-          : null,
-        os: f.os
-          ? {
-              ...applyEndTurnEondeokSilenceTickToFieldUnit(
-                applyEndTurnIversonWaitTickToFieldUnit(
-                  applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.os))
-                )
-              ),
-              hasAttacked: false,
-              hasBeenAttackedThisTurn: false,
-            }
-          : null,
-      });
+      const resetFieldUnits = (f: PlayerState["field"], fieldOwner: "A" | "B") => {
+        const ticked = applyEndTurnLegendarySwordArmingTickForFieldOwner(f, fieldOwner, player);
+        return {
+          is: ticked.is
+            ? { ...ticked.is, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            : null,
+          m: ticked.m
+            ? { ...ticked.m, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            : null,
+          os: ticked.os
+            ? { ...ticked.os, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            : null,
+        };
+      };
 
       const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
       const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
@@ -2651,8 +2818,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
       if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
 
-      const fieldA = { ...resetFieldUnits(prev.playerA.field), spellStack: ta.nextStack };
-      const fieldB = { ...resetFieldUnits(prev.playerB.field), spellStack: tb.nextStack };
+      const fieldA = { ...resetFieldUnits(prev.playerA.field, "A"), spellStack: ta.nextStack };
+      const fieldB = { ...resetFieldUnits(prev.playerB.field, "B"), spellStack: tb.nextStack };
 
       return {
         ...prev,
@@ -2827,6 +2994,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleDrawClick = () => {
+    if (pendingLegendarySwordStrike) {
+      alert("전설의 검 연격이 끝날 때까지 다른 행동을 할 수 없습니다.");
+      return;
+    }
     if (!state || isInitializing || !state.currentTurn || winner) return;
     if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
     if (state.simpanHandChoice || state.simpanPeekReveal) {
@@ -2895,6 +3066,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     targetPlayer: "A" | "B"
   ) => {
     if (!gameState || winner) return;
+    if (pendingLegendarySwordStrike) {
+      alert("전설의 검 연격이 끝날 때까지 다른 행동을 할 수 없습니다.");
+      return;
+    }
 
     if (sourcePlayer !== targetPlayer || gameState.currentTurn !== sourcePlayer) {
       return;
@@ -2935,6 +3110,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     if (handCard.name === IVERSON_ID) {
       card.iversonSummonWaitEndTurnTicksRemaining = IVERSON_SUMMON_WAIT_END_TURNS;
+    }
+    if (handCard.name === UNIT.LEGENDARY_SWORD) {
+      Object.assign(card, initializeLegendarySwordFieldCard(card));
     }
     if (slot === "spell" && handCard.name === BANG_EOMAK_SPELL_ID) {
       card.bangEomakDefenseEndTurnTicksRemaining = BANG_EOMAK_DEFENSE_INITIAL_END_TURN_TICKS;
@@ -3246,7 +3424,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
-    if (!state || state.currentTurn !== player || winner || pendingSkill) {
+    if (!state || state.currentTurn !== player || winner || pendingSkill || pendingLegendarySwordStrike) {
       return;
     }
     if (state.simpanHandChoice?.player === player) {
@@ -3728,6 +3906,53 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handlePlayerAttack = (targetPlayer: "A" | "B") => {
+    if (pendingLegendarySwordStrike) {
+      const pls = pendingLegendarySwordStrike;
+      const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
+      if (targetPlayer !== enemyPlayer || !state || winner) return;
+
+      const damage =
+        pls.phase === 1 ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE : LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE;
+
+      setState(prev => {
+        if (!prev) return prev;
+        const enemyKey = enemyPlayer === "A" ? "playerA" : "playerB";
+        const ownerKey = pls.ownerPlayer === "A" ? "playerA" : "playerB";
+        const newEnemy = { ...prev[enemyKey] };
+        newEnemy.hp = Math.max(0, newEnemy.hp - damage);
+
+        if (pls.phase === 2) {
+          const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
+          const sword = newOwner.field[pls.swordSlot];
+          if (sword?.name === UNIT.LEGENDARY_SWORD) {
+            const stripped = stripLegendarySwordForRewind(sword);
+            newOwner.field[pls.swordSlot] = null;
+            return {
+              ...prev,
+              [enemyKey]: newEnemy,
+              [ownerKey]: newOwner,
+              rewindCards: [...prev.rewindCards, stripped],
+            };
+          }
+        }
+
+        return { ...prev, [enemyKey]: newEnemy };
+      });
+
+      showLegendarySwordSkillHit(`player-${targetPlayer}`, damage);
+
+      if (pls.phase === 1) {
+        setPendingLegendarySwordStrike({
+          ...pls,
+          phase: 2,
+          hitTargets: [...pls.hitTargets, LEGENDARY_SWORD_HIT_PLAYER_MARK],
+        });
+      } else {
+        setPendingLegendarySwordStrike(null);
+      }
+      return;
+    }
+
     if (!attackingSlot || !state || winner) return;
     const [attackerPlayer, attackerSlotName] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
     
@@ -4475,6 +4700,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (winner) return;
     if (!state) return;
 
+    if (pendingLegendarySwordStrike) {
+      if (slot === "spell" || player === pendingLegendarySwordStrike.ownerPlayer) {
+        alert("전설의 검 연격 대상을 선택하세요.");
+        return;
+      }
+    }
+
     // 사망 시 스킬 연결(링크)을 해제하고 에리스티나의 쿨타임을 시작시키는 헬퍼 함수
     const cleanupSkillLinksOnDeath = (deadCard: FieldCard, newPA: PlayerState, newPB: PlayerState, currentGlobalTurn: number) => {
       cleanupSimulationUnitDeath(deadCard, newPA, newPB, currentGlobalTurn);
@@ -4675,6 +4907,134 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (pendingSkill && pendingSkill.name === PENDING_SKILL.DANHA_GALGORI) {
       alert("상대 패에 있는 카드를 선택하세요.");
+      return;
+    }
+
+    if (pendingLegendarySwordStrike) {
+      const pls = pendingLegendarySwordStrike;
+      const targetId = `${player}-${slot}`;
+      const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
+
+      if (player !== enemyPlayer || slot === "spell" || !card) {
+        alert("전설의 검 연격 대상을 선택하세요.");
+        return;
+      }
+      if (pls.hitTargets.includes(targetId)) {
+        alert("이미 이 연격의 대상이 된 유닛입니다. 다른 유닛을 선택해주세요.");
+        return;
+      }
+      if (
+        !canEnemyFieldSourceTargetMaengsugyeonPo(
+          pls.ownerPlayer,
+          pls.swordSlot,
+          player,
+          slot as "is" | "m" | "os",
+          card
+        )
+      ) {
+        pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
+        return;
+      }
+
+      const baseDamage =
+        pls.phase === 1
+          ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE
+          : legendarySwordSecondHitBaseFromFirstTarget(pls.hitTargets[0]!, slot);
+
+      const resolved = resolveLegendarySwordStrikeOnUnit({
+        baseDamage,
+        target: card,
+        targetPlayer: player,
+        targetSlot: slot,
+        playerAField: state.playerA.field,
+        playerBField: state.playerB.field,
+      });
+
+      const targetKey = `${player}-${slot}`;
+      const finishStrike = pls.phase === 2;
+
+      setState(prev => {
+        if (!prev) return prev;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+        const baseTarget =
+          Object.keys(resolved.baekseuPatch).length > 0
+            ? stripBaekseuHarmfulEffectsForInvuln(card)
+            : card;
+        const updatedTarget: FieldCard = {
+          ...baseTarget,
+          ...resolved.baekseuPatch,
+          ...resolved.barrierPatch,
+          currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
+        };
+
+        if (player === "A") {
+          newPlayerA.field[slot] = resolved.isDestroyed ? null : updatedTarget;
+        } else {
+          newPlayerB.field[slot] = resolved.isDestroyed ? null : updatedTarget;
+        }
+
+        if (resolved.isDestroyed) {
+          cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
+        }
+
+        let rewindCards = prev.rewindCards;
+        if (resolved.isDestroyed) {
+          rewindCards = [...rewindCards, card];
+        }
+
+        if (resolved.morningMoodDeathHeal > 0) {
+          const deadSide = player === "A" ? newPlayerA : newPlayerB;
+          (["is", "m", "os"] as const).forEach(s => {
+            const unit = deadSide.field[s];
+            if (!unit) return;
+            deadSide.field[s] = {
+              ...unit,
+              currentHp: Math.min(Number(unit.hp), unit.currentHp + resolved.morningMoodDeathHeal),
+            };
+          });
+        }
+        if (resolved.startingTreeAllyHeal > 0) {
+          const damagedSide = player === "A" ? newPlayerA : newPlayerB;
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === slot) return;
+            const unit = damagedSide.field[s];
+            if (!unit) return;
+            damagedSide.field[s] = {
+              ...unit,
+              currentHp: Math.min(Number(unit.hp), unit.currentHp + resolved.startingTreeAllyHeal),
+            };
+          });
+        }
+
+        if (finishStrike) {
+          const newOwner = pls.ownerPlayer === "A" ? newPlayerA : newPlayerB;
+          const sword = newOwner.field[pls.swordSlot];
+          if (sword?.name === UNIT.LEGENDARY_SWORD) {
+            rewindCards = [...rewindCards, stripLegendarySwordForRewind(sword)];
+            newOwner.field[pls.swordSlot] = null;
+          }
+        }
+
+        return {
+          ...prev,
+          rewindCards,
+          playerA: newPlayerA,
+          playerB: newPlayerB,
+        };
+      });
+
+      showLegendarySwordSkillHit(targetKey, resolved.actualDamage);
+
+      if (pls.phase === 1) {
+        setPendingLegendarySwordStrike({
+          ...pls,
+          phase: 2,
+          hitTargets: [...pls.hitTargets, targetId],
+        });
+      } else {
+        setPendingLegendarySwordStrike(null);
+      }
       return;
     }
 
@@ -6157,12 +6517,39 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setSelectedSlot(prev => prev === slotId ? null : slotId); 
   };
 
+  const legendarySwordHasTargetableEnemyUnit = (
+    pls: NonNullable<typeof pendingLegendarySwordStrike>
+  ): boolean => {
+    if (!state) return false;
+    const enemy = pls.ownerPlayer === "A" ? "B" : "A";
+    const enemyField = enemy === "A" ? state.playerA.field : state.playerB.field;
+    for (const slotName of ["is", "m", "os"] as const) {
+      const c = enemyField[slotName];
+      if (!c || (c.currentHp ?? 0) <= 0) continue;
+      const targetId = `${enemy}-${slotName}`;
+      if (pls.hitTargets.includes(targetId)) continue;
+      if (
+        !canEnemyFieldSourceTargetMaengsugyeonPo(
+          pls.ownerPlayer,
+          pls.swordSlot,
+          enemy,
+          slotName,
+          c
+        )
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  };
+
   const isTargetable = (targetPlayer: "A" | "B", slotName: string, card: FieldCard | null) => {
     const targetId = `${targetPlayer}-${slotName}`;
 
     const eondeokDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
       if (!isEnemyUnitDragTargetSpell(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -6180,7 +6567,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const orietDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
       if (!isSpellCardRow(handDrag.card) || !isOrietChosangSpellCard(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -6231,6 +6618,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return false;
       }
       return pendingSecondaryAttack.attackerPlayer !== targetPlayer && !pendingSecondaryAttack.hitTargets.includes(targetId);
+    }
+
+    if (pendingLegendarySwordStrike) {
+      const pls = pendingLegendarySwordStrike;
+      const enemy = pls.ownerPlayer === "A" ? "B" : "A";
+      if (targetPlayer !== enemy || slotName === "spell") return false;
+      if (!card || (card.currentHp ?? 0) <= 0) return false;
+      if (pls.hitTargets.includes(targetId)) return false;
+      if (
+        !canEnemyFieldSourceTargetMaengsugyeonPo(
+          pls.ownerPlayer,
+          pls.swordSlot,
+          targetPlayer,
+          slotName as "is" | "m" | "os",
+          card
+        )
+      ) {
+        return false;
+      }
+      return true;
     }
     
     if (attackingSlot) {
@@ -6390,6 +6797,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return "border-[3px] border-emerald-400 bg-emerald-500/20 shadow-[0_0_25px_rgba(52,211,153,0.85)] animate-pulse cursor-pointer z-20";
       }
 
+      if (pendingLegendarySwordStrike) {
+        return "border-[3px] border-sky-400 bg-sky-500/25 shadow-[0_0_26px_rgba(56,189,248,0.88)] animate-pulse cursor-crosshair z-20";
+      }
+
       if (attackingSlot) {
         const [ap, aslot] = attackingSlot.split("-");
         const acard = (ap === "A" ? state!.playerA.field : state!.playerB.field)[aslot as "is" | "m" | "os"];
@@ -6411,6 +6822,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       handDragHoverSlotKey === slotKeyForHover
         ? " ring-2 ring-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_28px_rgba(255,255,255,0.85),0_0_48px_rgba(255,255,255,0.45),inset_0_0_14px_rgba(255,255,255,0.12)] z-[25]"
         : "";
+
+    if (
+      card?.name === UNIT.LEGENDARY_SWORD &&
+      pendingLegendarySwordStrike?.ownerPlayer === player &&
+      pendingLegendarySwordStrike.swordSlot === slot
+    ) {
+      return `${fieldCardStyle} pp-legendary-sword-charge-border pp-legendary-sword-charge-border--steady${handDragSlotHoverGlow}`;
+    }
+
+    if (card && isLegendarySwordCharging(card)) {
+      const fast = card.legendarySwordChargeFastBlink ? " pp-legendary-sword-charge-border--fast" : "";
+      return `${fieldCardStyle} pp-legendary-sword-charge-border${fast}${handDragSlotHoverGlow}`;
+    }
 
     const targetClass = getTargetableClass(player, slot, card);
     if (targetClass) return `${fieldCardStyle} ${targetClass}${handDragSlotHoverGlow}`;
@@ -6642,7 +7066,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     `${fieldSlotBadgeZoneClass}${
       !isPlayerA && (card?.name === DARK_KNIGHT_ID || card?.name === MAXELLAND_ID) ? " -translate-y-1.5" : ""
     }`;
-  const fieldSlotHpRowClass = "flex h-3.5 w-full shrink-0 items-center justify-center";
+  const fieldSlotHpRowClass =
+    "relative z-20 flex h-3.5 w-full shrink-0 items-center justify-center";
   const fieldSlotHpPlaceholder = (
     <div className={`${fieldUnitWidthClass} h-3.5 shrink-0 rounded-[3px] border border-transparent`} aria-hidden />
   );
@@ -6852,7 +7277,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (isPlayerA) {
       /* flex-1+justify-end 카드 영역 높이: HP 아래(게이지|스페이서) 총높이가 슬롯마다 동일해야 함 — 만축 게이지 ≈14px 기준 통일 */
       return (
-        <div className={`relative z-0 flex shrink-0 flex-col items-center gap-0.5 ${fieldUnitWidthClass}`}>
+        <div className={`relative z-20 flex shrink-0 flex-col items-center gap-0.5 ${fieldUnitWidthClass}`}>
           <div className={fieldSlotHpRowClass}>{hpInner}</div>
           <div className={playerAFieldSlotBelowHpReserveClass}>
             {card?.name === DARK_KNIGHT_ID ? (
@@ -6869,7 +7294,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       );
     }
     return (
-      <div className={`relative z-0 shrink-0 ${fieldUnitWidthClass}`}>
+      <div className={`relative z-20 shrink-0 ${fieldUnitWidthClass}`}>
         {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
         {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
         {renderIversonWaitGaugeAboveHpAbsolute(card)}
@@ -6931,6 +7356,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           </svg>
         </div>
       </div>
+    );
+  };
+
+  /** No.16 전설의 검 — 충전 깜빡임 / 연격 선택 시 고정 조명(체력바 z-20 위) */
+  const renderLegendarySwordChargeAura = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null,
+    roundedClass: string
+  ) => {
+    const strikeTargeting =
+      !!card &&
+      card.name === UNIT.LEGENDARY_SWORD &&
+      pendingLegendarySwordStrike?.ownerPlayer === player &&
+      pendingLegendarySwordStrike.swordSlot === slot;
+    const charging = !!card && isLegendarySwordCharging(card);
+    if (!charging && !strikeTargeting) return null;
+
+    const auraClass = strikeTargeting
+      ? " pp-legendary-sword-charge-aura--steady"
+      : card!.legendarySwordChargeFastBlink
+        ? " pp-legendary-sword-charge-aura--fast"
+        : "";
+
+    return (
+      <div
+        className={`pp-legendary-sword-charge-aura pointer-events-none absolute inset-0 z-[8] ${roundedClass}${auraClass}`}
+        aria-hidden
+      />
     );
   };
 
@@ -7726,24 +8180,38 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !isRyeomcho(strikeAttackerCardForPlayerHp) &&
     !isRanigo(strikeAttackerCardForPlayerHp);
 
+  const canLegendarySwordHitPlayerB =
+    !!pendingLegendarySwordStrike &&
+    pendingLegendarySwordStrike.ownerPlayer === "A" &&
+    !legendarySwordHasTargetableEnemyUnit(pendingLegendarySwordStrike);
+
+  const canLegendarySwordHitPlayerA =
+    !!pendingLegendarySwordStrike &&
+    pendingLegendarySwordStrike.ownerPlayer === "B" &&
+    !legendarySwordHasTargetableEnemyUnit(pendingLegendarySwordStrike);
+
   const canAttackPlayerB =
-    !!attackingSlot &&
-    attackingSlot.startsWith("A-") &&
-    isBFieldEmpty &&
-    canDirectAttackOpponentPlayerHp;
+    canLegendarySwordHitPlayerB ||
+    (!!attackingSlot &&
+      attackingSlot.startsWith("A-") &&
+      isBFieldEmpty &&
+      canDirectAttackOpponentPlayerHp);
 
   const canAttackPlayerA =
-    !!attackingSlot &&
-    attackingSlot.startsWith("B-") &&
-    isAFieldEmpty &&
-    canDirectAttackOpponentPlayerHp;
+    canLegendarySwordHitPlayerA ||
+    (!!attackingSlot &&
+      attackingSlot.startsWith("B-") &&
+      isAFieldEmpty &&
+      canDirectAttackOpponentPlayerHp);
 
   return (
     <div 
       className={`w-full h-screen overflow-auto ${theme.bg} ${theme.text} flex items-center justify-center p-4 relative`}
       onClick={() => { setSelectedSlot(null); setAttackingSlot(null); setPendingSecondaryAttack(null); setAttackOptionOverride(null); setPendingSkill(null); setPendingLibutyAllEnemiesAttack(null); }} 
     >
-      {state?.simpanPeekReveal && !simpanPeekFly ? (
+      {state?.simpanPeekReveal &&
+      state.simpanPeekReveal.peekKind !== "opening" &&
+      !simpanPeekFly ? (
         <div
           role="presentation"
           aria-label="클릭하면 패로 이동합니다"
@@ -7757,7 +8225,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       {simpanPeekFly ? (
         <div
           aria-hidden
-          className="fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)] pp-simpan-pending-glow"
+          className={
+            simpanPeekFly.isOpening
+              ? "fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border border-slate-600/55 bg-black/85 shadow-md"
+              : "fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)] pp-simpan-pending-glow"
+          }
           style={{
             left: 0,
             top: 0,
@@ -7766,7 +8238,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             transform: `translate3d(${simpanPeekFly.phase === 1 ? simpanPeekFly.to.x : simpanPeekFly.from.x}px, ${simpanPeekFly.phase === 1 ? simpanPeekFly.to.y : simpanPeekFly.from.y}px, 0)`,
             transition:
               simpanPeekFly.phase === 1
-                ? `transform ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1), width ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1), height ${SIMPAN_PEEK_HAND_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
+                ? (() => {
+                    const ms = simpanPeekFly.flyMs ?? SIMPAN_PEEK_HAND_FLY_MS;
+                    const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+                    return `transform ${ms}ms ${ease}, width ${ms}ms ${ease}, height ${ms}ms ${ease}`;
+                  })()
                 : "none",
             willChange: "transform, width, height",
           }}
@@ -8421,6 +8897,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
+      {pendingLegendarySwordStrike && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-sky-500 to-cyan-400 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(56,189,248,0.85)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
+          [전설의 검] {pendingLegendarySwordStrike.phase === 1 ? "1차" : "2차"} 연격 대상을 선택하세요!
+        </div>
+      )}
+
       {pendingSkill && (
         <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-pink-600 to-purple-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(219,39,119,0.8)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           {pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI ||
@@ -8586,7 +9068,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               >
                 <div
                   ref={simpanCenterDisplay.kind === "peek" ? simpanPeekCardMeasureRef : undefined}
-                  className="pp-simpan-pending-glow relative w-[92px] md:w-[105px] lg:w-[118px] aspect-[1/1.58] overflow-visible rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)]"
+                  className={
+                    simpanCenterDisplay.kind === "peek" &&
+                    state.simpanPeekReveal?.peekKind === "opening"
+                      ? "relative w-[92px] md:w-[105px] lg:w-[118px] aspect-[1/1.58] overflow-visible rounded-[10px] border border-slate-600/55 bg-black/85 shadow-md"
+                      : "pp-simpan-pending-glow relative w-[92px] md:w-[105px] lg:w-[118px] aspect-[1/1.58] overflow-visible rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)]"
+                  }
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
                     {simpanCenterDisplay.card.image_url ? (
@@ -8647,6 +9134,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerB.field.is, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerB.field.is)}
                      {renderStunSwirlOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
+                     {renderLegendarySwordChargeAura("B", "is", state.playerB.field.is, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
                      {renderBaekseuInvulnRing(state.playerB.field.is, "rounded-[8px]", "B")}
                    </div>
@@ -8688,6 +9176,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerB.field.m, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerB.field.m)}
                      {renderStunSwirlOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
+                     {renderLegendarySwordChargeAura("B", "m", state.playerB.field.m, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
                      {renderBaekseuInvulnRing(state.playerB.field.m, "rounded-[8px]", "B")}
                    </div>
@@ -8729,6 +9218,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerB.field.os, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerB.field.os)}
                      {renderStunSwirlOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
+                     {renderLegendarySwordChargeAura("B", "os", state.playerB.field.os, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
                      {renderBaekseuInvulnRing(state.playerB.field.os, "rounded-[8px]", "B")}
                   </div>
@@ -8852,6 +9342,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerA.field.is, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerA.field.is)}
                      {renderStunSwirlOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
+                     {renderLegendarySwordChargeAura("A", "is", state.playerA.field.is, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
                      {renderBaekseuInvulnRing(state.playerA.field.is, "rounded-[8px]", "A")}
                    </div>
@@ -8893,6 +9384,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerA.field.m, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerA.field.m)}
                      {renderStunSwirlOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
+                     {renderLegendarySwordChargeAura("A", "m", state.playerA.field.m, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
                      {renderBaekseuInvulnRing(state.playerA.field.m, "rounded-[8px]", "A")}
                    </div>
@@ -8934,6 +9426,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderEondeokSilenceOutline(state.playerA.field.os, "rounded-[8px]")}
                      {renderStackingGaugeFieldRings(state.playerA.field.os)}
                      {renderStunSwirlOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
+                     {renderLegendarySwordChargeAura("A", "os", state.playerA.field.os, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
                      {renderBaekseuInvulnRing(state.playerA.field.os, "rounded-[8px]", "A")}
                    </div>
