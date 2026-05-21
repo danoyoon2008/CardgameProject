@@ -10,6 +10,15 @@ import { UNIT } from "../unitIds";
 
 export const STARTING_WRAITH_ID = UNIT.STARTING_WRAITH;
 
+/** localStorage `pp_sim_save` — 처치 연쇄 추가 공격 대상 선택 중 로비/새로고침 후 재개 */
+export type StartingWraithChainPendingSave = {
+  attackerPlayer: "A" | "B";
+  attackerSlot: "is" | "m" | "os";
+  targetKind: "enemyUnit" | "playerHp";
+};
+
+type FieldSlice = { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null };
+
 /** [혼란] 시 트루 딜·처치 연쇄 패시브 일시 봉인 */
 export function isStartingWraithPassivesPausedByConfusion(
   card: FieldCard | null | undefined,
@@ -90,4 +99,15 @@ export function isStartingWraithBasicAttackChainKillEligible(args: {
   if (attackType !== "NORMAL" || secondaryHits !== 0) return false;
   if (!isDestroyed || attackerDestroyedByReflect) return false;
   return countOtherLivingDefenderUnits(defenderFieldBeforeKill, killedSlot) > 0;
+}
+
+export function getStartingWraithAtSlot(
+  ownerPlayer: "A" | "B",
+  slot: "is" | "m" | "os",
+  playerAField: FieldSlice,
+  playerBField: FieldSlice
+): FieldCard | null {
+  const field = ownerPlayer === "A" ? playerAField : playerBField;
+  const u = field[slot];
+  return u?.name === STARTING_WRAITH_ID && (u.currentHp ?? 0) > 0 ? u : null;
 }

@@ -9,5 +9,7 @@ export * from "./somyeol";
 export * from "./meteo";
 export * from "./hyperBeam";
 export * from "./oneNightWager";
+export * from "./witchTarot";
 export * from "./superTesla";
 export * from "./spellVisibility";
+export * from "./spellUsagePending";

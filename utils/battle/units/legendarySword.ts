@@ -7,6 +7,14 @@ import { UNIT } from "../unitIds";
 
 /** 1×턴 = 양측 턴 종료 합산 2회 */
 export const LEGENDARY_SWORD_ARMING_END_TURN_TICKS = 2;
+
+/** localStorage `pp_sim_save` — 연격 대상 선택 중 로비/새로고침 후 재개 */
+export type LegendarySwordPendingSave = {
+  ownerPlayer: "A" | "B";
+  swordSlot: "is" | "m" | "os";
+  phase: 1 | 2;
+  hitTargets: string[];
+};
 export const LEGENDARY_SWORD_FIRST_HIT_DAMAGE = 3000;
 /** hitTargets에 넣어 1차가 상대 플레이어 HP였음을 표시(2차 유닛 피해 산정용) */
 export const LEGENDARY_SWORD_HIT_PLAYER_MARK = "__LEGENDARY_PLAYER_HP__";
@@ -171,4 +179,15 @@ export function applyEndTurnLegendarySwordArmingTickForFieldOwner(
     m: tickSlot(field.m, "m"),
     os: tickSlot(field.os, "os"),
   };
+}
+
+export function getLegendarySwordAtSlot(
+  ownerPlayer: "A" | "B",
+  swordSlot: "is" | "m" | "os",
+  playerAField: FieldSlice,
+  playerBField: FieldSlice
+): FieldCard | null {
+  const field = ownerPlayer === "A" ? playerAField : playerBField;
+  const u = field[swordSlot];
+  return u?.name === UNIT.LEGENDARY_SWORD ? u : null;
 }

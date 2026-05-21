@@ -19,6 +19,97 @@ export type OneNightWagerStackMatch = {
   stackIndex: number;
 };
 
+/** localStorage `pp_sim_save` — 발동 연출(팝업·토큰 정산) 중 로비/새로고침 후 재개 */
+export type OneNightWagerPendingMatchSave = {
+  ownerPlayer: "A" | "B";
+  activationCost: number;
+};
+
+export type OneNightWagerPendingSave = {
+  /** `popup`: 비교 모달 표시 중 · `settlement`: 모달 종료 후 스택 제거·토큰 정산 대기 */
+  phase: "popup" | "settlement";
+  costsA: UnitSlotCosts;
+  costsB: UnitSlotCosts;
+  glowPlayer: "A" | "B" | null;
+  loserPlayer: "A" | "B" | null;
+  matches: OneNightWagerPendingMatchSave[];
+};
+
+export function oneNightWagerPendingMatchesFromStack(
+  matches: OneNightWagerStackMatch[]
+): OneNightWagerPendingMatchSave[] {
+  return matches.map(m => ({
+    ownerPlayer: m.ownerPlayer,
+    activationCost: oneNightWagerActivationTokenCost(m.wagerCard),
+  }));
+}
+
+function fieldHasOneNightWagerInStack(field: FieldSliceWithSpell): boolean {
+  return normalizeSpellStack(field).some(c => isOneNightWagerSpellCard(c));
+}
+
+export function oneNightWagerStackMatchesFromPendingSave(
+  pending: OneNightWagerPendingSave,
+  playerAField: FieldSliceWithSpell,
+  playerBField: FieldSliceWithSpell
+): OneNightWagerStackMatch[] {
+  const out: OneNightWagerStackMatch[] = [];
+  for (const m of pending.matches) {
+    const field = m.ownerPlayer === "A" ? playerAField : playerBField;
+    const stack = normalizeSpellStack(field);
+    let found: OneNightWagerStackMatch | null = null;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const c = stack[i]!;
+      if (!isOneNightWagerSpellCard(c)) continue;
+      found = { ownerPlayer: m.ownerPlayer, wagerCard: c, stackIndex: i };
+      break;
+    }
+    if (!found) {
+      found = {
+        ownerPlayer: m.ownerPlayer,
+        wagerCard: {
+          name: ONE_NIGHT_WAGER_SPELL_ID,
+          cost: m.activationCost,
+          hp: 0,
+          currentHp: 0,
+          atk: "0",
+        } as FieldCard,
+        stackIndex: -1,
+      };
+    }
+    out.push(found);
+  }
+  return out;
+}
+
+type OneNightWagerReconcileSnapshot = {
+  oneNightWagerPending: OneNightWagerPendingSave | null;
+  playerA: { field: SimulationPlayerField };
+  playerB: { field: SimulationPlayerField };
+};
+
+export function reconcileOneNightWagerPendingFromSnapshot<T extends OneNightWagerReconcileSnapshot>(
+  snap: T
+): T {
+  const p = snap.oneNightWagerPending;
+  if (!p) return snap;
+  if (!p.matches.length) {
+    return { ...snap, oneNightWagerPending: null };
+  }
+  if (!areAllUnitSlotsFilledOnBothFields(snap.playerA.field, snap.playerB.field)) {
+    return { ...snap, oneNightWagerPending: null };
+  }
+  if (p.phase === "popup") {
+    const hasWager =
+      fieldHasOneNightWagerInStack(snap.playerA.field) ||
+      fieldHasOneNightWagerInStack(snap.playerB.field);
+    if (!hasWager) {
+      return { ...snap, oneNightWagerPending: { ...p, phase: "settlement" } };
+    }
+  }
+  return snap;
+}
+
 export function isOneNightWagerSpellCard(c: CardRow | null | undefined): boolean {
   return !!c && c.name === ONE_NIGHT_WAGER_SPELL_ID;
 }

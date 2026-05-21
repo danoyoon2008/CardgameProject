@@ -144,10 +144,11 @@ import {
   initializeLegendarySwordFieldCard,
   isLegendarySwordCharging,
   isLegendarySwordArmed,
-  forceCompleteLegendarySwordArming,
   isLegendarySwordAbilityPausedByConfusion,
   getLegendarySwordFacingOppAtSlot,
   stripLegendarySwordForRewind,
+  getLegendarySwordAtSlot,
+  type LegendarySwordPendingSave,
   LEGENDARY_SWORD_FIRST_HIT_DAMAGE,
   LEGENDARY_SWORD_HIT_PLAYER_MARK,
   LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE,
@@ -172,6 +173,8 @@ import {
   isStartingWraithBasicAttackChainFollowUpPending,
   startingWraithChainFollowUpBypassesAntiGangup,
   isStartingWraithPassivesPausedByConfusion,
+  getStartingWraithAtSlot,
+  type StartingWraithChainPendingSave,
   countOtherLivingDefenderUnits,
   applyEndTurnBaekseuInvulnTickToFieldUnit,
   isBaekseuInvulnerable,
@@ -207,6 +210,21 @@ import {
   resolveOneNightWagerLoser,
   applyOneNightWagerTokenSettlement,
   removeAllOneNightWagersFromSpellStack,
+  oneNightWagerPendingMatchesFromStack,
+  oneNightWagerStackMatchesFromPendingSave,
+  reconcileOneNightWagerPendingFromSnapshot,
+  type OneNightWagerPendingSave,
+  parseSpellUsagePendingSave,
+  patchSpellUsagePendingOnState,
+  reconcileSpellUsagePendingFromSnapshot,
+  type SpellUsagePendingSave,
+  isWitchTarotSpellCard,
+  WITCH_TAROT_SPELL_ID,
+  WITCH_TAROT_TOTAL_STEPS,
+  witchTarotStepPlayer,
+  stripWitchTarotFromField,
+  findWitchTarotCasterOnField,
+  type WitchTarotPendingSave,
   GONCHUNG_JEONMOGA_ACTIVE,
   GONCHUNG_HIDDEN_PEEK_SKILL_LABEL,
   spellStackHasHiddenSpell,
@@ -217,6 +235,7 @@ import {
   HiddenSpellCardBackFace,
 } from "./simulation/gonchungSpellFace";
 import OneNightWagerModal from "./SimulationView/modals/OneNightWagerModal";
+import WitchTarotCoinOverlay from "./SimulationView/modals/WitchTarotCoinOverlay";
 import "./simulation-combat-flash.css";
 import "./simulation-stun-swirl.css";
 import "./simulation-iverson-wait-aura.css";
@@ -286,11 +305,21 @@ interface SimulationState {
     player: "A" | "B";
     pendingCard: CardRow;
     /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장, "teslaDrawRewind" = 슈퍼 테슬라 보상 드로우(손패) */
-    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind";
+    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind" | "witchTarot";
   } | null;
   simpanPeekQueue: { player: "A" | "B"; pendingCard: CardRow }[];
   /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
   simpanPeekTick: number;
+  /** No.53 마녀 타로 — 동전/드로우·버림 시퀀스(저장·복귀 시 재개) */
+  witchTarotPending: WitchTarotPendingSave | null;
+  /** No.16 전설의 검 — 연격 대상 선택 중(저장·복귀 시 재개) */
+  legendarySwordPending: LegendarySwordPendingSave | null;
+  /** No.44 시작의 망령 — 처치 연쇄 추가 공격 대상 선택 중(저장·복귀 시 재개) */
+  startingWraithChainPending: StartingWraithChainPendingSave | null;
+  /** No.34 한날 밤의 내기 — 발동 연출·토큰 정산 중(저장·복귀 시 재개) */
+  oneNightWagerPending: OneNightWagerPendingSave | null;
+  /** 손패 스펠 — 필드 중앙 연출·commit 대기(저장·복귀 시 재개) */
+  spellUsagePending: SpellUsagePendingSave | null;
 }
 
 interface SimulationViewProps {
@@ -392,7 +421,183 @@ const TESLA_DRAW_PEEK_MS = 1750;
 const ONE_NIGHT_WAGER_POPUP_VISIBLE_MS = 6000;
 /** 팝업 닫힌 뒤 패배자 토큰 소거 연출까지 대기 */
 const ONE_NIGHT_WAGER_TOKEN_WIPE_DELAY_MS = 750;
+
+/** 마녀 타로 — 스펠 칸 배치 후 동전 연출 */
+const WITCH_TAROT_COIN_DELAY_MS = 750;
+const WITCH_TAROT_COIN_FLIP_MS = 1400;
+const WITCH_TAROT_COIN_RESULT_MS = 900;
 const SPELL_USAGE_CENTER_KEY = "spell-usage-center";
+
+function patchWitchTarotPending(
+  prev: SimulationState,
+  patch: Partial<WitchTarotPendingSave> | null
+): SimulationState {
+  if (patch === null) return { ...prev, witchTarotPending: null };
+  const base: WitchTarotPendingSave = prev.witchTarotPending ?? {
+    casterPlayer: patch.casterPlayer ?? "A",
+    coinHeads: null,
+    stepIndex: 0,
+    awaitingDiscardPlayer: null,
+  };
+  return { ...prev, witchTarotPending: { ...base, ...patch } };
+}
+
+function mergeWitchTarotPendingFromRuntime(
+  snap: SimulationState,
+  seq: { casterPlayer: "A" | "B"; coinHeads: boolean | null; stepIndex: number } | null,
+  awaitingDiscardPlayer: "A" | "B" | null,
+  sequenceActive: boolean
+): SimulationState {
+  if (!sequenceActive || !seq) return snap;
+  return patchWitchTarotPending(snap, {
+    casterPlayer: seq.casterPlayer,
+    coinHeads: seq.coinHeads,
+    stepIndex: seq.stepIndex,
+    awaitingDiscardPlayer,
+  });
+}
+
+/** 저장된 pending이 구버전(null coinHeads)일 때 필드·패 상태로 보정 */
+function reconcileWitchTarotPendingFromSnapshot(snap: SimulationState): SimulationState {
+  const caster = findWitchTarotCasterOnField(snap.playerA.field, snap.playerB.field);
+  if (!caster) {
+    return snap.witchTarotPending ? patchWitchTarotPending(snap, null) : snap;
+  }
+  const p = snap.witchTarotPending;
+  if (p && p.coinHeads !== null) {
+    return patchWitchTarotPending(snap, { ...p, casterPlayer: caster });
+  }
+  if (snap.simpanPeekReveal?.peekKind === "witchTarot") {
+    return patchWitchTarotPending(snap, {
+      casterPlayer: caster,
+      coinHeads: true,
+      stepIndex: p?.stepIndex ?? 0,
+      awaitingDiscardPlayer: null,
+    });
+  }
+  if (snap.simpanHandChoice) {
+    return patchWitchTarotPending(snap, {
+      casterPlayer: caster,
+      coinHeads: true,
+      stepIndex: p?.stepIndex ?? 0,
+      awaitingDiscardPlayer: null,
+    });
+  }
+  if (p?.awaitingDiscardPlayer) {
+    return patchWitchTarotPending(snap, {
+      casterPlayer: caster,
+      coinHeads: false,
+      stepIndex: p.stepIndex,
+      awaitingDiscardPlayer: p.awaitingDiscardPlayer,
+    });
+  }
+  return snap;
+}
+
+function patchLegendarySwordPending(
+  prev: SimulationState,
+  patch: LegendarySwordPendingSave | null
+): SimulationState {
+  return { ...prev, legendarySwordPending: patch };
+}
+
+function mergeLegendarySwordPendingFromRuntime(
+  snap: SimulationState,
+  pending: LegendarySwordPendingSave | null
+): SimulationState {
+  return patchLegendarySwordPending(snap, pending);
+}
+
+function reconcileLegendarySwordPendingFromSnapshot(snap: SimulationState): SimulationState {
+  const p = snap.legendarySwordPending;
+  if (!p) return snap;
+  const sword = getLegendarySwordAtSlot(
+    p.ownerPlayer,
+    p.swordSlot,
+    snap.playerA.field,
+    snap.playerB.field
+  );
+  if (!sword) return patchLegendarySwordPending(snap, null);
+  return snap;
+}
+
+function patchStartingWraithChainPending(
+  prev: SimulationState,
+  patch: StartingWraithChainPendingSave | null
+): SimulationState {
+  return { ...prev, startingWraithChainPending: patch };
+}
+
+function mergeStartingWraithChainPendingFromRuntime(
+  snap: SimulationState,
+  pending: StartingWraithChainPendingSave | null
+): SimulationState {
+  return patchStartingWraithChainPending(snap, pending);
+}
+
+function reconcileStartingWraithChainPendingFromSnapshot(snap: SimulationState): SimulationState {
+  const p = snap.startingWraithChainPending;
+  if (!p) return snap;
+  const wraith = getStartingWraithAtSlot(
+    p.attackerPlayer,
+    p.attackerSlot,
+    snap.playerA.field,
+    snap.playerB.field
+  );
+  if (!wraith) return patchStartingWraithChainPending(snap, null);
+  return snap;
+}
+
+function patchOneNightWagerPending(
+  prev: SimulationState,
+  patch: OneNightWagerPendingSave | null
+): SimulationState {
+  return { ...prev, oneNightWagerPending: patch };
+}
+
+function mergeOneNightWagerPendingFromRuntime(
+  snap: SimulationState,
+  pending: OneNightWagerPendingSave | null,
+  sequenceActive: boolean
+): SimulationState {
+  if (!sequenceActive || !pending) return snap;
+  return patchOneNightWagerPending(snap, pending);
+}
+
+function patchSpellUsagePending(
+  prev: SimulationState,
+  patch: SpellUsagePendingSave | null
+): SimulationState {
+  return patchSpellUsagePendingOnState(prev, patch);
+}
+
+function mergeSimulationPersistedSequences(
+  snap: SimulationState,
+  witchSeq: { casterPlayer: "A" | "B"; coinHeads: boolean | null; stepIndex: number } | null,
+  witchAwaitingDiscard: "A" | "B" | null,
+  witchSequenceActive: boolean,
+  legendaryPending: LegendarySwordPendingSave | null,
+  startingWraithPending: StartingWraithChainPendingSave | null,
+  oneNightWagerPending: OneNightWagerPendingSave | null,
+  oneNightWagerSequenceActive: boolean
+): SimulationState {
+  return mergeOneNightWagerPendingFromRuntime(
+    mergeStartingWraithChainPendingFromRuntime(
+      mergeLegendarySwordPendingFromRuntime(
+        mergeWitchTarotPendingFromRuntime(
+          snap,
+          witchSeq,
+          witchAwaitingDiscard,
+          witchSequenceActive
+        ),
+        legendaryPending
+      ),
+      startingWraithPending
+    ),
+    oneNightWagerPending,
+    oneNightWagerSequenceActive
+  );
+}
 
 function spellUsageCasterHaloLayerClass(player: "A" | "B", layer: 1 | 2): string {
   const anim =
@@ -437,6 +642,8 @@ type SpellUsageFlyVisualState = {
   to: { x: number; y: number; w: number; h: number };
   phase: 0 | 1;
   flyMs?: number;
+  /** 재접속 복구 — 남은 플라이 시간(ms) */
+  resumeRemainingMs?: number;
 };
 
 type SpellUsagePending = {
@@ -686,6 +893,7 @@ type FlashOverlayKind =
   | "superTeslaSpellTrigger"
   | "oneNightWagerSpellTrigger"
   | "oneNightWagerTokenWipe"
+  | "witchTarotSpellPulse"
   | "kalliBuffBan";
 
 /** 플래시 오버레이 메타(슬롯당 1개) */
@@ -832,11 +1040,16 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     setState(prev => {
       if (!prev?.simpanHandChoice) return prev;
       const { pendingCard } = prev.simpanHandChoice;
-      return promoteSimpanAfterClearChoice({
+      const next = promoteSimpanAfterClearChoice({
         ...prev,
         rewindCards: [...prev.rewindCards, pendingCard],
         simpanHandChoice: null,
       });
+      if (witchTarotSequenceActiveRef.current) {
+        simulationStateRef.current = next;
+        window.setTimeout(() => runWitchTarotAdvanceRef.current(), 0);
+      }
+      return next;
     });
   };
 
@@ -857,7 +1070,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
         simpanHandChoice: null,
         [player === "A" ? "playerA" : "playerB"]: { ...ps, hand },
       };
-      return promoteSimpanAfterClearChoice(base);
+      const next = promoteSimpanAfterClearChoice(base);
+      if (witchTarotSequenceActiveRef.current && next) {
+        simulationStateRef.current = next;
+        window.setTimeout(() => runWitchTarotAdvanceRef.current(), 0);
+      }
+      return next;
     });
   };
   
@@ -893,18 +1111,45 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     position: { x: number; y: number };
   } | null>(null);
 
-  const [pendingLegendarySwordStrike, setPendingLegendarySwordStrike] = useState<{
-    ownerPlayer: "A" | "B";
-    swordSlot: "is" | "m" | "os";
-    phase: 1 | 2;
-    hitTargets: string[];
-  } | null>(null);
+  const [pendingLegendarySwordStrike, setPendingLegendarySwordStrike] =
+    useState<LegendarySwordPendingSave | null>(null);
+  const legendarySwordStrikePendingRef = useRef<LegendarySwordPendingSave | null>(null);
+  const legendarySwordRestoreOnMountDoneRef = useRef(false);
+  const applyLegendarySwordStrikePending = useCallback((next: LegendarySwordPendingSave | null) => {
+    legendarySwordStrikePendingRef.current = next;
+    setPendingLegendarySwordStrike(next);
+    setState(prev => (prev ? patchLegendarySwordPending(prev, next) : prev));
+  }, []);
   const [pendingStartingWraithChainKill, setPendingStartingWraithChainKill] = useState<{
     attackerPlayer: "A" | "B";
     attackerSlotName: "is" | "m" | "os";
   } | null>(null);
   const [pendingStartingWraithChainPlayerHp, setPendingStartingWraithChainPlayerHp] =
     useState(false);
+  const startingWraithChainPendingRef = useRef<StartingWraithChainPendingSave | null>(null);
+  const startingWraithRestoreOnMountDoneRef = useRef(false);
+  const applyStartingWraithChainPending = useCallback((next: StartingWraithChainPendingSave | null) => {
+    startingWraithChainPendingRef.current = next;
+    if (!next) {
+      setPendingStartingWraithChainKill(null);
+      setPendingStartingWraithChainPlayerHp(false);
+      setAttackingSlot(null);
+    } else {
+      const atkSlot = `${next.attackerPlayer}-${next.attackerSlot}`;
+      setAttackingSlot(atkSlot);
+      if (next.targetKind === "playerHp") {
+        setPendingStartingWraithChainKill(null);
+        setPendingStartingWraithChainPlayerHp(true);
+      } else {
+        setPendingStartingWraithChainKill({
+          attackerPlayer: next.attackerPlayer,
+          attackerSlotName: next.attackerSlot,
+        });
+        setPendingStartingWraithChainPlayerHp(false);
+      }
+    }
+    setState(prev => (prev ? patchStartingWraithChainPending(prev, next) : prev));
+  }, []);
   const legendarySwordAutoOpenResolvedKeyRef = useRef<string | null>(null);
   
   const [pendingSkill, setPendingSkill] = useState<{
@@ -943,7 +1188,42 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     glowPlayer: "A" | "B" | null;
   } | null>(null);
   const spellUsagePendingRef = useRef<SpellUsagePending | null>(null);
+  const spellUsageRestoreOnMountDoneRef = useRef(false);
+  const buildSpellUsageHandlersRef = useRef<
+    ((save: SpellUsagePendingSave) => SpellUsagePending | null) | null
+  >(null);
+  const tryTriggerOneNightWagerSequenceRef = useRef<() => void>(() => {});
   const oneNightWagerSequenceActiveRef = useRef(false);
+  const oneNightWagerPendingRef = useRef<OneNightWagerPendingSave | null>(null);
+  const oneNightWagerRestoreOnMountDoneRef = useRef(false);
+  const applyOneNightWagerPending = useCallback((next: OneNightWagerPendingSave | null) => {
+    oneNightWagerPendingRef.current = next;
+    if (!next) {
+      setOneNightWagerModal(null);
+      setSpellUsageHiddenRevealCards(null);
+      oneNightWagerSequenceActiveRef.current = false;
+    }
+    setState(prev => (prev ? patchOneNightWagerPending(prev, next) : prev));
+  }, []);
+  const witchTarotSequenceRef = useRef<{
+    casterPlayer: "A" | "B";
+    coinHeads: boolean | null;
+    stepIndex: number;
+  } | null>(null);
+  const witchTarotSequenceActiveRef = useRef(false);
+  const witchTarotCoinFlipIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [witchTarotCoin, setWitchTarotCoin] = useState<
+    | null
+    | { phase: "FLIPPING" }
+    | { phase: "RESULT"; heads: boolean }
+  >(null);
+  const [witchTarotCoinFlipTick, setWitchTarotCoinFlipTick] = useState(0);
+  const [witchTarotDiscardPlayer, setWitchTarotDiscardPlayer] = useState<"A" | "B" | null>(null);
+  const witchTarotDiscardPlayerRef = useRef<"A" | "B" | null>(null);
+  const [witchTarotFlowActive, setWitchTarotFlowActive] = useState(false);
+  const witchTarotRestoreOnMountDoneRef = useRef(false);
+  const witchTarotFinishingRef = useRef(false);
+  const witchTarotCoinStartScheduledRef = useRef(false);
   const spellUsageMotionActiveRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageTeslaCounterTimerRef = useRef<number | null>(null);
@@ -999,8 +1279,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       openingDrawWaitRef.current = null;
       return merged;
     }
+    if (peekKind === "witchTarot") return merged;
     return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
   };
+
+  const runWitchTarotAdvanceRef = useRef<() => void>(() => {});
+  const runWitchTarotCurrentStepRef = useRef<() => void>(() => {});
 
   const scheduleTeslaRewardDrawPeek = useCallback((counterPlayer: "A" | "B") => {
     setState(prev => {
@@ -1052,26 +1336,38 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     }, SUPER_TESLA_REWARD_DRAW_DELAY_MS);
   }, [scheduleTeslaRewardDrawPeek]);
 
+  const applySpellUsagePending = useCallback((next: SpellUsagePendingSave | null) => {
+    setState(prev => (prev ? patchSpellUsagePending(prev, next) : prev));
+  }, []);
+
   const finishSpellUsageSequence = useCallback(() => {
     const pending = spellUsagePendingRef.current;
-    if (!pending) {
-      spellUsageMotionActiveRef.current = false;
+    const clearSpellUsageVisuals = () => {
+      setSpellUsageFly(null);
       setSpellUsageReveal(null);
       setSpellUsageTeslaHideOppCenterCard(false);
       setSpellUsageTeslaFlipPlayer(null);
       setSpellUsageTeslaFieldCard(null);
+    };
+
+    if (!pending) {
+      spellUsageMotionActiveRef.current = false;
+      applySpellUsagePending(null);
+      clearSpellUsageVisuals();
       return;
     }
     if (pending.superTeslaCounter) {
       runSuperTeslaCounterCommit();
       spellUsagePendingRef.current = null;
       spellUsageMotionActiveRef.current = false;
-      setSpellUsageReveal(null);
-      setSpellUsageTeslaHideOppCenterCard(false);
-      setSpellUsageTeslaFlipPlayer(null);
-      setSpellUsageTeslaFieldCard(null);
+      applySpellUsagePending(null);
+      clearSpellUsageVisuals();
       return;
     }
+    /* 플라이 직후 reveal만 남으면 중앙에 카드가 한 프레임 다시 보임 — commit 전에 연출 상태 제거 */
+    flushSync(() => {
+      clearSpellUsageVisuals();
+    });
     /* 플라이 종료 등 setTimeout 경로에서는 commit 업데이터가 afterCommitVfx보다 늦게 돌 수 있음 */
     flushSync(() => {
       setState(prev => {
@@ -1082,23 +1378,46 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     pending.afterCommitVfx?.();
     spellUsagePendingRef.current = null;
     spellUsageMotionActiveRef.current = false;
-    setSpellUsageReveal(null);
-    setSpellUsageTeslaHideOppCenterCard(false);
-    setSpellUsageTeslaFlipPlayer(null);
-    setSpellUsageTeslaFieldCard(null);
-  }, [runSuperTeslaCounterCommit]);
+    applySpellUsagePending(null);
+  }, [runSuperTeslaCounterCommit, applySpellUsagePending]);
 
   const scheduleSpellHandUsageSequence = useCallback(
-    (snap: SimulationState, params: Omit<SpellUsagePending, "superTeslaCounter">) => {
+    (
+      snap: SimulationState,
+      params: Omit<SpellUsagePending, "superTeslaCounter"> & { fieldCard?: FieldCard }
+    ) => {
       const snapForTeslaCounter = simulationStateRef.current ?? snap;
       const superTeslaCounter = isAttackTypeSpellCard(params.previewCard)
         ? resolveSuperTeslaCounter(snapForTeslaCounter, params.casterPlayer)
         : null;
+      const save: SpellUsagePendingSave = {
+        phase: "centerReveal",
+        phaseStartedAt: Date.now(),
+        casterPlayer: params.casterPlayer,
+        previewCard: params.previewCard,
+        mode: params.mode,
+        targetPlayer: params.targetPlayer,
+        unitSlot: params.unitSlot,
+        centerShowsCardBack: params.centerShowsCardBack,
+        flyToUnitAfterReveal: params.flyToUnitAfterReveal,
+        flyToSpellSlotAfterReveal: params.flyToSpellSlotAfterReveal,
+        fieldCard: params.fieldCard,
+        superTeslaCounter: superTeslaCounter
+          ? {
+              counterPlayer: superTeslaCounter.counterPlayer,
+              teslaStackIndex: superTeslaCounter.teslaStackIndex,
+            }
+          : undefined,
+      };
+      const built = buildSpellUsageHandlersRef.current?.(save);
+      if (!built) return;
       spellUsagePendingRef.current = {
-        ...params,
+        ...built,
+        preApply: params.preApply,
         superTeslaCounter: superTeslaCounter ?? undefined,
       };
       spellUsageMotionActiveRef.current = true;
+      applySpellUsagePending(save);
       setSpellUsageTeslaHideOppCenterCard(false);
       setSpellUsageTeslaFlipPlayer(null);
       setSpellUsageTeslaFieldCard(superTeslaCounter?.teslaCard ?? null);
@@ -1110,7 +1429,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       });
       setSpellUsageRevealTick(t => t + 1);
     },
-    []
+    [applySpellUsagePending]
   );
 
   /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸·하이퍼 빔 적 유닛 / 자기 스펠칸(방어막 등) */
@@ -1381,6 +1700,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     superTeslaSpellTrigger: 980,
     oneNightWagerSpellTrigger: 980,
     oneNightWagerTokenWipe: 900,
+    witchTarotSpellPulse: 980,
     kalliBuffBan: 820,
   };
 
@@ -1398,6 +1718,269 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       delete flashClearTimeoutsRef.current[slotKey];
     }, FLASH_CLEAR_MS[kind]);
   };
+
+  const finishWitchTarotSequence = useCallback((caster: "A" | "B") => {
+    witchTarotFinishingRef.current = true;
+    flushSync(() => {
+      setState(prev => {
+        if (!prev) return prev;
+        const key = caster === "A" ? "playerA" : "playerB";
+        const ps = caster === "A" ? prev.playerA : prev.playerB;
+        const field = stripWitchTarotFromField(ps.field);
+        const next = patchWitchTarotPending(
+          {
+            ...prev,
+            [key]: { ...ps, field },
+          },
+          null
+        );
+        return applySimpanForBothPlayersAfterSpell(next, nextPpSimHandGlowToken);
+      });
+    });
+    witchTarotSequenceRef.current = null;
+    witchTarotSequenceActiveRef.current = false;
+    witchTarotFinishingRef.current = false;
+    setWitchTarotFlowActive(false);
+    witchTarotDiscardPlayerRef.current = null;
+    setWitchTarotDiscardPlayer(null);
+    triggerCardFlash(`${caster}-spell`, "witchTarotSpellPulse");
+  }, []);
+
+  const runWitchTarotCurrentStep = useCallback(() => {
+    const seq = witchTarotSequenceRef.current;
+    if (!seq) return;
+    const snap = simulationStateRef.current;
+    const coinHeads = snap?.witchTarotPending?.coinHeads ?? seq.coinHeads;
+    if (coinHeads === null) return;
+    seq.coinHeads = coinHeads;
+
+    const player = witchTarotStepPlayer(seq.stepIndex, seq.casterPlayer);
+    const heads = coinHeads === true;
+    if (heads) {
+      let skipped = false;
+      setState(prev => {
+        if (!prev) return prev;
+        if (prev.deckCards.length === 0) {
+          skipped = true;
+          return prev;
+        }
+        const ps = player === "A" ? prev.playerA : prev.playerB;
+        const deck = [...prev.deckCards];
+        const drawn = deck.pop()!;
+        if (ps.hand.length >= 6) {
+          if (prev.simpanHandChoice) {
+            return {
+              ...prev,
+              deckCards: deck,
+              simpanHandChoiceQueue: [
+                ...(prev.simpanHandChoiceQueue ?? []),
+                { player, pendingCard: stripPpSimHandNewGlow(drawn) },
+              ],
+            };
+          }
+          return {
+            ...prev,
+            deckCards: deck,
+            simpanHandChoice: { player, pendingCard: stripPpSimHandNewGlow(drawn) },
+            simpanHandChoiceQueue: prev.simpanHandChoiceQueue ?? [],
+          };
+        }
+        return {
+          ...prev,
+          deckCards: deck,
+          simpanPeekReveal: {
+            player,
+            pendingCard: stripPpSimHandNewGlow(drawn),
+            peekKind: "witchTarot",
+          },
+          simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+        };
+      });
+      if (skipped) runWitchTarotAdvanceRef.current();
+      return;
+    }
+
+    const snapNow = simulationStateRef.current;
+    const handLen =
+      player === "A" ? snapNow?.playerA.hand.length ?? 0 : snapNow?.playerB.hand.length ?? 0;
+    if (handLen <= 0) {
+      runWitchTarotAdvanceRef.current();
+      return;
+    }
+    witchTarotDiscardPlayerRef.current = player;
+    setWitchTarotDiscardPlayer(player);
+    setState(prev =>
+      prev ? patchWitchTarotPending(prev, { awaitingDiscardPlayer: player }) : prev
+    );
+  }, []);
+
+  const scheduleWitchTarotResumeAfterIdle = useCallback(() => {
+    if (!witchTarotSequenceActiveRef.current) return;
+    window.setTimeout(() => {
+      if (!witchTarotSequenceActiveRef.current) return;
+      const snap = simulationStateRef.current;
+      if (!snap) return;
+      if (witchTarotDiscardPlayerRef.current) return;
+      if (snap.simpanHandChoice || snap.simpanPeekReveal || (snap.simpanPeekQueue?.length ?? 0) > 0) {
+        return;
+      }
+      const seq = witchTarotSequenceRef.current;
+      if (!seq) return;
+      seq.stepIndex += 1;
+      flushSync(() => {
+        setState(prev =>
+          prev ? patchWitchTarotPending(prev, { stepIndex: seq.stepIndex }) : prev
+        );
+      });
+      if (seq.stepIndex >= WITCH_TAROT_TOTAL_STEPS) {
+        finishWitchTarotSequence(seq.casterPlayer);
+        return;
+      }
+      runWitchTarotCurrentStepRef.current();
+    }, 0);
+  }, [finishWitchTarotSequence]);
+
+  const advanceWitchTarotAfterStep = scheduleWitchTarotResumeAfterIdle;
+
+  runWitchTarotAdvanceRef.current = advanceWitchTarotAfterStep;
+  runWitchTarotCurrentStepRef.current = runWitchTarotCurrentStep;
+
+  const startWitchTarotCoinSequence = useCallback((casterPlayer: "A" | "B") => {
+    const snap = simulationStateRef.current;
+    if (
+      witchTarotCoinFlipIntervalRef.current != null ||
+      witchTarotCoin != null ||
+      (snap?.witchTarotPending?.coinHeads != null &&
+        witchTarotSequenceActiveRef.current)
+    ) {
+      return;
+    }
+    if (witchTarotCoinFlipIntervalRef.current != null) {
+      window.clearInterval(witchTarotCoinFlipIntervalRef.current);
+      witchTarotCoinFlipIntervalRef.current = null;
+    }
+    witchTarotSequenceRef.current = {
+      casterPlayer,
+      coinHeads: null,
+      stepIndex: 0,
+    };
+    witchTarotSequenceActiveRef.current = true;
+    setWitchTarotFlowActive(true);
+    setState(prev =>
+      prev
+        ? patchWitchTarotPending(prev, {
+            casterPlayer,
+            coinHeads: null,
+            stepIndex: 0,
+            awaitingDiscardPlayer: null,
+          })
+        : prev
+    );
+    setWitchTarotCoin({ phase: "FLIPPING" });
+    setWitchTarotCoinFlipTick(0);
+    witchTarotCoinFlipIntervalRef.current = setInterval(() => {
+      setWitchTarotCoinFlipTick(t => t + 1);
+    }, 100);
+
+    window.setTimeout(() => {
+      if (witchTarotCoinFlipIntervalRef.current != null) {
+        clearInterval(witchTarotCoinFlipIntervalRef.current);
+        witchTarotCoinFlipIntervalRef.current = null;
+      }
+      const heads = Math.random() < 0.5;
+      const seq = witchTarotSequenceRef.current;
+      if (!seq) return;
+      seq.coinHeads = heads;
+      flushSync(() => {
+        setState(prev => (prev ? patchWitchTarotPending(prev, { coinHeads: heads }) : prev));
+      });
+      setWitchTarotCoin({ phase: "RESULT", heads });
+      window.setTimeout(() => {
+        setWitchTarotCoin(null);
+        runWitchTarotCurrentStepRef.current();
+      }, WITCH_TAROT_COIN_RESULT_MS);
+    }, WITCH_TAROT_COIN_FLIP_MS);
+  }, [runWitchTarotCurrentStep, witchTarotCoin]);
+
+  const resolveWitchTarotDiscard = (player: "A" | "B", handIndex: number) => {
+    if (witchTarotDiscardPlayer !== player) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const ps = player === "A" ? prev.playerA : prev.playerB;
+      if (handIndex < 0 || handIndex >= ps.hand.length) return prev;
+      const hand = [...ps.hand];
+      const discarded = hand.splice(handIndex, 1)[0]!;
+      const key = player === "A" ? "playerA" : "playerB";
+      return {
+        ...prev,
+        rewindCards: [...prev.rewindCards, discarded],
+        [key]: { ...ps, hand },
+      };
+    });
+    witchTarotDiscardPlayerRef.current = null;
+    setWitchTarotDiscardPlayer(null);
+    setState(prev =>
+      prev ? patchWitchTarotPending(prev, { awaitingDiscardPlayer: null }) : prev
+    );
+    runWitchTarotAdvanceRef.current();
+  };
+
+  const restoreWitchTarotSession = useCallback(
+    (snap: SimulationState) => {
+      const casterOnField = findWitchTarotCasterOnField(snap.playerA.field, snap.playerB.field);
+      const pending = snap.witchTarotPending;
+
+      if (!casterOnField && !pending) return;
+
+      if (!casterOnField && pending) {
+        setState(prev => (prev ? patchWitchTarotPending(prev, null) : prev));
+        return;
+      }
+
+      if (!casterOnField) return;
+
+      if (!pending) return;
+
+      witchTarotSequenceRef.current = {
+        casterPlayer: pending.casterPlayer,
+        coinHeads: pending.coinHeads,
+        stepIndex: pending.stepIndex,
+      };
+      witchTarotSequenceActiveRef.current = true;
+      setWitchTarotFlowActive(true);
+
+      if (pending.awaitingDiscardPlayer) {
+        witchTarotDiscardPlayerRef.current = pending.awaitingDiscardPlayer;
+        setWitchTarotDiscardPlayer(pending.awaitingDiscardPlayer);
+        return;
+      }
+
+      if (pending.coinHeads === null) return;
+
+      if (
+        snap.simpanPeekReveal?.peekKind === "witchTarot" ||
+        snap.simpanHandChoice ||
+        (snap.simpanPeekQueue?.length ?? 0) > 0
+      ) {
+        if (snap.simpanPeekReveal?.peekKind === "witchTarot") {
+          setState(prev =>
+            prev
+              ? { ...prev, simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1 }
+              : prev
+          );
+        }
+        return;
+      }
+
+      if (pending.stepIndex >= WITCH_TAROT_TOTAL_STEPS) {
+        finishWitchTarotSequence(pending.casterPlayer);
+        return;
+      }
+
+      runWitchTarotCurrentStepRef.current();
+    },
+    [finishWitchTarotSequence, startWitchTarotCoinSequence]
+  );
 
   const playHyugesojauiAnsikAllyPulseAndHealVfx = (
     allyPlayer: "A" | "B",
@@ -1944,6 +2527,537 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     triggerCardFlash(slotKey, "hyperBeamSpellHit");
   };
 
+  const resolveSuperTeslaCounterFromSave = (
+    snap: SimulationState,
+    save: SpellUsagePendingSave
+  ): NonNullable<SpellUsagePending["superTeslaCounter"]> | undefined => {
+    const sc = save.superTeslaCounter;
+    if (!sc) return undefined;
+    const counterField = sc.counterPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const tokens = sc.counterPlayer === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const stack = normalizeSpellStack(counterField);
+    const at = stack[sc.teslaStackIndex];
+    if (!at || !isSuperTeslaSpellCard(at)) return undefined;
+    if (tokens < superTeslaActivationTokenCost(at)) return undefined;
+    return {
+      counterPlayer: sc.counterPlayer,
+      teslaCard: at,
+      teslaStackIndex: sc.teslaStackIndex,
+    };
+  };
+
+  const buildSpellUsageHandlersFromSave = useCallback(
+    (save: SpellUsagePendingSave): SpellUsagePending | null => {
+      const previewCard = save.previewCard;
+      const casterPlayer = save.casterPlayer;
+      const targetPlayer = save.targetPlayer;
+      const unitSlot = save.unitSlot;
+      const isPlayerA = casterPlayer === "A";
+      const noopPreApply = (prev: SimulationState) => prev;
+
+      const basePending: Omit<SpellUsagePending, "preApply" | "commit" | "afterCommitVfx"> = {
+        casterPlayer,
+        previewCard,
+        mode: save.mode,
+        targetPlayer,
+        unitSlot,
+        centerShowsCardBack: save.centerShowsCardBack,
+        flyToUnitAfterReveal: save.flyToUnitAfterReveal,
+        flyToSpellSlotAfterReveal: save.flyToSpellSlotAfterReveal,
+      };
+
+      if (save.mode === "placeSpellSlot" && isMeteoSpellCard(previewCard)) {
+        const enemyPlayer = casterPlayer === "A" ? "B" : "A";
+        const meteoVfxHits: { slotKey: string; hpLoss: number }[] = [];
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            meteoVfxHits.length = 0;
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+            const enemySide = enemyPlayer === "A" ? newPlayerA : newPlayerB;
+            let rewindCards = [...prev.rewindCards, previewCard];
+            let unitCombatStats = prev.unitCombatStats;
+            let unitStatsOrder = prev.unitStatsOrder;
+
+            for (const slotName of ["is", "m", "os"] as const) {
+              const unit = enemySide.field[slotName];
+              if (!unit || unit.currentHp <= 0) continue;
+
+              const resolved = applyMeteoDamageToEnemyUnit({
+                target: unit,
+                targetPlayer: enemyPlayer,
+                targetSlot: slotName,
+                playerAField: newPlayerA.field,
+                playerBField: newPlayerB.field,
+              });
+
+              const baseTarget =
+                Object.keys(resolved.baekseuPatch).length > 0
+                  ? stripBaekseuHarmfulEffectsForInvuln(unit)
+                  : unit;
+              const updatedTarget: FieldCard = {
+                ...baseTarget,
+                ...resolved.baekseuPatch,
+                ...resolved.barrierPatch,
+                currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
+              };
+
+              if (resolved.isDestroyed) {
+                enemySide.field[slotName] = null;
+                cleanupSimulationUnitDeath(
+                  unit,
+                  { field: newPlayerA.field },
+                  { field: newPlayerB.field },
+                  prev.globalTurnCount
+                );
+                rewindCards = [...rewindCards, unit];
+                const sid = unit.statsInstanceId;
+                if (sid) {
+                  const { [sid]: _removed, ...restStats } = unitCombatStats;
+                  unitCombatStats = restStats;
+                  unitStatsOrder = unitStatsOrder.filter(x => x !== sid);
+                }
+              } else {
+                enemySide.field[slotName] = updatedTarget;
+              }
+
+              if (resolved.morningMoodDeathHeal > 0) {
+                (["is", "m", "os"] as const).forEach(s => {
+                  const ally = enemySide.field[s];
+                  if (!ally) return;
+                  enemySide.field[s] = {
+                    ...ally,
+                    currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+                  };
+                });
+              }
+              if (resolved.startingTreeAllyHeal > 0) {
+                (["is", "m", "os"] as const).forEach(s => {
+                  if (s === slotName) return;
+                  const ally = enemySide.field[s];
+                  if (!ally) return;
+                  enemySide.field[s] = {
+                    ...ally,
+                    currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+                  };
+                });
+              }
+
+              if (resolved.hpLoss > 0) {
+                meteoVfxHits.push({ slotKey: `${enemyPlayer}-${slotName}`, hpLoss: resolved.hpLoss });
+              }
+            }
+
+            return finalizeSpellWithSimpan({
+              ...prev,
+              unitCombatStats,
+              unitStatsOrder,
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+              rewindCards,
+            });
+          },
+          afterCommitVfx: () => {
+            const meteoVfxBySlot = new Map<string, number>();
+            for (const hit of meteoVfxHits) meteoVfxBySlot.set(hit.slotKey, hit.hpLoss);
+            for (const [slotKey, hpLoss] of meteoVfxBySlot) {
+              showMeteoSpellHitOnTarget(slotKey, hpLoss);
+            }
+          },
+        };
+      }
+
+      if (save.mode === "placeSpellSlot" && isWitchTarotSpellCard(previewCard) && save.fieldCard) {
+        const fieldCard = save.fieldCard;
+        const sourcePlayer = casterPlayer;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
+            const stackBefore = normalizeSpellStack(tf);
+            const updatedField: PlayerState["field"] = {
+              ...tf,
+              spellStack: appendSpellToStack(stackBefore, fieldCard),
+            };
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            const nextSpellLog = [
+              ...prev.spellDeployLog,
+              {
+                statsInstanceId: fieldCard.statsInstanceId!,
+                name: fieldCard.name,
+                player: sourcePlayer,
+                summonedTurn: fieldCard.summonedTurn,
+              },
+            ];
+            return patchWitchTarotPending(
+              {
+                ...prev,
+                spellDeployLog: nextSpellLog,
+                [key]: { ...ps, field: updatedField },
+              },
+              {
+                casterPlayer: sourcePlayer,
+                coinHeads: null,
+                stepIndex: 0,
+                awaitingDiscardPlayer: null,
+              }
+            );
+          },
+          afterCommitVfx: () => {
+            triggerCardFlash(`${sourcePlayer}-spell`, "witchTarotSpellPulse");
+            witchTarotSequenceActiveRef.current = true;
+            setWitchTarotFlowActive(true);
+            if (witchTarotCoinStartScheduledRef.current) return;
+            witchTarotCoinStartScheduledRef.current = true;
+            window.setTimeout(() => {
+              witchTarotCoinStartScheduledRef.current = false;
+              startWitchTarotCoinSequence(sourcePlayer);
+            }, WITCH_TAROT_COIN_DELAY_MS);
+          },
+        };
+      }
+
+      if (save.mode === "placeSpellSlot" && save.fieldCard && targetPlayer) {
+        const fieldCard = save.fieldCard;
+        const tp = targetPlayer;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
+            const stackBefore = normalizeSpellStack(tf);
+            let updatedField: PlayerState["field"] = {
+              ...tf,
+              spellStack: appendSpellToStack(stackBefore, fieldCard),
+            };
+            if (previewCard.name === CHEOLBYEOK_SPELL_ID) {
+              updatedField = {
+                ...updatedField,
+                is: updatedField.is ? stripBaekseuHarmfulEffectsForInvuln(updatedField.is) : null,
+                m: updatedField.m ? stripBaekseuHarmfulEffectsForInvuln(updatedField.m) : null,
+                os: updatedField.os ? stripBaekseuHarmfulEffectsForInvuln(updatedField.os) : null,
+              };
+            }
+            let hyuPlacePerSlot: HyugesojauiAnsikHealSlotResult[] = [];
+            let hyuPlaceCombatPatches: HyugesojauiAnsikCombatPatch[] = [];
+            if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+              const hr = applyHyugesojauiAnsikHealAttempt(updatedField, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
+              updatedField = hr.nextField;
+              hyuPlacePerSlot = hr.perSlot;
+              hyuPlaceCombatPatches = hr.combatPatches;
+            }
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            const nextSpellLog = [
+              ...prev.spellDeployLog,
+              {
+                statsInstanceId: fieldCard.statsInstanceId!,
+                name: fieldCard.name,
+                player: casterPlayer,
+                summonedTurn: fieldCard.summonedTurn,
+              },
+            ];
+            let r: SimulationState = {
+              ...prev,
+              spellDeployLog: nextSpellLog,
+              [key]: { ...ps, field: updatedField },
+            };
+            if (hyuPlaceCombatPatches.length > 0) {
+              r = {
+                ...r,
+                unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
+              };
+            }
+            const committed = finalizeSpellWithSimpan(r);
+            if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlacePerSlot.length > 0) {
+              window.setTimeout(() => playHyugesojauiAnsikAllyPulseAndHealVfx(tp, hyuPlacePerSlot), 0);
+            }
+            if (previewCard.name === BANG_EOMAK_SPELL_ID) {
+              window.setTimeout(() => {
+                (["is", "m", "os"] as const).forEach(s =>
+                  triggerCardFlash(`${tp}-${s}`, "spellBangEomakAllyPulse")
+                );
+              }, 0);
+            }
+            if (isJipjungSagyeokSpellCard(previewCard)) {
+              window.setTimeout(() => {
+                (["is", "m", "os"] as const).forEach(s =>
+                  triggerCardFlash(`${tp}-${s}`, "spellJipjungAllyPulse")
+                );
+              }, 0);
+            }
+            if (previewCard.name === CHEOLBYEOK_SPELL_ID) {
+              window.setTimeout(() => {
+                (["is", "m", "os"] as const).forEach(s =>
+                  triggerCardFlash(`${tp}-${s}`, "spellCheolbyeokAllyPulse")
+                );
+              }, 0);
+            }
+            window.setTimeout(() => tryTriggerOneNightWagerSequenceRef.current(), 0);
+            return committed;
+          },
+        };
+      }
+
+      if (save.mode === "handUnitTarget" && previewCard.name === BEONGGAE_SPELL_ID && targetPlayer && unitSlot) {
+        const skCommit = unitSlot;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+            const u2 = victim.field[skCommit];
+            if (!u2) return prev;
+            if (!isBeonggaeValidTargetUnit(u2)) return prev;
+            if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
+            const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
+            const nextVictim = { ...victim, field: { ...victim.field, [skCommit]: updated } };
+            const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+            return finalizeSpellWithSimpan({
+              ...prev,
+              [victimKey]: nextVictim,
+              rewindCards: [...prev.rewindCards, previewCard],
+            });
+          },
+          afterCommitVfx: () => {
+            window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "beonggaeSpell"), 0);
+          },
+        };
+      }
+
+      if (save.mode === "handUnitTarget" && previewCard.name === EONDEOK_SPELL_ID && targetPlayer && unitSlot) {
+        const skCommit = unitSlot;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+            const u2 = victim.field[skCommit];
+            if (!u2) return prev;
+            const updated: FieldCard = {
+              ...u2,
+              eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
+            };
+            const nextVictim = { ...victim, field: { ...victim.field, [skCommit]: updated } };
+            const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+            return finalizeSpellWithSimpan({
+              ...prev,
+              [victimKey]: nextVictim,
+              rewindCards: [...prev.rewindCards, previewCard],
+            });
+          },
+          afterCommitVfx: () => {
+            window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "eondeokSpell"), 0);
+          },
+        };
+      }
+
+      if (save.mode === "handUnitTarget" && previewCard.name === SOMYEOL_SPELL_ID && targetPlayer && unitSlot) {
+        const skCommit = unitSlot;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+            const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
+            const erased = victimState.field[skCommit];
+            if (!erased) return prev;
+
+            cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
+              skipDarkKnightSoulIncrement: true,
+            });
+            victimState.field[skCommit] = null;
+
+            let nextUnitCombatStats = prev.unitCombatStats;
+            let nextUnitStatsOrder = prev.unitStatsOrder;
+            const sid = erased.statsInstanceId;
+            if (sid) {
+              const { [sid]: _removed, ...restStats } = nextUnitCombatStats;
+              nextUnitCombatStats = restStats;
+              nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+            }
+
+            const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+            return finalizeSpellWithSimpan({
+              ...prev,
+              unitCombatStats: nextUnitCombatStats,
+              unitStatsOrder: nextUnitStatsOrder,
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+              rewindCards: [...prev.rewindCards, previewCard, erased],
+            });
+          },
+          afterCommitVfx: () => {
+            window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "somyeolSpellErase"), 0);
+          },
+        };
+      }
+
+      if (
+        save.mode === "handUnitTarget" &&
+        isHyperBeamSpellCard(previewCard) &&
+        targetPlayer &&
+        unitSlot
+      ) {
+        const skCommit = unitSlot;
+        const hyperBeamVfx = { slotKey: "", hpLoss: 0 };
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            hyperBeamVfx.slotKey = "";
+            hyperBeamVfx.hpLoss = 0;
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+            const enemySide = targetPlayer === "A" ? newPlayerA : newPlayerB;
+            const unit = enemySide.field[skCommit];
+            if (!unit || unit.currentHp <= 0) return prev;
+
+            const resolved = applyHyperBeamDamageToEnemyUnit({
+              target: unit,
+              targetPlayer,
+              targetSlot: skCommit,
+              playerAField: newPlayerA.field,
+              playerBField: newPlayerB.field,
+            });
+
+            const baseTarget =
+              Object.keys(resolved.baekseuPatch).length > 0
+                ? stripBaekseuHarmfulEffectsForInvuln(unit)
+                : unit;
+            const updatedTarget: FieldCard = {
+              ...baseTarget,
+              ...resolved.baekseuPatch,
+              ...resolved.barrierPatch,
+              currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
+            };
+
+            let rewindCards = [...prev.rewindCards, previewCard];
+            let unitCombatStats = prev.unitCombatStats;
+            let unitStatsOrder = prev.unitStatsOrder;
+
+            if (resolved.isDestroyed) {
+              enemySide.field[skCommit] = null;
+              cleanupSimulationUnitDeath(
+                unit,
+                { field: newPlayerA.field },
+                { field: newPlayerB.field },
+                prev.globalTurnCount
+              );
+              rewindCards = [...rewindCards, unit];
+              const sid = unit.statsInstanceId;
+              if (sid) {
+                const { [sid]: _removed, ...restStats } = unitCombatStats;
+                unitCombatStats = restStats;
+                unitStatsOrder = unitStatsOrder.filter(x => x !== sid);
+              }
+            } else {
+              enemySide.field[skCommit] = updatedTarget;
+            }
+
+            if (resolved.morningMoodDeathHeal > 0) {
+              (["is", "m", "os"] as const).forEach(s => {
+                const ally = enemySide.field[s];
+                if (!ally) return;
+                enemySide.field[s] = {
+                  ...ally,
+                  currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+                };
+              });
+            }
+            if (resolved.startingTreeAllyHeal > 0) {
+              (["is", "m", "os"] as const).forEach(s => {
+                if (s === skCommit) return;
+                const ally = enemySide.field[s];
+                if (!ally) return;
+                enemySide.field[s] = {
+                  ...ally,
+                  currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+                };
+              });
+            }
+
+            if (resolved.hpLoss > 0) {
+              hyperBeamVfx.slotKey = `${targetPlayer}-${skCommit}`;
+              hyperBeamVfx.hpLoss = resolved.hpLoss;
+            }
+
+            const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+            return finalizeSpellWithSimpan({
+              ...prev,
+              unitCombatStats,
+              unitStatsOrder,
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+              [victimKey]: enemySide,
+              rewindCards,
+            });
+          },
+          afterCommitVfx: () => {
+            if (hyperBeamVfx.slotKey && hyperBeamVfx.hpLoss > 0) {
+              window.setTimeout(
+                () => showHyperBeamSpellHitOnTarget(hyperBeamVfx.slotKey, hyperBeamVfx.hpLoss),
+                0
+              );
+            }
+          },
+        };
+      }
+
+      if (
+        save.mode === "handUnitTarget" &&
+        isOrietChosangSpellCard(previewCard) &&
+        targetPlayer &&
+        unitSlot
+      ) {
+        const skCommit = unitSlot;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => {
+            const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
+            const u = allySide.field[skCommit];
+            if (!u) return prev;
+            const updatedAlly: FieldCard = {
+              ...u,
+              hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
+            };
+            const nextAllySide = {
+              ...allySide,
+              field: { ...allySide.field, [skCommit]: updatedAlly },
+            };
+            const allyKey = targetPlayer === "A" ? "playerA" : "playerB";
+            return finalizeSpellWithSimpan({
+              ...prev,
+              [allyKey]: nextAllySide,
+              rewindCards: [...prev.rewindCards, previewCard],
+            });
+          },
+          afterCommitVfx: () => {
+            window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "orietShieldAllyPulse"), 0);
+          },
+        };
+      }
+
+      return null;
+    },
+    [
+      finalizeSpellWithSimpan,
+      triggerCardFlash,
+      showMeteoSpellHitOnTarget,
+      showHyperBeamSpellHitOnTarget,
+      playHyugesojauiAnsikAllyPulseAndHealVfx,
+      startWitchTarotCoinSequence,
+    ]
+  );
+
+  buildSpellUsageHandlersRef.current = buildSpellUsageHandlersFromSave;
+
   /** 고스톤 처치 시 공격자 슬롯 — 능력 발동 이펙트 동일 재생(숫자 없음) */
   const triggerGhostoneKillFlashOnAttacker = (attackerSlotKey: string) => {
     triggerCardFlash(attackerSlotKey, "ghostoneKill");
@@ -2379,6 +3493,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-${k}-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--danha-magic-hook`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 마녀 타로(스펠 칸·보라색) */
+    if (snap.kind === "witchTarotSpellPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-wt-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-wt-aura`}
+            className={`pp-combat-flash-layer--witch-tarot-spell-pulse-aura--spell-land pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-wt-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--witch-tarot-spell-pulse--spell-land`}
           />
         </div>
       );
@@ -3148,11 +4281,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setSelectedSlot(null);
     setAttackingSlot(null);
     setPendingSecondaryAttack(null);
+    startingWraithChainPendingRef.current = null;
+    startingWraithRestoreOnMountDoneRef.current = false;
     setPendingStartingWraithChainKill(null);
     setPendingStartingWraithChainPlayerHp(false);
+    oneNightWagerPendingRef.current = null;
+    oneNightWagerRestoreOnMountDoneRef.current = false;
     setOneNightWagerModal(null);
     setSpellUsageHiddenRevealCards(null);
     oneNightWagerSequenceActiveRef.current = false;
+    spellUsagePendingRef.current = null;
+    spellUsageRestoreOnMountDoneRef.current = false;
+    spellUsageMotionActiveRef.current = false;
+    setSpellUsageReveal(null);
+    setSpellUsageFly(null);
+    witchTarotSequenceRef.current = null;
+    witchTarotSequenceActiveRef.current = false;
+    setWitchTarotFlowActive(false);
+    setWitchTarotCoin(null);
+    witchTarotCoinStartScheduledRef.current = false;
+    witchTarotRestoreOnMountDoneRef.current = false;
+    witchTarotFinishingRef.current = false;
+    witchTarotDiscardPlayerRef.current = null;
+    setWitchTarotDiscardPlayer(null);
+    if (witchTarotCoinFlipIntervalRef.current != null) {
+      window.clearInterval(witchTarotCoinFlipIntervalRef.current);
+      witchTarotCoinFlipIntervalRef.current = null;
+    }
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
     setPendingSkill(null);
@@ -3202,6 +4357,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       simpanPeekReveal: null,
       simpanPeekQueue: [],
       simpanPeekTick: 0,
+      witchTarotPending: null,
+      legendarySwordPending: null,
+      startingWraithChainPending: null,
+      oneNightWagerPending: null,
+      spellUsagePending: null,
       playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
       playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
     });
@@ -3377,7 +4537,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     for (const swordSlot of ["is", "m", "os"] as const) {
       const sword = ownerField[swordSlot];
       if (!sword || sword.name !== UNIT.LEGENDARY_SWORD) continue;
-      if (!isLegendarySwordArmed(sword) && !isLegendarySwordCharging(sword)) continue;
+      if (!isLegendarySwordArmed(sword)) continue;
 
       const facingOpp = getLegendarySwordFacingOppAtSlot(
         owner,
@@ -3400,17 +4560,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const s = newOwner.field[swordSlot];
         if (!s || s.name !== UNIT.LEGENDARY_SWORD) return prev;
 
-        let nextSword = s;
-        if (isLegendarySwordCharging(s)) {
-          nextSword = forceCompleteLegendarySwordArming(s);
-        }
-        if (!isLegendarySwordArmed(nextSword)) return prev;
+        if (!isLegendarySwordArmed(s)) return prev;
 
-        newOwner.field[swordSlot] = { ...nextSword, legendarySwordArmed: false };
+        newOwner.field[swordSlot] = { ...s, legendarySwordArmed: false };
         return { ...prev, [ownerKey]: newOwner };
       });
 
-      setPendingLegendarySwordStrike({
+      applyLegendarySwordStrikePending({
         ownerPlayer: owner,
         swordSlot,
         phase: 1,
@@ -3480,8 +4636,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             simpanPeekRevealTransitionStartedRef.current = false;
             return prev;
           }
+          if (witchTarotSequenceActiveRef.current) {
+            simulationStateRef.current = merged;
+          }
           return merged;
         });
+        if (witchTarotSequenceActiveRef.current) {
+          window.setTimeout(() => runWitchTarotAdvanceRef.current(), 0);
+        }
         return;
       }
 
@@ -3566,8 +4728,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       setState(prev => {
         if (!prev?.simpanPeekReveal) return prev;
         const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard);
+        if (merged && witchTarotSequenceActiveRef.current) {
+          simulationStateRef.current = merged;
+        }
         return merged ?? prev;
       });
+      if (witchTarotSequenceActiveRef.current) {
+        window.setTimeout(() => runWitchTarotAdvanceRef.current(), 0);
+      }
     }, flyMs + 50);
     return () => window.clearTimeout(tid);
   }, [simpanPeekFly]);
@@ -3596,6 +4764,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
     };
 
+    const persistedReveal = simulationStateRef.current?.spellUsagePending;
+    const revealElapsed =
+      persistedReveal?.phase === "centerReveal"
+        ? Date.now() - persistedReveal.phaseStartedAt
+        : 0;
+
     if (pending?.superTeslaCounter) {
       const cp = pending.superTeslaCounter.counterPlayer;
       spellUsageTeslaCounterTimerRef.current = window.setTimeout(() => {
@@ -3604,11 +4778,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         triggerCardFlash(`${cp}-spell`, "superTeslaSpellTrigger");
         pushInfoFloat(SPELL_USAGE_CENTER_KEY, "파괴됨", INFO_FLOAT_MS, "skyBlue");
         triggerCardFlash(SPELL_USAGE_CENTER_KEY, "legendarySwordSkill");
-      }, SUPER_TESLA_COUNTER_AT_MS);
+      }, Math.max(0, SUPER_TESLA_COUNTER_AT_MS - revealElapsed));
       spellUsageTeslaBlackoutTimerRef.current = window.setTimeout(() => {
         spellUsageTeslaBlackoutTimerRef.current = null;
         setSpellUsageTeslaHideOppCenterCard(true);
-      }, SUPER_TESLA_BLACKOUT_AT_MS);
+      }, Math.max(0, SUPER_TESLA_BLACKOUT_AT_MS - revealElapsed));
     }
 
     const runAfterPreview = () => {
@@ -3655,6 +4829,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 h: fr.height,
               }
             : { x: tr.left, y: tr.top, w: tr.width, h: tr.height };
+          const flyMs = flyToSpellSlot ? SPELL_SLOT_PLACE_FLY_MS : SPELL_USAGE_HAND_FLY_MS;
+          setState(s =>
+            s?.spellUsagePending
+              ? patchSpellUsagePending(s, {
+                  ...s.spellUsagePending,
+                  phase: "centerFly",
+                  flyPhase: 0,
+                  phaseStartedAt: Date.now(),
+                })
+              : s
+          );
           setSpellUsageFly({
             casterPlayer: pend.casterPlayer,
             previewCard: pend.previewCard,
@@ -3665,7 +4850,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             from,
             to,
             phase: 0,
-            flyMs: flyToSpellSlot ? SPELL_SLOT_PLACE_FLY_MS : SPELL_USAGE_HAND_FLY_MS,
+            flyMs,
           });
         });
         return;
@@ -3674,9 +4859,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       finishSpellUsageSequence();
     };
 
-    const previewMs = pending?.superTeslaCounter
+    const fullPreviewMs = pending?.superTeslaCounter
       ? SPELL_USAGE_PREVIEW_TESLA_MS
       : SPELL_USAGE_PREVIEW_MS;
+    const previewMs =
+      persistedReveal?.phase === "centerReveal"
+        ? Math.max(0, fullPreviewMs - revealElapsed)
+        : fullPreviewMs;
+
+    if (previewMs <= 0) {
+      runAfterPreview();
+      return () => {
+        clearSpellUsageTimers();
+      };
+    }
 
     spellUsageRevealTimerRef.current = window.setTimeout(() => {
       spellUsageRevealTimerRef.current = null;
@@ -3708,13 +4904,96 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (!spellUsageFly || spellUsageFly.phase !== 1) return;
-    const flyMs = spellUsageFly.flyMs ?? SPELL_USAGE_HAND_FLY_MS;
+    const baseFlyMs = spellUsageFly.flyMs ?? SPELL_USAGE_HAND_FLY_MS;
+    const waitMs = spellUsageFly.resumeRemainingMs ?? baseFlyMs + 50;
     const tid = window.setTimeout(() => {
-      setSpellUsageFly(null);
       finishSpellUsageSequence();
-    }, flyMs + 50);
+    }, waitMs);
     return () => window.clearTimeout(tid);
   }, [spellUsageFly, finishSpellUsageSequence]);
+
+  useEffect(() => {
+    witchTarotRestoreOnMountDoneRef.current = false;
+    legendarySwordRestoreOnMountDoneRef.current = false;
+    startingWraithRestoreOnMountDoneRef.current = false;
+    oneNightWagerRestoreOnMountDoneRef.current = false;
+    spellUsageRestoreOnMountDoneRef.current = false;
+    return () => {
+      const snap = simulationStateRef.current;
+      if (!snap || snap.currentTurn == null) return;
+      const merged = mergeSimulationPersistedSequences(
+        snap,
+        witchTarotSequenceRef.current,
+        witchTarotDiscardPlayerRef.current,
+        witchTarotSequenceActiveRef.current,
+        legendarySwordStrikePendingRef.current,
+        startingWraithChainPendingRef.current,
+        oneNightWagerPendingRef.current,
+        oneNightWagerSequenceActiveRef.current
+      );
+      localStorage.setItem("pp_sim_save", JSON.stringify(merged));
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (legendarySwordRestoreOnMountDoneRef.current) return;
+    const pending = state.legendarySwordPending;
+    if (!pending) return;
+
+    legendarySwordRestoreOnMountDoneRef.current = true;
+    const openKey = `${state.turnCount}-${pending.ownerPlayer}-${pending.swordSlot}`;
+    legendarySwordAutoOpenResolvedKeyRef.current = openKey;
+    applyLegendarySwordStrikePending({
+      ownerPlayer: pending.ownerPlayer,
+      swordSlot: pending.swordSlot,
+      phase: Number(pending.phase) === 2 ? 2 : 1,
+      hitTargets: Array.isArray(pending.hitTargets) ? pending.hitTargets : [],
+    });
+  }, [state, isInitializing, applyLegendarySwordStrikePending]);
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (startingWraithRestoreOnMountDoneRef.current) return;
+    const pending = state.startingWraithChainPending;
+    if (!pending) return;
+
+    startingWraithRestoreOnMountDoneRef.current = true;
+    applyStartingWraithChainPending(pending);
+  }, [state, isInitializing, applyStartingWraithChainPending]);
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (witchTarotRestoreOnMountDoneRef.current) return;
+    if (witchTarotFinishingRef.current) return;
+    if (witchTarotSequenceActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly || witchTarotCoin) return;
+
+    const caster = findWitchTarotCasterOnField(state.playerA.field, state.playerB.field);
+    const pending = state.witchTarotPending;
+    const midPeek = state.simpanPeekReveal?.peekKind === "witchTarot";
+    const midChoice = !!state.simpanHandChoice;
+    const midDiscard = !!pending?.awaitingDiscardPlayer;
+
+    if (!caster && !pending) return;
+    if (!pending) return;
+
+    witchTarotRestoreOnMountDoneRef.current = true;
+
+    if (pending.coinHeads === null && !midPeek && !midChoice && !midDiscard) {
+      startWitchTarotCoinSequence(pending.casterPlayer);
+      return;
+    }
+    restoreWitchTarotSession(state);
+  }, [
+    state,
+    isInitializing,
+    witchTarotCoin,
+    spellUsageReveal,
+    spellUsageFly,
+    restoreWitchTarotSession,
+    startWitchTarotCoinSequence,
+  ]);
 
   /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */
   useEffect(() => {
@@ -3767,11 +5046,108 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         parsed.simpanPeekReveal = parsed.simpanPeekReveal ?? null;
         parsed.simpanPeekQueue = Array.isArray(parsed.simpanPeekQueue) ? parsed.simpanPeekQueue : [];
         parsed.simpanPeekTick = typeof parsed.simpanPeekTick === "number" ? parsed.simpanPeekTick : 0;
+        parsed.witchTarotPending =
+          parsed.witchTarotPending && typeof parsed.witchTarotPending === "object"
+            ? {
+                casterPlayer: parsed.witchTarotPending.casterPlayer === "B" ? "B" : "A",
+                coinHeads:
+                  typeof parsed.witchTarotPending.coinHeads === "boolean"
+                    ? parsed.witchTarotPending.coinHeads
+                    : null,
+                stepIndex: Number(parsed.witchTarotPending.stepIndex) || 0,
+                awaitingDiscardPlayer:
+                  parsed.witchTarotPending.awaitingDiscardPlayer === "A" ||
+                  parsed.witchTarotPending.awaitingDiscardPlayer === "B"
+                    ? parsed.witchTarotPending.awaitingDiscardPlayer
+                    : null,
+              }
+            : null;
+        parsed.legendarySwordPending =
+          parsed.legendarySwordPending && typeof parsed.legendarySwordPending === "object"
+            ? {
+                ownerPlayer:
+                  parsed.legendarySwordPending.ownerPlayer === "B" ? "B" : "A",
+                swordSlot: (["is", "m", "os"] as const).includes(
+                  parsed.legendarySwordPending.swordSlot
+                )
+                  ? parsed.legendarySwordPending.swordSlot
+                  : "is",
+                phase: Number(parsed.legendarySwordPending.phase) === 2 ? 2 : 1,
+                hitTargets: Array.isArray(parsed.legendarySwordPending.hitTargets)
+                  ? parsed.legendarySwordPending.hitTargets.map(String)
+                  : [],
+              }
+            : null;
+        parsed.startingWraithChainPending =
+          parsed.startingWraithChainPending && typeof parsed.startingWraithChainPending === "object"
+            ? {
+                attackerPlayer:
+                  parsed.startingWraithChainPending.attackerPlayer === "B" ? "B" : "A",
+                attackerSlot: (["is", "m", "os"] as const).includes(
+                  parsed.startingWraithChainPending.attackerSlot
+                )
+                  ? parsed.startingWraithChainPending.attackerSlot
+                  : "is",
+                targetKind:
+                  parsed.startingWraithChainPending.targetKind === "playerHp"
+                    ? "playerHp"
+                    : "enemyUnit",
+              }
+            : null;
+        parsed.oneNightWagerPending =
+          parsed.oneNightWagerPending && typeof parsed.oneNightWagerPending === "object"
+            ? {
+                phase:
+                  parsed.oneNightWagerPending.phase === "settlement" ? "settlement" : "popup",
+                costsA: {
+                  is: Number(parsed.oneNightWagerPending.costsA?.is) || 0,
+                  m: Number(parsed.oneNightWagerPending.costsA?.m) || 0,
+                  os: Number(parsed.oneNightWagerPending.costsA?.os) || 0,
+                  total: Number(parsed.oneNightWagerPending.costsA?.total) || 0,
+                },
+                costsB: {
+                  is: Number(parsed.oneNightWagerPending.costsB?.is) || 0,
+                  m: Number(parsed.oneNightWagerPending.costsB?.m) || 0,
+                  os: Number(parsed.oneNightWagerPending.costsB?.os) || 0,
+                  total: Number(parsed.oneNightWagerPending.costsB?.total) || 0,
+                },
+                glowPlayer:
+                  parsed.oneNightWagerPending.glowPlayer === "A" ||
+                  parsed.oneNightWagerPending.glowPlayer === "B"
+                    ? parsed.oneNightWagerPending.glowPlayer
+                    : null,
+                loserPlayer:
+                  parsed.oneNightWagerPending.loserPlayer === "A" ||
+                  parsed.oneNightWagerPending.loserPlayer === "B"
+                    ? parsed.oneNightWagerPending.loserPlayer
+                    : null,
+                matches: Array.isArray(parsed.oneNightWagerPending.matches)
+                  ? parsed.oneNightWagerPending.matches
+                      .map((m: { ownerPlayer?: string; activationCost?: number }) => ({
+                        ownerPlayer: m.ownerPlayer === "B" ? "B" : "A",
+                        activationCost: Number(m.activationCost) || 0,
+                      }))
+                  : [],
+              }
+            : null;
+        parsed.spellUsagePending = parseSpellUsagePendingSave(parsed.spellUsagePending);
         parsed.playerA = { ...parsed.playerA, field: migratePlayerFieldSpellStack(parsed.playerA.field) };
         parsed.playerB = { ...parsed.playerB, field: migratePlayerFieldSpellStack(parsed.playerB.field) };
 
-        setState(parsed); 
-      } catch (e) { 
+        const reconciled = reconcileSpellUsagePendingFromSnapshot(
+          reconcileOneNightWagerPendingFromSnapshot(
+            reconcileStartingWraithChainPendingFromSnapshot(
+              reconcileLegendarySwordPendingFromSnapshot(
+                reconcileWitchTarotPendingFromSnapshot(parsed)
+              )
+            )
+          )
+        );
+        legendarySwordStrikePendingRef.current = reconciled.legendarySwordPending;
+        startingWraithChainPendingRef.current = reconciled.startingWraithChainPending;
+        oneNightWagerPendingRef.current = reconciled.oneNightWagerPending;
+        setState(reconciled);
+      } catch (e) {
         localStorage.removeItem("pp_sim_save");
         runInitialization(cards); 
       }
@@ -3783,7 +5159,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (state && !isInitializing && state.currentTurn !== null && !winner) {
-      localStorage.setItem("pp_sim_save", JSON.stringify(state));
+      const merged = mergeSimulationPersistedSequences(
+        state,
+        witchTarotSequenceRef.current,
+        witchTarotDiscardPlayerRef.current,
+        witchTarotSequenceActiveRef.current,
+        legendarySwordStrikePendingRef.current,
+        startingWraithChainPendingRef.current,
+        oneNightWagerPendingRef.current,
+        oneNightWagerSequenceActiveRef.current
+      );
+      localStorage.setItem("pp_sim_save", JSON.stringify(merged));
     }
   }, [state, isInitializing, winner]);
 
@@ -3809,7 +5195,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       simpanPeekFly ||
       spellUsageReveal ||
       spellUsageFly ||
-      spellUsageMotionActiveRef.current
+      spellUsageMotionActiveRef.current ||
+      witchTarotSequenceActiveRef.current ||
+      witchTarotCoin ||
+      oneNightWagerModal ||
+      state.oneNightWagerPending ||
+      state.spellUsagePending
     ) {
       alert("[연출] 중앙 카드가 패로 합류할 때까지, 또는 심판 대기 카드를 정리한 뒤 턴을 넘겨 주세요.");
       return;
@@ -3817,9 +5208,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setSelectedSlot(null);
     setAttackingSlot(null);
     setPendingSecondaryAttack(null);
-    setPendingStartingWraithChainKill(null);
-    setPendingStartingWraithChainPlayerHp(false);
-    setPendingLegendarySwordStrike(null);
+    applyStartingWraithChainPending(null);
+    applyLegendarySwordStrikePending(null);
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
     setPendingSkill(null);
@@ -4083,7 +5473,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       state.simpanPeekReveal ||
       spellUsageReveal ||
       spellUsageFly ||
-      spellUsageMotionActiveRef.current
+      spellUsageMotionActiveRef.current ||
+      witchTarotSequenceActiveRef.current ||
+      witchTarotCoin
     ) {
       alert("중앙 카드 연출이 끝난 뒤 덱을 눌러 주세요.");
       return;
@@ -4144,40 +5536,51 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setIsDrawModalOpen(false);
   };
 
-  const tryTriggerOneNightWagerSequence = useCallback(() => {
-    if (oneNightWagerSequenceActiveRef.current) return;
-    const snap = simulationStateRef.current;
-    if (!snap || winner || isInitializing) return;
-    if (!areAllUnitSlotsFilledOnBothFields(snap.playerA.field, snap.playerB.field)) return;
-
-    const matches = findActivatableOneNightWagers({
-      playerA: snap.playerA,
-      playerB: snap.playerB,
-      playerAField: snap.playerA.field,
-      playerBField: snap.playerB.field,
-    });
-    if (matches.length === 0) return;
-
-    oneNightWagerSequenceActiveRef.current = true;
-
-    const costsA = getPlayerUnitSlotCosts(snap.playerA.field);
-    const costsB = getPlayerUnitSlotCosts(snap.playerB.field);
-    const glowPlayer = resolveOneNightWagerHigherSumPlayer(costsA.total, costsB.total);
-    const loserPlayer = resolveOneNightWagerLoser(costsA.total, costsB.total);
-
-    const reveal: Partial<Record<"A" | "B", FieldCard>> = {};
-    for (const m of matches) reveal[m.ownerPlayer] = m.wagerCard;
-    setSpellUsageHiddenRevealCards(reveal);
-
-    window.setTimeout(() => {
-      for (const m of matches) {
-        triggerCardFlash(`${m.ownerPlayer}-spell`, "oneNightWagerSpellTrigger");
+  const completeOneNightWagerSettlement = useCallback(
+    (pending: OneNightWagerPendingSave) => {
+      const snap = simulationStateRef.current;
+      if (!snap) {
+        applyOneNightWagerPending(null);
+        return;
       }
-    }, 0);
+      const matches = oneNightWagerStackMatchesFromPendingSave(
+        pending,
+        snap.playerA.field,
+        snap.playerB.field
+      );
+      const wipeFlashPlayer =
+        pending.loserPlayer && pending.loserPlayer !== pending.glowPlayer
+          ? pending.loserPlayer
+          : null;
+      setState(prev => {
+        if (!prev) return prev;
+        const settled = applyOneNightWagerTokenSettlement({
+          playerA: { tokens: prev.playerA.tokens },
+          playerB: { tokens: prev.playerB.tokens },
+          matches,
+          costsA: pending.costsA,
+          costsB: pending.costsB,
+        });
+        return {
+          ...prev,
+          playerA: { ...prev.playerA, tokens: settled.playerA.tokens },
+          playerB: { ...prev.playerB, tokens: settled.playerB.tokens },
+        };
+      });
+      if (wipeFlashPlayer) {
+        triggerCardFlash(`player-${wipeFlashPlayer}`, "oneNightWagerTokenWipe");
+      }
+      window.setTimeout(() => {
+        applyOneNightWagerPending(null);
+      }, 900);
+    },
+    [applyOneNightWagerPending, triggerCardFlash]
+  );
 
-    setOneNightWagerModal({ costsA, costsB, glowPlayer });
-
-    window.setTimeout(() => {
+  const advanceOneNightWagerToSettlementPhase = useCallback(
+    (popupPending: OneNightWagerPendingSave) => {
+      const settlementPending: OneNightWagerPendingSave = { ...popupPending, phase: "settlement" };
+      applyOneNightWagerPending(settlementPending);
       setOneNightWagerModal(null);
       setSpellUsageHiddenRevealCards(null);
       setState(prev => {
@@ -4192,34 +5595,263 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           playerB: { ...prev.playerB, field: stripWagers(prev.playerB.field) },
         };
       });
-
       window.setTimeout(() => {
-        const wipeFlashPlayer =
-          loserPlayer && loserPlayer !== glowPlayer ? loserPlayer : null;
-        setState(prev => {
-          if (!prev) return prev;
-          const settled = applyOneNightWagerTokenSettlement({
-            playerA: { tokens: prev.playerA.tokens },
-            playerB: { tokens: prev.playerB.tokens },
-            matches,
-            costsA,
-            costsB,
-          });
-          return {
-            ...prev,
-            playerA: { ...prev.playerA, tokens: settled.playerA.tokens },
-            playerB: { ...prev.playerB, tokens: settled.playerB.tokens },
-          };
-        });
-        if (wipeFlashPlayer) {
-          triggerCardFlash(`player-${wipeFlashPlayer}`, "oneNightWagerTokenWipe");
-        }
-        window.setTimeout(() => {
-          oneNightWagerSequenceActiveRef.current = false;
-        }, 900);
+        completeOneNightWagerSettlement(settlementPending);
       }, ONE_NIGHT_WAGER_TOKEN_WIPE_DELAY_MS);
-    }, ONE_NIGHT_WAGER_POPUP_VISIBLE_MS);
-  }, [winner, isInitializing, triggerCardFlash]);
+    },
+    [applyOneNightWagerPending, completeOneNightWagerSettlement]
+  );
+
+  const resumeOneNightWagerSequence = useCallback(
+    (pending: OneNightWagerPendingSave) => {
+      if (oneNightWagerSequenceActiveRef.current) return;
+      const snap = simulationStateRef.current;
+      if (!snap || winner || isInitializing) return;
+
+      oneNightWagerSequenceActiveRef.current = true;
+      applyOneNightWagerPending(pending);
+
+      const matches = oneNightWagerStackMatchesFromPendingSave(
+        pending,
+        snap.playerA.field,
+        snap.playerB.field
+      );
+
+      if (pending.phase === "popup") {
+        const reveal: Partial<Record<"A" | "B", FieldCard>> = {};
+        for (const m of matches) {
+          if (m.stackIndex >= 0) reveal[m.ownerPlayer] = m.wagerCard;
+        }
+        setSpellUsageHiddenRevealCards(reveal);
+        window.setTimeout(() => {
+          for (const m of matches) {
+            if (m.stackIndex >= 0) {
+              triggerCardFlash(`${m.ownerPlayer}-spell`, "oneNightWagerSpellTrigger");
+            }
+          }
+        }, 0);
+        setOneNightWagerModal({
+          costsA: pending.costsA,
+          costsB: pending.costsB,
+          glowPlayer: pending.glowPlayer,
+        });
+        window.setTimeout(() => {
+          advanceOneNightWagerToSettlementPhase(pending);
+        }, ONE_NIGHT_WAGER_POPUP_VISIBLE_MS);
+        return;
+      }
+
+      setOneNightWagerModal(null);
+      setSpellUsageHiddenRevealCards(null);
+      setState(prev => {
+        if (!prev) return prev;
+        const stripWagers = (field: PlayerState["field"]) => ({
+          ...field,
+          spellStack: removeAllOneNightWagersFromSpellStack(normalizeSpellStack(field)),
+        });
+        return {
+          ...prev,
+          playerA: { ...prev.playerA, field: stripWagers(prev.playerA.field) },
+          playerB: { ...prev.playerB, field: stripWagers(prev.playerB.field) },
+        };
+      });
+      window.setTimeout(() => {
+        completeOneNightWagerSettlement(pending);
+      }, ONE_NIGHT_WAGER_TOKEN_WIPE_DELAY_MS);
+    },
+    [
+      winner,
+      isInitializing,
+      applyOneNightWagerPending,
+      triggerCardFlash,
+      advanceOneNightWagerToSettlementPhase,
+      completeOneNightWagerSettlement,
+    ]
+  );
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (oneNightWagerRestoreOnMountDoneRef.current) return;
+    if (!state.oneNightWagerPending) return;
+    if (oneNightWagerSequenceActiveRef.current) return;
+
+    oneNightWagerRestoreOnMountDoneRef.current = true;
+    resumeOneNightWagerSequence(state.oneNightWagerPending);
+  }, [state, isInitializing, resumeOneNightWagerSequence]);
+
+  const tryTriggerOneNightWagerSequence = useCallback(() => {
+    if (oneNightWagerSequenceActiveRef.current || witchTarotSequenceActiveRef.current) return;
+    const snap = simulationStateRef.current;
+    if (!snap || winner || isInitializing) return;
+    if (!areAllUnitSlotsFilledOnBothFields(snap.playerA.field, snap.playerB.field)) return;
+
+    const matches = findActivatableOneNightWagers({
+      playerA: snap.playerA,
+      playerB: snap.playerB,
+      playerAField: snap.playerA.field,
+      playerBField: snap.playerB.field,
+    });
+    if (matches.length === 0) return;
+
+    const costsA = getPlayerUnitSlotCosts(snap.playerA.field);
+    const costsB = getPlayerUnitSlotCosts(snap.playerB.field);
+    const pending: OneNightWagerPendingSave = {
+      phase: "popup",
+      costsA,
+      costsB,
+      glowPlayer: resolveOneNightWagerHigherSumPlayer(costsA.total, costsB.total),
+      loserPlayer: resolveOneNightWagerLoser(costsA.total, costsB.total),
+      matches: oneNightWagerPendingMatchesFromStack(matches),
+    };
+    resumeOneNightWagerSequence(pending);
+  }, [winner, isInitializing, resumeOneNightWagerSequence]);
+
+  tryTriggerOneNightWagerSequenceRef.current = tryTriggerOneNightWagerSequence;
+
+  const resumeSpellUsageSequence = useCallback(
+    (save: SpellUsagePendingSave) => {
+      if (spellUsageMotionActiveRef.current) return;
+      const snap = simulationStateRef.current;
+      if (!snap || winner || isInitializing) return;
+
+      const rebuilt = buildSpellUsageHandlersFromSave(save);
+      if (!rebuilt) {
+        applySpellUsagePending(null);
+        return;
+      }
+
+      const tesla = resolveSuperTeslaCounterFromSave(snap, save);
+      spellUsagePendingRef.current = { ...rebuilt, superTeslaCounter: tesla };
+      spellUsageMotionActiveRef.current = true;
+      applySpellUsagePending(save);
+
+      setSpellUsageTeslaHideOppCenterCard(false);
+      setSpellUsageTeslaFlipPlayer(null);
+      setSpellUsageTeslaFieldCard(tesla?.teslaCard ?? null);
+
+      const elapsed = Date.now() - save.phaseStartedAt;
+      const fullPreviewMs = tesla ? SPELL_USAGE_PREVIEW_TESLA_MS : SPELL_USAGE_PREVIEW_MS;
+
+      const startFlyFromPending = () => {
+        const pend = spellUsagePendingRef.current;
+        if (!pend) return;
+        if (pend.superTeslaCounter) {
+          finishSpellUsageSequence();
+          return;
+        }
+        const flyToSpellSlot =
+          pend.mode === "placeSpellSlot" &&
+          pend.flyToSpellSlotAfterReveal &&
+          pend.targetPlayer;
+        const flyToUnit =
+          pend.flyToUnitAfterReveal &&
+          pend.targetPlayer &&
+          pend.unitSlot &&
+          pend.mode === "handUnitTarget";
+        if (!flyToSpellSlot && !flyToUnit) {
+          finishSpellUsageSequence();
+          return;
+        }
+        const slot = flyToSpellSlot ? "spell" : pend.unitSlot!;
+        const measureAndFly = () => {
+          const fromEl = spellUsageCardMeasureRef.current;
+          const toEl = document.querySelector(
+            `[data-field-drop][data-field-player="${pend.targetPlayer}"][data-field-slot="${slot}"]`
+          ) as HTMLElement | null;
+          const fr = fromEl?.getBoundingClientRect();
+          const tr = toEl?.getBoundingClientRect();
+          if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+            finishSpellUsageSequence();
+            return;
+          }
+          const flyMs = flyToSpellSlot ? SPELL_SLOT_PLACE_FLY_MS : SPELL_USAGE_HAND_FLY_MS;
+          const from = { x: fr.left, y: fr.top, w: fr.width, h: fr.height };
+          const to = flyToSpellSlot
+            ? {
+                x: tr.left + (tr.width - fr.width) / 2,
+                y: tr.top + (tr.height - fr.height) / 2,
+                w: fr.width,
+                h: fr.height,
+              }
+            : { x: tr.left, y: tr.top, w: tr.width, h: tr.height };
+          const flyPhase = save.phase === "centerFly" && save.flyPhase === 1 ? 1 : 0;
+          const flyStarted =
+            save.phase === "centerFly" ? save.phaseStartedAt : Date.now();
+          const flyElapsed = save.phase === "centerFly" ? Date.now() - flyStarted : 0;
+          const resumeRemainingMs =
+            flyPhase === 1 ? Math.max(50, flyMs + 50 - flyElapsed) : undefined;
+
+          applySpellUsagePending({
+            ...save,
+            phase: "centerFly",
+            flyPhase,
+            phaseStartedAt: flyStarted,
+          });
+          setSpellUsageReveal(null);
+          setSpellUsageFly({
+            casterPlayer: pend.casterPlayer,
+            previewCard: pend.previewCard,
+            targetPlayer: pend.targetPlayer!,
+            unitSlot: slot,
+            flyTarget: flyToSpellSlot ? "spellSlot" : "unit",
+            centerShowsCardBack: flyToSpellSlot ? pend.centerShowsCardBack : undefined,
+            from,
+            to,
+            phase: flyPhase,
+            flyMs,
+            resumeRemainingMs,
+          });
+        };
+
+        setSpellUsageReveal({
+          casterPlayer: pend.casterPlayer,
+          previewCard: pend.previewCard,
+          centerShowsCardBack: pend.centerShowsCardBack,
+        });
+        requestAnimationFrame(() => requestAnimationFrame(measureAndFly));
+      };
+
+      if (save.phase === "centerFly" || elapsed >= fullPreviewMs) {
+        if (tesla && elapsed >= fullPreviewMs) {
+          finishSpellUsageSequence();
+          return;
+        }
+        startFlyFromPending();
+        return;
+      }
+
+      setSpellUsageReveal({
+        casterPlayer: save.casterPlayer,
+        previewCard: save.previewCard,
+        centerShowsCardBack: save.centerShowsCardBack,
+      });
+      setSpellUsageRevealTick(t => t + 1);
+    },
+    [
+      winner,
+      isInitializing,
+      buildSpellUsageHandlersFromSave,
+      applySpellUsagePending,
+      finishSpellUsageSequence,
+    ]
+  );
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (spellUsageRestoreOnMountDoneRef.current) return;
+    if (!state.spellUsagePending) return;
+    if (spellUsageMotionActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly) return;
+
+    spellUsageRestoreOnMountDoneRef.current = true;
+    resumeSpellUsageSequence(state.spellUsagePending);
+  }, [
+    state,
+    isInitializing,
+    spellUsageReveal,
+    spellUsageFly,
+    resumeSpellUsageSequence,
+  ]);
 
   const placeHandCardFromHand = (
     gameState: SimulationState,
@@ -4233,7 +5865,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       alert("전설의 검 연격이 끝날 때까지 다른 행동을 할 수 없습니다.");
       return;
     }
-    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) {
+    if (
+      spellUsageReveal ||
+      spellUsageFly ||
+      spellUsageMotionActiveRef.current ||
+      witchTarotSequenceActiveRef.current ||
+      witchTarotCoin ||
+      oneNightWagerSequenceActiveRef.current ||
+      gameState.oneNightWagerPending ||
+      gameState.spellUsagePending
+    ) {
       return;
     }
 
@@ -4468,6 +6109,82 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return;
       }
 
+      if (isWitchTarotSpellCard(handCard)) {
+        const statsId = createSimulationStatsInstanceId();
+        const fieldCard: FieldCard = {
+          ...handCardForField,
+          statsInstanceId: statsId,
+          currentHp: Number(handCard.hp) || 0,
+          hasAttacked: false,
+          hasBeenAttackedThisTurn: false,
+          summonedTurn: `${gameState.turnCount}-${gameState.currentTurn}`,
+        };
+        scheduleSpellHandUsageSequence(gameState, {
+          casterPlayer: sourcePlayer,
+          previewCard: handCard,
+          mode: "placeSpellSlot",
+          targetPlayer,
+          fieldCard,
+          flyToSpellSlotAfterReveal: true,
+          centerShowsCardBack: false,
+          preApply: prev => {
+            const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+            if (cardIndex < 0 || cardIndex >= h.length) return prev;
+            h.splice(cardIndex, 1);
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            return {
+              ...prev,
+              [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost },
+            };
+          },
+          commit: prev => {
+            const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
+            const stackBefore = normalizeSpellStack(tf);
+            const updatedField: PlayerState["field"] = {
+              ...tf,
+              spellStack: appendSpellToStack(stackBefore, fieldCard),
+            };
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            const nextSpellLog = [
+              ...prev.spellDeployLog,
+              {
+                statsInstanceId: fieldCard.statsInstanceId!,
+                name: fieldCard.name,
+                player: sourcePlayer,
+                summonedTurn: fieldCard.summonedTurn,
+              },
+            ];
+            return patchWitchTarotPending(
+              {
+                ...prev,
+                spellDeployLog: nextSpellLog,
+                [key]: { ...ps, field: updatedField },
+              },
+              {
+                casterPlayer: sourcePlayer,
+                coinHeads: null,
+                stepIndex: 0,
+                awaitingDiscardPlayer: null,
+              }
+            );
+          },
+          afterCommitVfx: () => {
+            triggerCardFlash(`${sourcePlayer}-spell`, "witchTarotSpellPulse");
+            witchTarotSequenceActiveRef.current = true;
+            setWitchTarotFlowActive(true);
+            if (witchTarotCoinStartScheduledRef.current) return;
+            witchTarotCoinStartScheduledRef.current = true;
+            window.setTimeout(() => {
+              witchTarotCoinStartScheduledRef.current = false;
+              startWitchTarotCoinSequence(sourcePlayer);
+            }, WITCH_TAROT_COIN_DELAY_MS);
+          },
+        });
+        return;
+      }
+
       const statsId = createSimulationStatsInstanceId();
       const fieldCard: FieldCard = {
         ...handCardForField,
@@ -4494,6 +6211,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         previewCard: handCard,
         mode: "placeSpellSlot",
         targetPlayer,
+        fieldCard,
         flyToSpellSlotAfterReveal: true,
         centerShowsCardBack: isHiddenSpellCard(handCard),
         preApply: prev => {
@@ -4581,6 +6299,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               );
             }, 0);
           }
+          window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
         },
       });
       return;
@@ -4911,15 +6630,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
     }
 
-    if (!isSpellSlot) {
-      window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
-    }
+    window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
   };
 
   const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
-    if (!state || state.currentTurn !== player || winner || pendingSkill || pendingLegendarySwordStrike) {
+    if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return;
+    if (witchTarotDiscardPlayer) {
+      if (witchTarotDiscardPlayer !== player) return;
+    } else if (state.currentTurn !== player) {
       return;
     }
     if (state.simpanHandChoice?.player === player) {
@@ -4931,16 +6651,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       spellUsageReveal ||
       spellUsageFly ||
       spellUsageMotionActiveRef.current ||
-      oneNightWagerModal
+      oneNightWagerModal ||
+      state.oneNightWagerPending ||
+      state.spellUsagePending ||
+      witchTarotCoin
     ) {
+      return;
+    }
+    if (state.currentTurn !== player && witchTarotDiscardPlayer !== player) {
       return;
     }
     e.preventDefault();
     setSelectedSlot(null);
     setAttackingSlot(null);
     setPendingSecondaryAttack(null);
-    setPendingStartingWraithChainKill(null);
-    setPendingStartingWraithChainPlayerHp(false);
+    applyStartingWraithChainPending(null);
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
     setAttackOptionOverride(null);
@@ -5531,11 +7256,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
       if (targetPlayer !== enemyPlayer || !state || winner) return;
 
+      const strikePhase = Number(pls.phase) === 2 ? 2 : 1;
       const damage =
-        pls.phase === 1 ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE : LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE;
+        strikePhase === 1
+          ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE
+          : LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE;
 
-      let postEnemyHp = 0;
-      let finishStrike = false;
+      const enemyField = enemyPlayer === "A" ? state.playerA.field : state.playerB.field;
+      const noLivingEnemyUnits = countLivingFieldUnits(enemyField) === 0;
+      const finishStrike = strikePhase >= 2 || (strikePhase === 1 && noLivingEnemyUnits);
+      const postEnemyHp = Math.max(
+        0,
+        (enemyPlayer === "A" ? state.playerA.hp : state.playerB.hp) - damage
+      );
 
       setState(prev => {
         if (!prev) return prev;
@@ -5543,11 +7276,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const ownerKey = pls.ownerPlayer === "A" ? "playerA" : "playerB";
         const newEnemy = { ...prev[enemyKey] };
         newEnemy.hp = Math.max(0, newEnemy.hp - damage);
-        postEnemyHp = newEnemy.hp;
-
-        const enemyField = enemyPlayer === "A" ? prev.playerA.field : prev.playerB.field;
-        const noLivingEnemyUnits = countLivingFieldUnits(enemyField) === 0;
-        finishStrike = pls.phase === 2 || (pls.phase === 1 && noLivingEnemyUnits);
 
         if (finishStrike) {
           const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
@@ -5570,7 +7298,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       showLegendarySwordSkillHit(`player-${targetPlayer}`, damage);
 
       if (finishStrike) {
-        setPendingLegendarySwordStrike(null);
+        flushSync(() => applyLegendarySwordStrikePending(null));
         setTimeout(() => {
           if (postEnemyHp <= 0) {
             setWinner(pls.ownerPlayer);
@@ -5579,7 +7307,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return;
       }
 
-      setPendingLegendarySwordStrike({
+      applyLegendarySwordStrikePending({
         ...pls,
         phase: 2,
         hitTargets: [...pls.hitTargets, LEGENDARY_SWORD_HIT_PLAYER_MARK],
@@ -5850,8 +7578,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     setAttackingSlot(null);
     setAttackOptionOverride(null);
-    setPendingStartingWraithChainKill(null);
-    setPendingStartingWraithChainPlayerHp(false);
+    applyStartingWraithChainPending(null);
   };
 
   const commitLibutyAllEnemiesBasicAttack = () => {
@@ -6864,8 +8591,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return;
       }
 
+      const strikePhase = Number(pls.phase) === 2 ? 2 : 1;
       const baseDamage =
-        pls.phase === 1
+        strikePhase === 1
           ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE
           : legendarySwordSecondHitBaseFromFirstTarget(pls.hitTargets[0]!, slot);
 
@@ -6879,7 +8607,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
 
       const targetKey = `${player}-${slot}`;
-      const finishStrike = pls.phase === 2;
+      const finishStrike = strikePhase >= 2;
 
       setState(prev => {
         if (!prev) return prev;
@@ -6954,14 +8682,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       showLegendarySwordSkillHit(targetKey, resolved.actualDamage);
 
-      if (pls.phase === 1) {
-        setPendingLegendarySwordStrike({
+      if (strikePhase === 1) {
+        applyLegendarySwordStrikePending({
           ...pls,
           phase: 2,
           hitTargets: [...pls.hitTargets, targetId],
         });
       } else {
-        setPendingLegendarySwordStrike(null);
+        flushSync(() => applyLegendarySwordStrikePending(null));
       }
       return;
     }
@@ -7761,8 +9489,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
         )
       ) {
-        setPendingStartingWraithChainKill(null);
-        setPendingStartingWraithChainPlayerHp(false);
+        applyStartingWraithChainPending(null);
       }
 
       if (
@@ -8135,8 +9862,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           alert("다른 유닛이 이미 이 유닛을 공격했습니다.\n(단, [도발] 효과를 가진 유닛은 한 턴에 여러 번 공격받을 수 있습니다.)");
           setAttackingSlot(null);
           setAttackOptionOverride(null);
-          setPendingStartingWraithChainKill(null);
-          setPendingStartingWraithChainPlayerHp(false);
+          applyStartingWraithChainPending(null);
           return;
         }
 
@@ -8144,8 +9870,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (isAttackDisabledUnit(attackerCard)) {
             setAttackingSlot(null);
             setAttackOptionOverride(null);
-            setPendingStartingWraithChainKill(null);
-            setPendingStartingWraithChainPlayerHp(false);
+            applyStartingWraithChainPending(null);
             return;
           }
           const activeForUnitStrike =
@@ -8162,8 +9887,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             alert(unitStrikeRules.reason ?? "공격할 수 없습니다.");
             setAttackingSlot(null);
             setAttackOptionOverride(null);
-            setPendingStartingWraithChainKill(null);
-            setPendingStartingWraithChainPlayerHp(false);
+            applyStartingWraithChainPending(null);
             return;
           }
 
@@ -8853,14 +10577,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
 
           if (keepWraithChainForNextEnemy) {
-            setPendingStartingWraithChainKill({ attackerPlayer, attackerSlotName });
-            setPendingStartingWraithChainPlayerHp(false);
+            applyStartingWraithChainPending({
+              attackerPlayer,
+              attackerSlot: attackerSlotName,
+              targetKind: "enemyUnit",
+            });
           } else if (wraithSeeksPlayerAfterClear) {
-            setPendingStartingWraithChainKill(null);
-            setPendingStartingWraithChainPlayerHp(true);
+            applyStartingWraithChainPending({
+              attackerPlayer,
+              attackerSlot: attackerSlotName,
+              targetKind: "playerHp",
+            });
           } else {
-            setPendingStartingWraithChainKill(null);
-            setPendingStartingWraithChainPlayerHp(false);
+            applyStartingWraithChainPending(null);
           }
         }
       }
@@ -10952,7 +12681,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !!state.simpanHandChoice ||
     !!spellUsageReveal ||
     !!spellUsageFly ||
-    !!oneNightWagerModal;
+    !!oneNightWagerModal ||
+    !!state.oneNightWagerPending ||
+    !!state.spellUsagePending ||
+    witchTarotFlowActive ||
+    !!witchTarotCoin;
   const isDrawHighlight =
     state.currentTurn &&
     !isInitializing &&
@@ -10963,7 +12696,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !state.simpanHandChoice &&
     !spellUsageReveal &&
     !spellUsageFly &&
-    !oneNightWagerModal;
+    !oneNightWagerModal &&
+    !state.oneNightWagerPending &&
+    !state.spellUsagePending &&
+    !witchTarotFlowActive &&
+    !witchTarotCoin;
 
   const isBFieldEmpty = !state.playerB.field.is && !state.playerB.field.m && !state.playerB.field.os;
   const isAFieldEmpty = !state.playerA.field.is && !state.playerA.field.m && !state.playerA.field.os;
@@ -11034,8 +12771,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         setSelectedSlot(null);
         setAttackingSlot(null);
         setPendingSecondaryAttack(null);
-        setPendingStartingWraithChainKill(null);
-        setPendingStartingWraithChainPlayerHp(false);
+        applyStartingWraithChainPending(null);
         setAttackOptionOverride(null);
         setPendingSkill(null);
         setPendingLibutyAllEnemiesAttack(null);
@@ -11204,6 +12940,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           costsA={oneNightWagerModal.costsA}
           costsB={oneNightWagerModal.costsB}
           glowPlayer={oneNightWagerModal.glowPlayer}
+        />
+      ) : null}
+
+      {witchTarotCoin ? (
+        <WitchTarotCoinOverlay
+          phase={witchTarotCoin.phase}
+          heads={witchTarotCoin.phase === "RESULT" ? witchTarotCoin.heads : null}
+          flipTick={witchTarotCoinFlipTick}
         />
       ) : null}
 
@@ -11818,6 +13562,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       {pendingLegendarySwordStrike && (
         <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-sky-500 to-cyan-400 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(56,189,248,0.85)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           [전설의 검] {pendingLegendarySwordStrike.phase === 1 ? "1차" : "2차"} 연격 대상을 선택하세요!
+        </div>
+      )}
+
+      {(pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-amber-700 to-orange-600 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(180,83,9,0.85)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
+          {pendingStartingWraithChainPlayerHp
+            ? "[시작의 망령] 추가 공격을 가할 상대 플레이어를 선택하세요!"
+            : "[시작의 망령] 추가 공격을 가할 적 유닛을 선택하세요!"}
+        </div>
+      )}
+
+      {witchTarotDiscardPlayer && (
+        <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-white/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(139,92,246,0.85)] animate-pulse pointer-events-none md:text-base">
+          [마녀 타로] Player {witchTarotDiscardPlayer} — 패에서 버릴 카드를 선택하세요.
+        </div>
+      )}
+
+      {witchTarotFlowActive && !witchTarotCoin && !witchTarotDiscardPlayer && (
+        <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-white/50 bg-gradient-to-r from-violet-700 to-purple-600 px-8 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(124,58,237,0.75)] pointer-events-none md:text-base">
+          [마녀 타로] 카드 드로우·교체 연출 진행 중…
         </div>
       )}
 
@@ -12440,8 +14204,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   !!card;
                 const simpanPickHandB = state.simpanHandChoice?.player === "B" && !!card;
                 const simpanPeekBlockDragB = state.simpanPeekReveal?.player === "B";
+                const witchTarotDiscardHandB = witchTarotDiscardPlayer === "B" && !!card;
                 const canPointerDragB =
-                  state.currentTurn === "B" && !!card && !pendingSkill && !simpanPickHandB && !simpanPeekBlockDragB;
+                  state.currentTurn === "B" &&
+                  !!card &&
+                  !pendingSkill &&
+                  !simpanPickHandB &&
+                  !simpanPeekBlockDragB &&
+                  !witchTarotDiscardHandB &&
+                  !witchTarotFlowActive;
                 const isDragSourceB = handDrag?.player === "B" && handDrag.cardIndex === i;
                 
                 return (
@@ -12451,6 +14222,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       if (simpanPickHandB) {
                         e.stopPropagation();
                         resolveSimpanHandPick("B", i);
+                      } else if (witchTarotDiscardHandB) {
+                        e.stopPropagation();
+                        resolveWitchTarotDiscard("B", i);
                       } else if (momoDiscardHandB) {
                         e.stopPropagation();
                         handleSkillDiscard(i, "B");
@@ -12459,7 +14233,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "B");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragB ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragB ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragB ? (e) => beginHandDrag(e, i, "B", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -12620,8 +14394,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   !!card;
                 const simpanPickHandA = state.simpanHandChoice?.player === "A" && !!card;
                 const simpanPeekBlockDragA = state.simpanPeekReveal?.player === "A";
+                const witchTarotDiscardHandA = witchTarotDiscardPlayer === "A" && !!card;
                 const canPointerDragA =
-                  state.currentTurn === "A" && !!card && !pendingSkill && !simpanPickHandA && !simpanPeekBlockDragA;
+                  state.currentTurn === "A" &&
+                  !!card &&
+                  !pendingSkill &&
+                  !simpanPickHandA &&
+                  !simpanPeekBlockDragA &&
+                  !witchTarotDiscardHandA &&
+                  !witchTarotFlowActive;
                 const isDragSourceA = handDrag?.player === "A" && handDrag.cardIndex === i;
 
                 return (
@@ -12631,6 +14412,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       if (simpanPickHandA) {
                         e.stopPropagation();
                         resolveSimpanHandPick("A", i);
+                      } else if (witchTarotDiscardHandA) {
+                        e.stopPropagation();
+                        resolveWitchTarotDiscard("A", i);
                       } else if (momoDiscardHandA) {
                         e.stopPropagation();
                         handleSkillDiscard(i, "A");
@@ -12639,7 +14423,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "A");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragA ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragA ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragA ? (e) => beginHandDrag(e, i, "A", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
