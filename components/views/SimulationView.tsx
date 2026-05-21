@@ -229,6 +229,13 @@ import {
   GONCHUNG_HIDDEN_PEEK_SKILL_LABEL,
   spellStackHasHiddenSpell,
   fieldHasActiveSimpanSpellDrawPassive,
+  isGuihwanSpellCard,
+  getGuihwanRevivableRewindIndices,
+  buildGuihwanRevivedFieldCard,
+  patchGuihwanPendingOnState,
+  reconcileGuihwanPendingFromSnapshot,
+  parseGuihwanPendingSave,
+  type GuihwanPendingSave,
 } from "../../utils/battle";
 import {
   GonchungSpellStackTopFace,
@@ -236,6 +243,7 @@ import {
 } from "./simulation/gonchungSpellFace";
 import OneNightWagerModal from "./SimulationView/modals/OneNightWagerModal";
 import WitchTarotCoinOverlay from "./SimulationView/modals/WitchTarotCoinOverlay";
+import RewindModal from "./SimulationView/modals/RewindModal";
 import "./simulation-combat-flash.css";
 import "./simulation-stun-swirl.css";
 import "./simulation-iverson-wait-aura.css";
@@ -320,6 +328,8 @@ interface SimulationState {
   oneNightWagerPending: OneNightWagerPendingSave | null;
   /** 손패 스펠 — 필드 중앙 연출·commit 대기(저장·복귀 시 재개) */
   spellUsagePending: SpellUsagePendingSave | null;
+  /** No.28 귀환 — 리와인드에서 아군 유닛 선택 대기 */
+  guihwanPending: GuihwanPendingSave | null;
 }
 
 interface SimulationViewProps {
@@ -571,6 +581,10 @@ function patchSpellUsagePending(
   return patchSpellUsagePendingOnState(prev, patch);
 }
 
+function patchGuihwanPending(prev: SimulationState, patch: GuihwanPendingSave | null): SimulationState {
+  return patchGuihwanPendingOnState(prev, patch);
+}
+
 function mergeSimulationPersistedSequences(
   snap: SimulationState,
   witchSeq: { casterPlayer: "A" | "B"; coinHeads: boolean | null; stepIndex: number } | null,
@@ -714,6 +728,7 @@ function canHandDragPlaceSpellOnOwnSpellSlot(
   if (targetPlayer !== drag.player) return false;
   if (isEnemyUnitDragTargetSpell(drag.card)) return false;
   if (isOrietChosangSpellCard(drag.card)) return false;
+  if (isGuihwanSpellCard(drag.card)) return false;
   const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
   const cost = isHiddenSpellCard(drag.card) ? 0 : Number(drag.card.cost) || 0;
   if (tokens < cost) return false;
@@ -894,6 +909,8 @@ type FlashOverlayKind =
   | "oneNightWagerSpellTrigger"
   | "oneNightWagerTokenWipe"
   | "witchTarotSpellPulse"
+  | "guihwanPlace"
+  | "guihwanRevive"
   | "kalliBuffBan";
 
 /** 플래시 오버레이 메타(슬롯당 1개) */
@@ -1166,6 +1183,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   const [attackOptionOverride, setAttackOptionOverride] = useState<string | null>(null);
   const [isRewindModalOpen, setIsRewindModalOpen] = useState(false);
+  const [isGuihwanRewindOpen, setIsGuihwanRewindOpen] = useState(false);
+  const guihwanRestoreOnMountDoneRef = useRef(false);
   
   const [winner, setWinner] = useState<"A" | "B" | null>(null);
 
@@ -1462,6 +1481,28 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
     if (
       isSpellCardRow(drag.card) &&
+      isGuihwanSpellCard(drag.card) &&
+      snap.currentTurn === drag.player &&
+      targetPlayer === drag.player &&
+      (slot === "is" || slot === "m" || slot === "os")
+    ) {
+      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+      if (field[slot] !== null) return null;
+      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+      const cost = Number(drag.card.cost) || 0;
+      if (tokens < cost) return null;
+      if (isRonuBlockingSpellHandPlayAt(snap, drag)) return null;
+      const revivable = getGuihwanRevivableRewindIndices(
+        snap.rewindCards,
+        drag.player,
+        snap.unitCombatStats
+      );
+      if (revivable.length === 0) return null;
+      return `${targetPlayer}-${slot}`;
+    }
+
+    if (
+      isSpellCardRow(drag.card) &&
       isOrietChosangSpellCard(drag.card) &&
       snap.currentTurn === drag.player &&
       targetPlayer === drag.player &&
@@ -1479,6 +1520,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
     if (
       isSpellCardRow(drag.card) &&
+      !isGuihwanSpellCard(drag.card) &&
       snap.currentTurn === drag.player &&
       targetPlayer === drag.player &&
       slot === "spell"
@@ -1701,6 +1743,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     oneNightWagerSpellTrigger: 980,
     oneNightWagerTokenWipe: 900,
     witchTarotSpellPulse: 980,
+    guihwanPlace: 920,
+    guihwanRevive: 980,
     kalliBuffBan: 820,
   };
 
@@ -1718,6 +1762,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       delete flashClearTimeoutsRef.current[slotKey];
     }, FLASH_CLEAR_MS[kind]);
   };
+
+  const witchTarotPlayerHandCount = (snap: SimulationState | null, player: "A" | "B"): number => {
+    if (!snap) return 0;
+    return player === "A" ? snap.playerA.hand.length : snap.playerB.hand.length;
+  };
+
+  /** 버림 차례 종료(카드 없음·스킵) — 다음 stepIndex로 진행 */
+  const completeWitchTarotDiscardTurn = useCallback(() => {
+    if (!witchTarotSequenceActiveRef.current) return;
+    witchTarotDiscardPlayerRef.current = null;
+    setWitchTarotDiscardPlayer(null);
+    setState(prev =>
+      prev ? patchWitchTarotPending(prev, { awaitingDiscardPlayer: null }) : prev
+    );
+    runWitchTarotAdvanceRef.current();
+  }, []);
 
   const finishWitchTarotSequence = useCallback((caster: "A" | "B") => {
     witchTarotFinishingRef.current = true;
@@ -1801,10 +1861,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     const snapNow = simulationStateRef.current;
-    const handLen =
-      player === "A" ? snapNow?.playerA.hand.length ?? 0 : snapNow?.playerB.hand.length ?? 0;
-    if (handLen <= 0) {
-      runWitchTarotAdvanceRef.current();
+    if (witchTarotPlayerHandCount(snapNow, player) <= 0) {
+      completeWitchTarotDiscardTurn();
       return;
     }
     witchTarotDiscardPlayerRef.current = player;
@@ -1812,7 +1870,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setState(prev =>
       prev ? patchWitchTarotPending(prev, { awaitingDiscardPlayer: player }) : prev
     );
-  }, []);
+  }, [completeWitchTarotDiscardTurn]);
 
   const scheduleWitchTarotResumeAfterIdle = useCallback(() => {
     if (!witchTarotSequenceActiveRef.current) return;
@@ -1917,12 +1975,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         [key]: { ...ps, hand },
       };
     });
-    witchTarotDiscardPlayerRef.current = null;
-    setWitchTarotDiscardPlayer(null);
-    setState(prev =>
-      prev ? patchWitchTarotPending(prev, { awaitingDiscardPlayer: null }) : prev
-    );
-    runWitchTarotAdvanceRef.current();
+    completeWitchTarotDiscardTurn();
   };
 
   const restoreWitchTarotSession = useCallback(
@@ -1950,8 +2003,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       setWitchTarotFlowActive(true);
 
       if (pending.awaitingDiscardPlayer) {
-        witchTarotDiscardPlayerRef.current = pending.awaitingDiscardPlayer;
-        setWitchTarotDiscardPlayer(pending.awaitingDiscardPlayer);
+        const discardPlayer = pending.awaitingDiscardPlayer;
+        if (witchTarotPlayerHandCount(snap, discardPlayer) <= 0) {
+          window.setTimeout(() => completeWitchTarotDiscardTurn(), 0);
+          return;
+        }
+        witchTarotDiscardPlayerRef.current = discardPlayer;
+        setWitchTarotDiscardPlayer(discardPlayer);
         return;
       }
 
@@ -1979,8 +2037,199 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       runWitchTarotCurrentStepRef.current();
     },
-    [finishWitchTarotSequence, startWitchTarotCoinSequence]
+    [finishWitchTarotSequence, startWitchTarotCoinSequence, completeWitchTarotDiscardTurn]
   );
+
+  const closeGuihwanRewindModal = useCallback(() => {
+    setIsGuihwanRewindOpen(false);
+  }, []);
+
+  const resolveGuihwanRevive = useCallback(
+    (rewindIndex: number) => {
+      const pending = state?.guihwanPending;
+      if (!pending || !state) return;
+      const card = state.rewindCards[rewindIndex];
+      if (!card) return;
+      const revivable = getGuihwanRevivableRewindIndices(
+        state.rewindCards,
+        pending.ownerPlayer,
+        state.unitCombatStats
+      );
+      if (!revivable.includes(rewindIndex)) return;
+
+      const slotKey = `${pending.ownerPlayer}-${pending.slot}`;
+      triggerCardFlash(slotKey, "guihwanRevive");
+
+      setState(prev => {
+        if (!prev?.guihwanPending) return prev;
+        const p = prev.guihwanPending;
+        const ownerKey = p.ownerPlayer === "A" ? "playerA" : "playerB";
+        const ps = p.ownerPlayer === "A" ? prev.playerA : prev.playerB;
+        const field = { ...ps.field };
+        const spell = field[p.slot];
+        if (!spell || !isGuihwanSpellCard(spell) || spell.statsInstanceId !== p.spellStatsInstanceId) {
+          return patchGuihwanPending(prev, null);
+        }
+
+        let revived = buildGuihwanRevivedFieldCard(
+          card,
+          prev.turnCount,
+          p.ownerPlayer
+        );
+        const sid = revived.statsInstanceId ?? createSimulationStatsInstanceId();
+        revived = { ...revived, statsInstanceId: sid };
+
+        field[p.slot] = revived;
+
+        const rewindCards = prev.rewindCards.filter((_, i) => i !== rewindIndex);
+        let unitCombatStats = prev.unitCombatStats;
+        let unitStatsOrder = prev.unitStatsOrder;
+        if (!unitCombatStats[sid]) {
+          unitCombatStats = {
+            ...unitCombatStats,
+            [sid]: emptyUnitCombatRow(revived.name, p.ownerPlayer, revived.summonedTurn),
+          };
+          unitStatsOrder = [...unitStatsOrder, sid];
+        }
+
+        const nextSpellLog = [
+          ...prev.spellDeployLog,
+          {
+            statsInstanceId: sid,
+            name: revived.name,
+            player: p.ownerPlayer,
+            summonedTurn: revived.summonedTurn,
+          },
+        ];
+
+        return finalizeSpellWithSimpan(
+          patchGuihwanPending(
+            {
+              ...prev,
+              rewindCards,
+              unitCombatStats,
+              unitStatsOrder,
+              spellDeployLog: nextSpellLog,
+              [ownerKey]: { ...ps, field },
+            },
+            null
+          )
+        );
+      });
+      setIsGuihwanRewindOpen(false);
+    },
+    [state, triggerCardFlash, finalizeSpellWithSimpan]
+  );
+
+  const placeGuihwanSpellOnEmptyField = useCallback(
+    (
+      gameState: SimulationState,
+      cardIndex: number,
+      sourcePlayer: "A" | "B",
+      slot: "is" | "m" | "os"
+    ) => {
+      if (!gameState || winner) return;
+      if (gameState.guihwanPending) return;
+      const isPlayerA = sourcePlayer === "A";
+      const hand = isPlayerA ? gameState.playerA.hand : gameState.playerB.hand;
+      const handCard = hand[cardIndex];
+      if (!handCard || !isGuihwanSpellCard(handCard)) return;
+
+      const field = isPlayerA ? gameState.playerA.field : gameState.playerB.field;
+      if (field[slot] !== null) {
+        pushInfoFloat(`${sourcePlayer}-${slot}`, "빈 칸에만 놓을 수 있습니다", INFO_FLOAT_MS);
+        return;
+      }
+
+      const placementCost = Number(handCard.cost) || 0;
+      const tokens = isPlayerA ? gameState.playerA.tokens : gameState.playerB.tokens;
+      if (tokens < placementCost) {
+        pushInfoFloat(`${sourcePlayer}-${slot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+        return;
+      }
+      if (
+        isRonuBlockingCasterActiveSpell(
+          sourcePlayer,
+          handCard,
+          gameState.playerA.field,
+          gameState.playerB.field
+        )
+      ) {
+        pushInfoFloat(`${sourcePlayer}-${slot}`, BATTLE_MSG.ronu.cannotUseActiveSpells, INFO_FLOAT_MS);
+        forEachOpponentRonuLivingSlotKey(sourcePlayer, gameState.playerA.field, gameState.playerB.field, key => {
+          triggerCardFlash(key, "ronuPassiveSpellBlock");
+        });
+        return;
+      }
+
+      const revivable = getGuihwanRevivableRewindIndices(
+        gameState.rewindCards,
+        sourcePlayer,
+        gameState.unitCombatStats
+      );
+      if (revivable.length === 0) {
+        pushInfoFloat(`${sourcePlayer}-spell`, "부활할 아군 유닛이 리와인드에 없습니다", INFO_FLOAT_MS);
+        return;
+      }
+
+      const spellStatsId = createSimulationStatsInstanceId();
+      const handCardForField = stripPpSimHandNewGlow(handCard);
+      const spellOnField: FieldCard = {
+        ...handCardForField,
+        statsInstanceId: spellStatsId,
+        currentHp: Number(handCard.hp) || 1,
+        hasAttacked: true,
+        hasBeenAttackedThisTurn: false,
+        summonedTurn: `${gameState.turnCount}-${gameState.currentTurn}`,
+      };
+
+      const pending: GuihwanPendingSave = {
+        ownerPlayer: sourcePlayer,
+        slot,
+        spellStatsInstanceId: spellStatsId,
+      };
+
+      setState(prev => {
+        if (!prev) return prev;
+        const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+        if (cardIndex < 0 || cardIndex >= h.length || !isGuihwanSpellCard(h[cardIndex])) return prev;
+        h.splice(cardIndex, 1);
+        const key = isPlayerA ? "playerA" : "playerB";
+        const ps = isPlayerA ? prev.playerA : prev.playerB;
+        const f = { ...ps.field, [slot]: spellOnField };
+        return patchGuihwanPending(
+          {
+            ...prev,
+            [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost, field: f },
+          },
+          pending
+        );
+      });
+
+      triggerCardFlash(`${sourcePlayer}-${slot}`, "guihwanPlace");
+      setIsGuihwanRewindOpen(true);
+    },
+    [winner, triggerCardFlash]
+  );
+
+  useEffect(() => {
+    if (!state || isInitializing) return;
+    if (guihwanRestoreOnMountDoneRef.current) return;
+    if (!state.guihwanPending) return;
+    guihwanRestoreOnMountDoneRef.current = true;
+    setIsGuihwanRewindOpen(true);
+  }, [state, isInitializing]);
+
+  useEffect(() => {
+    if (!state || !witchTarotDiscardPlayer || !witchTarotSequenceActiveRef.current) return;
+    if (witchTarotPlayerHandCount(state, witchTarotDiscardPlayer) > 0) return;
+    completeWitchTarotDiscardTurn();
+  }, [
+    state?.playerA.hand,
+    state?.playerB.hand,
+    witchTarotDiscardPlayer,
+    completeWitchTarotDiscardTurn,
+  ]);
 
   const playHyugesojauiAnsikAllyPulseAndHealVfx = (
     allyPlayer: "A" | "B",
@@ -2724,10 +2973,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (save.mode === "placeSpellSlot" && save.fieldCard && targetPlayer) {
         const fieldCard = save.fieldCard;
         const tp = targetPlayer;
+        const hyuPlaceVfxBag: { perSlot: HyugesojauiAnsikHealSlotResult[] } = { perSlot: [] };
         return {
           ...basePending,
           preApply: noopPreApply,
           commit: prev => {
+            hyuPlaceVfxBag.perSlot = [];
             const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
             const stackBefore = normalizeSpellStack(tf);
             let updatedField: PlayerState["field"] = {
@@ -2749,6 +3000,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               updatedField = hr.nextField;
               hyuPlacePerSlot = hr.perSlot;
               hyuPlaceCombatPatches = hr.combatPatches;
+              hyuPlaceVfxBag.perSlot = hr.perSlot;
             }
             const key = isPlayerA ? "playerA" : "playerB";
             const ps = isPlayerA ? prev.playerA : prev.playerB;
@@ -2773,9 +3025,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               };
             }
             const committed = finalizeSpellWithSimpan(r);
-            if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlacePerSlot.length > 0) {
-              window.setTimeout(() => playHyugesojauiAnsikAllyPulseAndHealVfx(tp, hyuPlacePerSlot), 0);
-            }
             if (previewCard.name === BANG_EOMAK_SPELL_ID) {
               window.setTimeout(() => {
                 (["is", "m", "os"] as const).forEach(s =>
@@ -2799,6 +3048,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }
             window.setTimeout(() => tryTriggerOneNightWagerSequenceRef.current(), 0);
             return committed;
+          },
+          afterCommitVfx: () => {
+            if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlaceVfxBag.perSlot.length > 0) {
+              playHyugesojauiAnsikAllyPulseAndHealVfx(tp, hyuPlaceVfxBag.perSlot);
+            }
           },
         };
       }
@@ -3498,6 +3752,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       );
     }
     /* 능력 발동 이펙트 — 마녀 타로(스펠 칸·보라색) */
+    if (snap.kind === "guihwanPlace" || snap.kind === "guihwanRevive") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-guihwan-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-guihwan-aura`}
+            className={`pp-combat-flash-layer--guihwan-indigo-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-guihwan-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--guihwan-indigo`}
+          />
+        </div>
+      );
+    }
     if (snap.kind === "witchTarotSpellPulse") {
       return (
         <div
@@ -4295,6 +4567,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellUsageMotionActiveRef.current = false;
     setSpellUsageReveal(null);
     setSpellUsageFly(null);
+    setIsGuihwanRewindOpen(false);
+    guihwanRestoreOnMountDoneRef.current = false;
     witchTarotSequenceRef.current = null;
     witchTarotSequenceActiveRef.current = false;
     setWitchTarotFlowActive(false);
@@ -4362,6 +4636,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       startingWraithChainPending: null,
       oneNightWagerPending: null,
       spellUsagePending: null,
+      guihwanPending: null,
       playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
       playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
     });
@@ -5131,14 +5406,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }
             : null;
         parsed.spellUsagePending = parseSpellUsagePendingSave(parsed.spellUsagePending);
+        parsed.guihwanPending = parseGuihwanPendingSave(parsed.guihwanPending);
         parsed.playerA = { ...parsed.playerA, field: migratePlayerFieldSpellStack(parsed.playerA.field) };
         parsed.playerB = { ...parsed.playerB, field: migratePlayerFieldSpellStack(parsed.playerB.field) };
 
-        const reconciled = reconcileSpellUsagePendingFromSnapshot(
-          reconcileOneNightWagerPendingFromSnapshot(
-            reconcileStartingWraithChainPendingFromSnapshot(
-              reconcileLegendarySwordPendingFromSnapshot(
-                reconcileWitchTarotPendingFromSnapshot(parsed)
+        const reconciled = reconcileGuihwanPendingFromSnapshot(
+          reconcileSpellUsagePendingFromSnapshot(
+            reconcileOneNightWagerPendingFromSnapshot(
+              reconcileStartingWraithChainPendingFromSnapshot(
+                reconcileLegendarySwordPendingFromSnapshot(
+                  reconcileWitchTarotPendingFromSnapshot(parsed)
+                )
               )
             )
           )
@@ -5200,7 +5478,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       witchTarotCoin ||
       oneNightWagerModal ||
       state.oneNightWagerPending ||
-      state.spellUsagePending
+      state.spellUsagePending ||
+      state.guihwanPending
     ) {
       alert("[연출] 중앙 카드가 패로 합류할 때까지, 또는 심판 대기 카드를 정리한 뒤 턴을 넘겨 주세요.");
       return;
@@ -5312,7 +5591,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
     });
     if (hyuTurnVfxBag.vfx) {
-      playHyugesojauiAnsikAllyPulseAndHealVfx(hyuTurnVfxBag.vfx.allyPlayer, hyuTurnVfxBag.vfx.perSlot);
+      playHyugesojauiAnsikAllyPulseAndHealVfx(
+        hyuTurnVfxBag.vfx.allyPlayer,
+        hyuTurnVfxBag.vfx.perSlot
+      );
     }
   };
 
@@ -5873,7 +6155,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       witchTarotCoin ||
       oneNightWagerSequenceActiveRef.current ||
       gameState.oneNightWagerPending ||
-      gameState.spellUsagePending
+      gameState.spellUsagePending ||
+      gameState.guihwanPending
     ) {
       return;
     }
@@ -5896,6 +6179,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (isOrietChosangSpellCard(handCard)) {
       pushInfoFloat(`${sourcePlayer}-spell`, "아군 유닛 위에 드래그하여 사용하세요", INFO_FLOAT_MS);
+      return;
+    }
+
+    if (isGuihwanSpellCard(handCard)) {
+      if (slot === "spell" || targetPlayer !== sourcePlayer) {
+        pushInfoFloat(`${sourcePlayer}-spell`, "빈 아군 필드(Is·M·Os)에 놓아 주세요", INFO_FLOAT_MS);
+        return;
+      }
+      placeGuihwanSpellOnEmptyField(gameState, cardIndex, sourcePlayer, slot);
       return;
     }
 
@@ -6305,6 +6597,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
 
+    const hyuDirectVfxBag: { perSlot: HyugesojauiAnsikHealSlotResult[] } = { perSlot: [] };
     setState(prev => {
       if (!prev) return prev;
       
@@ -6333,6 +6626,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         updatedField = hr.nextField;
         hyuDirectPerSlot = hr.perSlot;
         hyuDirectCombatPatches = hr.combatPatches;
+        hyuDirectVfxBag.perSlot = hr.perSlot;
       }
 
       if (isPlayerA) {
@@ -6374,12 +6668,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             unitCombatStats: patchManyUnitCombatStats(rA.unitCombatStats, hyuDirectCombatPatches),
           };
         }
-        if (isSpellSlot && hyuDirectPerSlot.length > 0) {
-          window.setTimeout(
-            () => playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectPerSlot),
-            0
-          );
-        }
         return isSpellSlot ? finalizeSpellWithSimpan(rA) : rA;
       } else {
         const nextUnitCombat = !isSpellSlot
@@ -6420,15 +6708,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             unitCombatStats: patchManyUnitCombatStats(rB.unitCombatStats, hyuDirectCombatPatches),
           };
         }
-        if (isSpellSlot && hyuDirectPerSlot.length > 0) {
-          window.setTimeout(
-            () => playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectPerSlot),
-            0
-          );
-        }
         return isSpellSlot ? finalizeSpellWithSimpan(rB) : rB;
       }
     });
+    if (isSpellSlot && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuDirectVfxBag.perSlot.length > 0) {
+      playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectVfxBag.perSlot);
+    }
 
     const fieldAfterPlace: PlayerState["field"] = {
       ...targetField,
@@ -7218,6 +7503,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const snap = state;
     if (!snap) return;
     if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) return;
+    if (snap.guihwanPending) return;
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const drop = under?.closest("[data-field-drop]");
@@ -7251,6 +7537,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handlePlayerAttack = (targetPlayer: "A" | "B") => {
+    if (state?.guihwanPending) return;
     if (pendingLegendarySwordStrike) {
       const pls = pendingLegendarySwordStrike;
       const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
@@ -8239,6 +8526,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     e.stopPropagation(); 
     if (winner) return;
     if (!state) return;
+
+    if (state.guihwanPending && slot !== "spell") {
+      const gp = state.guihwanPending;
+      if (
+        player === gp.ownerPlayer &&
+        slot === gp.slot &&
+        card &&
+        isGuihwanSpellCard(card) &&
+        card.statsInstanceId === gp.spellStatsInstanceId
+      ) {
+        setIsGuihwanRewindOpen(true);
+        return;
+      }
+      return;
+    }
 
     if (pendingLegendarySwordStrike) {
       if (slot === "spell" || player === pendingLegendarySwordStrike.ownerPlayer) {
@@ -9716,7 +10018,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmountPrimary > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmountPrimary);
+                  updatedUnit.currentHp = Math.min(
+                    Number(updatedUnit.hp),
+                    updatedUnit.currentHp + fieldHealAmountPrimary
+                  );
                 }
                 if (fieldBuffKeyPrimary) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
@@ -10316,7 +10621,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmountPrimary > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmountPrimary);
+                  updatedUnit.currentHp = Math.min(
+                    Number(updatedUnit.hp),
+                    updatedUnit.currentHp + fieldHealAmountPrimary
+                  );
                 }
                 if (fieldBuffKeyPrimary) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
@@ -10892,6 +11200,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (handDrag.player !== player) return "";
     if (state.currentTurn !== handDrag.player) return "";
     if (fieldCard !== null) return "";
+
+    if (isGuihwanSpellCard(handDrag.card)) {
+      const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
+      const cost = Number(handDrag.card.cost) || 0;
+      if (tokens < cost) return "";
+      if (isRonuBlockingSpellHandPlayAt(state, handDrag)) return "";
+      const revivable = getGuihwanRevivableRewindIndices(
+        state.rewindCards,
+        handDrag.player,
+        state.unitCombatStats
+      );
+      if (revivable.length === 0) return "";
+      return "border-[3px] border-indigo-400/95 bg-indigo-950/45 shadow-[0_0_28px_rgba(99,102,241,0.75)] animate-pulse cursor-crosshair z-20";
+    }
+
     if (isSpellCardRow(handDrag.card)) return "";
 
     const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
@@ -11003,8 +11326,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const getTargetableClass = (targetPlayer: "A" | "B", slotName: string, card: FieldCard | null) => {
-      if (!isTargetable(targetPlayer, slotName, card)) return '';
-    
+    if (
+      handDrag &&
+      isGuihwanSpellCard(handDrag.card) &&
+      state?.currentTurn === handDrag.player &&
+      targetPlayer === handDrag.player &&
+      (slotName === "is" || slotName === "m" || slotName === "os") &&
+      !card
+    ) {
+      const revivable = getGuihwanRevivableRewindIndices(
+        state.rewindCards,
+        handDrag.player,
+        state.unitCombatStats
+      );
+      if (revivable.length > 0) {
+        return "border-[3px] border-indigo-400/95 bg-indigo-950/45 shadow-[0_0_28px_rgba(99,102,241,0.75)] animate-pulse cursor-crosshair z-20";
+      }
+    }
+
+    if (!isTargetable(targetPlayer, slotName, card)) return "";
+
     if (pendingSkill && pendingSkill.name === PENDING_SKILL.GONCHUNG_HIDDEN_PEEK) {
       return "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-20";
     }
@@ -11088,6 +11429,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (card && isLegendarySwordCharging(card)) {
       const fast = card.legendarySwordChargeFastBlink ? " pp-legendary-sword-charge-border--fast" : "";
       return `${fieldCardStyle} pp-legendary-sword-charge-border${fast}${handDragSlotHoverGlow}`;
+    }
+
+    if (
+      state?.guihwanPending &&
+      state.guihwanPending.ownerPlayer === player &&
+      state.guihwanPending.slot === slot &&
+      card &&
+      isGuihwanSpellCard(card) &&
+      card.statsInstanceId === state.guihwanPending.spellStatsInstanceId
+    ) {
+      return `${fieldCardStyle} border-[3px] border-indigo-400/95 bg-indigo-950/50 shadow-[0_0_28px_rgba(99,102,241,0.85)] animate-pulse cursor-pointer z-20${handDragSlotHoverGlow}`;
     }
 
     const targetClass = getTargetableClass(player, slot, card);
@@ -12684,6 +13036,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !!oneNightWagerModal ||
     !!state.oneNightWagerPending ||
     !!state.spellUsagePending ||
+    !!state.guihwanPending ||
     witchTarotFlowActive ||
     !!witchTarotCoin;
   const isDrawHighlight =
@@ -12699,6 +13052,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !oneNightWagerModal &&
     !state.oneNightWagerPending &&
     !state.spellUsagePending &&
+    !state.guihwanPending &&
     !witchTarotFlowActive &&
     !witchTarotCoin;
 
@@ -13585,6 +13939,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
+      {state.guihwanPending && isGuihwanRewindOpen && (
+        <RewindModal
+          onClose={closeGuihwanRewindModal}
+          rewindCards={state.rewindCards}
+          revivableIndices={getGuihwanRevivableRewindIndices(
+            state.rewindCards,
+            state.guihwanPending.ownerPlayer,
+            state.unitCombatStats
+          )}
+          onSelectRevive={resolveGuihwanRevive}
+          onOpenDetail={openHandCardCodexDetail}
+        />
+      )}
+
+      {state.guihwanPending && !isGuihwanRewindOpen && (
+        <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-indigo-300/60 bg-gradient-to-r from-indigo-800 to-violet-700 px-8 py-3 text-sm font-black text-indigo-50 shadow-[0_0_30px_rgba(99,102,241,0.75)] animate-pulse pointer-events-none md:text-base">
+          [귀환] 필드의 귀환 카드를 클릭해 리와인드 선택을 다시 열 수 있습니다.
+        </div>
+      )}
+
       {pendingSkill && (
         <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-pink-600 to-purple-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(219,39,119,0.8)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           {pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI ||
@@ -13601,61 +13975,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       )}
 
       {isRewindModalOpen && (
-        <div 
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out] p-4 md:p-8"
-          onClick={() => setIsRewindModalOpen(false)}
-        >
-          <div 
-            className="relative w-full max-w-[1200px] h-[85vh] bg-[#0a1628] border-2 border-slate-700 rounded-3xl p-6 md:p-10 flex flex-col shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-hidden"
-            onClick={(e) => e.stopPropagation()} 
-          >
-            <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 shrink-0">
-              <div>
-                <h2 className="text-2xl md:text-3xl font-black text-slate-200 tracking-wider">리와인드 존</h2>
-                <p className="text-slate-400 text-sm mt-1">총 <span className="text-sky-400 font-bold">{state.rewindCards.length}</span>장의 카드가 파괴되어 잠들어 있습니다.</p>
-              </div>
-              <button 
-                onClick={() => setIsRewindModalOpen(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-colors active:scale-95 border border-slate-600"
-              >
-                ✕ 닫기
-              </button>
-            </div>
-
-            <div className="overflow-y-auto flex-1 pr-2 w-full custom-scrollbar">
-              {state.rewindCards.length === 0 ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 opacity-60">
-                  <IconDeck className="w-20 h-20 mb-4" />
-                  <p className="font-bold text-xl tracking-wider">파괴된 카드가 없습니다.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6 pb-10">
-                  {state.rewindCards.map((rCard, idx) => (
-                    <div 
-                      key={`rewind-${idx}`}
-                      className="group relative w-full aspect-[1/1.58] rounded-[10px] border border-slate-600 bg-black/50 overflow-hidden cursor-pointer hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] hover:border-slate-300 transition-all duration-300"
-                      onClick={() => { if(onOpenDetail) onOpenDetail(rCard); }}
-                    >
-                      {rCard.image_url ? (
-                        <img src={rCard.image_url} alt={rCard.name} className="w-full h-full object-cover grayscale-[0.4] group-hover:grayscale-0 transition-all duration-300" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center p-4">
-                          <span className="text-sm font-bold text-center text-slate-400 group-hover:text-slate-200">{rCard.name}</span>
-                        </div>
-                      )}
-                      
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                        <span className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-sm font-black tracking-widest rounded-xl shadow-lg border border-white/20 transition-colors">
-                          상세 보기
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <RewindModal
+          onClose={() => setIsRewindModalOpen(false)}
+          rewindCards={state.rewindCards}
+          onOpenDetail={openHandCardCodexDetail}
+        />
       )}
 
       <div className={`relative w-full max-w-[1700px] min-w-[1300px] min-h-[750px] aspect-video flex flex-row gap-6 p-6 rounded-3xl border-2 ${theme.border} shadow-[0_0_50px_rgba(0,0,0,0.6)] bg-gradient-to-b from-[#0a1628] to-[#050a14] overflow-hidden`}>

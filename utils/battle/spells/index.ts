@@ -13,3 +13,4 @@ export * from "./witchTarot";
 export * from "./superTesla";
 export * from "./spellVisibility";
 export * from "./spellUsagePending";
+export * from "./guihwan";
