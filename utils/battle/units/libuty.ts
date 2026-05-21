@@ -12,6 +12,7 @@ import {
   resolveBaekseuFatalDamage,
   stripBaekseuHarmfulEffectsForInvuln,
 } from "./baekseu";
+import { hasConfusionStatus } from "./dinner";
 
 export const LIBUTY_ID = UNIT.LIBUTY;
 
@@ -23,6 +24,25 @@ export const LIBUTY_REFLECT_PURE_DAMAGE = 300;
 
 export function isLibuty(card: FieldCard | null | undefined): boolean {
   return card != null && card.name === LIBUTY_ID;
+}
+
+/** [혼란] 시 반사 패시브 봉인 — 「모든 적 공격」 기본 공격 방식은 유지 */
+export function isLibutyReflectPassiveSuppressed(
+  libutyCard: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!libutyCard || !isLibuty(libutyCard)) return false;
+  return hasConfusionStatus(libutyCard, facingOppCard);
+}
+
+/** 기본 공격으로 HP가 깎였을 때 반사 발동 여부 */
+export function shouldApplyLibutyBasicAttackReflect(
+  libutyCard: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null,
+  hpLossFromBasicAttack: number
+): boolean {
+  if (hpLossFromBasicAttack <= 0) return false;
+  return isLibuty(libutyCard) && !isLibutyReflectPassiveSuppressed(libutyCard, facingOppCard);
 }
 
 export type LibutyReflectPureResult = {
@@ -40,7 +60,8 @@ export type LibutyReflectPureResult = {
  */
 export function computeLibutyReflectPureDamageOnAggressor(
   aggressor: FieldCard,
-  pureAmount: number = LIBUTY_REFLECT_PURE_DAMAGE
+  pureAmount: number = LIBUTY_REFLECT_PURE_DAMAGE,
+  facingOppCard: FieldCard | null = null
 ): LibutyReflectPureResult | null {
   if (!aggressor || (aggressor.currentHp ?? 0) <= 0 || pureAmount <= 0) return null;
   if (isBaekseuInvulnerable(aggressor)) {
@@ -58,7 +79,8 @@ export function computeLibutyReflectPureDamageOnAggressor(
   const resolved = resolveBaekseuFatalDamage(
     aggressor,
     hpAfterRaw,
-    barrierSplit.damageToCurrentHp
+    barrierSplit.damageToCurrentHp,
+    facingOppCard
   );
   const hpLoss = Math.max(0, aggressor.currentHp - resolved.finalHp);
   return {

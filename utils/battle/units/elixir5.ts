@@ -1,4 +1,5 @@
 import type { FieldCard } from "../../../types/game";
+import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 
 export const ELIXIR_5_ID = UNIT.ELIXIR_5;
@@ -10,13 +11,24 @@ export function isStunned(card: FieldCard | null | undefined): boolean {
   return !!card && (card.stunEndTurnTicksRemaining ?? 0) > 0;
 }
 
+/** [혼란] 시 기본 공격 [기절] 부여 패시브 일시 봉인 */
+export function isElixir5StunPassivePausedByConfusion(
+  attacker: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!attacker || attacker.name !== ELIXIR_5_ID || (attacker.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(attacker, facingOppCard);
+}
+
 /** 엘릭서 5 기본 공격 적중 시 대상에게 부여할 기절(피해 0이거나 처치면 없음) */
 export function elixir5StunTargetPatch(
-  attackerName: string,
+  attacker: FieldCard | null | undefined,
   damageDealt: number,
-  targetDestroyed: boolean
+  targetDestroyed: boolean,
+  facingOppCard: FieldCard | null = null
 ): Pick<FieldCard, "stunEndTurnTicksRemaining"> | Record<string, never> {
-  if (attackerName !== ELIXIR_5_ID || targetDestroyed || damageDealt <= 0) return {};
+  if (!attacker || attacker.name !== ELIXIR_5_ID || targetDestroyed || damageDealt <= 0) return {};
+  if (isElixir5StunPassivePausedByConfusion(attacker, facingOppCard)) return {};
   return { stunEndTurnTicksRemaining: 2 };
 }
 

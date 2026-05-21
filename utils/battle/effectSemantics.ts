@@ -6,6 +6,7 @@
 import { YORIN_STATUS_BADGE } from "./units/darkKnight";
 import { isMaxellandTenacityStatusBadge } from "./units/maxelland";
 import { PHILIP_OPP_SILENCE_STATUS } from "./units/philip";
+import { DINNER_OPP_CONFUSION_STATUS } from "./units/dinner";
 import { STUN_STATUS } from "./units/elixir5";
 import { BANG_EOMAK_DEFENSE_BADGE } from "./spells/bangeomak";
 import { PYRED_ATTACK_AURA_BADGE } from "./units/pyred";
@@ -24,6 +25,8 @@ const EFFECT_SEMANTIC: Partial<Record<string, EffectSemanticKind>> = {
 
   /** 필립 패시브 — 버프도 디버프도 아님 */
   [PHILIP_OPP_SILENCE_STATUS]: "status",
+  /** 디너 패시브 — 버프도 디버프도 아님 */
+  [DINNER_OPP_CONFUSION_STATUS]: "status",
   [STUN_STATUS]: "status",
   /** 백스 [무적] — 버프/디버프가 아님 */
   "[무적]": "status",

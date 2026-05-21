@@ -11,6 +11,8 @@ export interface AttackContext {
   targetMaxHpWhenDestroyed?: number;
   applyFieldHeal?: (amount: number) => void;
   applyFieldBuff?: (buffKey: string) => void;
+  /** 마주보는 상대 — [혼란] 등 postAttack 패시브 봉인 판정(선택) */
+  facingOppCard?: FieldCard | null;
 }
 
 export interface FieldContext {

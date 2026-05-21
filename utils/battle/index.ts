@@ -25,5 +25,6 @@ export { getEffectSemanticKind } from "./effectSemantics";
 export * from "./spells";
 export * from "./units";
 export * from "./simulationDeathCleanup";
+export * from "./confusionSkillLinkSuppression";
 export * from "./fieldSpellAccess";
 export * from "./spellStack";

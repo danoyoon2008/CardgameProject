@@ -13,6 +13,8 @@ export {
   hasTauntUnit,
   isTaunting,
   isSilenced,
+  isConfused,
+  DINNER_OPP_CONFUSION_STATUS,
   isStunned,
   type AttackContext,
   type ActiveStatusBattleContext,

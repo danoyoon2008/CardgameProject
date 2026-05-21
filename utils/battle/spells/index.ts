@@ -6,5 +6,8 @@ export * from "./eondeok";
 export * from "./jipjungSagyeok";
 export * from "./orietChosang";
 export * from "./somyeol";
+export * from "./meteo";
+export * from "./hyperBeam";
+export * from "./oneNightWager";
 export * from "./superTesla";
 export * from "./spellVisibility";

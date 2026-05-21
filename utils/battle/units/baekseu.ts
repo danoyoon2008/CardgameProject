@@ -1,9 +1,12 @@
 /**
  * 백스(No.46) — 치명적 피해 1회: 체력 1로 생존, 1*턴(턴 넘김 2회) [무적](피해·해로운 효과 면역).
+ * 생존 후 적 10% 이하 처형 오라.
+ * [혼란] 시 1HP 생존·처형 오라 패시브 일시 봉인(이미 1HP·처형 중 혼란 → 처형만 해제, 즉사 없음).
  */
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { cleanupSimulationUnitDeath, type SimulationPlayerFieldSlice } from "../simulationDeathCleanup";
 import { getEffectSemanticKind } from "../effectSemantics";
+import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 import { STUN_STATUS } from "./elixir5";
 import { getMorningMoodDeathAllyHeal } from "./morningMood";
@@ -20,21 +23,57 @@ export type BaekseuFieldThree = {
   os: FieldCard | null;
 };
 
+export type BaekseuExecuteFieldContext = {
+  playerAField: BaekseuFieldThree;
+  playerBField: BaekseuFieldThree;
+};
+
+/** [혼란] 시 1HP 생존·적 처형 오라 패시브 일시 봉인 */
+export function isBaekseuPassivesPausedByConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || card.name !== BAEKSEU_ID || (card.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(card, facingOppCard);
+}
+
 export function isBaekseuInvulnerable(card: FieldCard | null | undefined): boolean {
   return !!card && card.name === BAEKSEU_ID && (card.baekseuInvulnerableEndTurnTicksRemaining ?? 0) > 0;
 }
 
-/** 패시브(1HP 생존) 발동 후 살아 있는 동안 — 10% 처형·윤곽 연출 활성([무적] 종료 후에도 유지) */
-export function isBaekseuLastStandExecuteAuraActiveOnUnit(card: FieldCard | null | undefined): boolean {
+/** 패시브(1HP 생존) 발동 후 살아 있는 동안 — 10% 처형·윤곽 연출([혼란] 시 처형만 비활성) */
+export function isBaekseuLastStandExecuteAuraActiveOnUnit(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null = null
+): boolean {
   if (!card || card.name !== BAEKSEU_ID || card.currentHp <= 0) return false;
-  return !!card.baekseuLastStandUsed;
+  if (!card.baekseuLastStandUsed) return false;
+  if (isBaekseuPassivesPausedByConfusion(card, facingOppCard)) return false;
+  return true;
 }
 
-export function fieldHasBaekseuLastStandExecuteAura(field: BaekseuFieldThree): boolean {
+function isBaekseuExecuteSourceActiveOnSlot(
+  owner: "A" | "B",
+  slot: "is" | "m" | "os",
+  ctx: BaekseuExecuteFieldContext
+): boolean {
+  const ownField = owner === "A" ? ctx.playerAField : ctx.playerBField;
+  const oppField = owner === "A" ? ctx.playerBField : ctx.playerAField;
+  return isBaekseuLastStandExecuteAuraActiveOnUnit(ownField[slot], oppField[slot] ?? null);
+}
+
+export function fieldHasBaekseuLastStandExecuteAura(
+  allyField: BaekseuFieldThree,
+  owner: "A" | "B",
+  ctx?: BaekseuExecuteFieldContext
+): boolean {
+  if (ctx) {
+    return (["is", "m", "os"] as const).some(s => isBaekseuExecuteSourceActiveOnSlot(owner, s, ctx));
+  }
   return (
-    isBaekseuLastStandExecuteAuraActiveOnUnit(field.is) ||
-    isBaekseuLastStandExecuteAuraActiveOnUnit(field.m) ||
-    isBaekseuLastStandExecuteAuraActiveOnUnit(field.os)
+    isBaekseuLastStandExecuteAuraActiveOnUnit(allyField.is) ||
+    isBaekseuLastStandExecuteAuraActiveOnUnit(allyField.m) ||
+    isBaekseuLastStandExecuteAuraActiveOnUnit(allyField.os)
   );
 }
 
@@ -61,7 +100,8 @@ export function stripBaekseuHarmfulEffectsForInvuln(card: FieldCard): FieldCard 
 export function resolveBaekseuFatalDamage(
   card: FieldCard,
   hpAfterDamage: number,
-  actualDamageDealt: number
+  actualDamageDealt: number,
+  facingOppCard: FieldCard | null = null
 ): {
   finalHp: number;
   isDestroyed: boolean;
@@ -72,6 +112,9 @@ export function resolveBaekseuFatalDamage(
     return { finalHp: hpAfterDamage, isDestroyed: false, lastStandTriggered: false, patch: {} };
   }
   if (card.name !== BAEKSEU_ID || card.baekseuLastStandUsed || actualDamageDealt <= 0) {
+    return { finalHp: hpAfterDamage, isDestroyed: true, lastStandTriggered: false, patch: {} };
+  }
+  if (isBaekseuPassivesPausedByConfusion(card, facingOppCard)) {
     return { finalHp: hpAfterDamage, isDestroyed: true, lastStandTriggered: false, patch: {} };
   }
   return {
@@ -119,14 +162,15 @@ export function collectBaekseuInvulnThresholdExecuteTargets(
   fieldA: BaekseuFieldThree,
   fieldB: BaekseuFieldThree
 ): { victim: "A" | "B"; slot: "is" | "m" | "os" }[] {
+  const ctx: BaekseuExecuteFieldContext = { playerAField: fieldA, playerBField: fieldB };
   const out: { victim: "A" | "B"; slot: "is" | "m" | "os" }[] = [];
-  if (fieldHasBaekseuLastStandExecuteAura(fieldA)) {
+  if (fieldHasBaekseuLastStandExecuteAura(fieldA, "A", ctx)) {
     for (const slot of ["is", "m", "os"] as const) {
       const u = fieldB[slot];
       if (isEnemyHpAtOrBelowTenPercentOfMax(u, fieldB as SimulationPlayerField)) out.push({ victim: "B", slot });
     }
   }
-  if (fieldHasBaekseuLastStandExecuteAura(fieldB)) {
+  if (fieldHasBaekseuLastStandExecuteAura(fieldB, "B", ctx)) {
     for (const slot of ["is", "m", "os"] as const) {
       const u = fieldA[slot];
       if (isEnemyHpAtOrBelowTenPercentOfMax(u, fieldA as SimulationPlayerField)) out.push({ victim: "A", slot });
@@ -153,6 +197,7 @@ export function applyBaekseuInvulnThresholdExecutePass<T extends SimulationPlaye
   const pb = { ...playerB, field: { ...playerB.field } };
   const rewindAdds: FieldCard[] = [];
   const flashSlotKeys: string[] = [];
+  const executeCtx: BaekseuExecuteFieldContext = { playerAField: pa.field, playerBField: pb.field };
 
   const targets = collectBaekseuInvulnThresholdExecuteTargets(pa.field, pb.field);
   for (const { victim, slot } of targets) {
@@ -165,7 +210,8 @@ export function applyBaekseuInvulnThresholdExecutePass<T extends SimulationPlaye
     fieldRef[slot] = null;
     flashSlotKeys.push(`${victim}-${slot}`);
 
-    const mmHeal = getMorningMoodDeathAllyHeal(dead);
+    const facingMm = (victim === "A" ? pb.field : pa.field)[slot] ?? null;
+    const mmHeal = getMorningMoodDeathAllyHeal(dead, facingMm);
     if (mmHeal > 0) {
       const side = victim === "A" ? pa : pb;
       for (const s2 of ["is", "m", "os"] as const) {
@@ -178,9 +224,8 @@ export function applyBaekseuInvulnThresholdExecutePass<T extends SimulationPlaye
 
   const baekseuSourceFlashSlotKeys: string[] = [];
   const pushBaekSources = (side: "A" | "B") => {
-    const f = side === "A" ? pa.field : pb.field;
     for (const slot of ["is", "m", "os"] as const) {
-      if (isBaekseuLastStandExecuteAuraActiveOnUnit(f[slot])) {
+      if (isBaekseuExecuteSourceActiveOnSlot(side, slot, executeCtx)) {
         baekseuSourceFlashSlotKeys.push(`${side}-${slot}`);
       }
     }

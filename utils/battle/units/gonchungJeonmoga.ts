@@ -8,6 +8,9 @@ import { UNIT } from "../unitIds";
 
 export const GONCHUNG_JEONMOGA_ID = UNIT.GONCHUNG_JEONMOGA;
 
+/** UI·배너 표기용 (내부 `pendingSkillKey` 와 분리) */
+export const GONCHUNG_HIDDEN_PEEK_SKILL_LABEL = "탐색" as const;
+
 export const GONCHUNG_JEONMOGA_ACTIVE = {
   pendingSkillKey: "A) 탐색" as const,
   /** 맨 위 히든 스펠 앞면 공개 지속(ms) */

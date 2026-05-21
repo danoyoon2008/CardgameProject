@@ -64,14 +64,26 @@ export function resolveLegendarySwordStrikeOnUnit(args: {
 
   const barrierSplit = splitDamageThroughHpBarrier(target, actualDamage);
   const hpAfterRaw = target.currentHp - barrierSplit.damageToCurrentHp;
-  const resolved = resolveBaekseuFatalDamage(target, hpAfterRaw, barrierSplit.damageToCurrentHp);
+  const oppFieldForFacing = targetPlayer === "A" ? playerBField : playerAField;
+  const resolved = resolveBaekseuFatalDamage(
+    target,
+    hpAfterRaw,
+    barrierSplit.damageToCurrentHp,
+    oppFieldForFacing[targetSlot] ?? null
+  );
   const newHp = resolved.finalHp;
   const hpLoss = Math.max(0, target.currentHp - newHp);
   const targetMitigation = banjitMit + defenseMit + Math.max(0, actualDamage - hpLoss);
   const isDestroyed = resolved.isDestroyed;
 
-  const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(target) : 0;
-  const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(target, hpLoss);
+  const morningMoodDeathHeal = isDestroyed
+    ? getMorningMoodDeathAllyHeal(target, oppFieldForFacing[targetSlot] ?? null)
+    : 0;
+  const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+    target,
+    hpLoss,
+    oppFieldForFacing[targetSlot] ?? null
+  );
 
   const barrierPatch = hpBarrierPatchFromRemaining(barrierSplit.nextBarrierRemaining);
 

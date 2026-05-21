@@ -17,7 +17,7 @@ import {
   applyIncomingDefenseDamage,
   PAKKI_ID,
   scalePakkiOutgoingHit,
-  canApplyPakkiKillDebuff,
+  shouldApplyPakkiKillDebuffOnDeath,
   stripPakkiDebuffUnderImmunityOnClonedFields,
   BATTLE_MSG,
   DARK_KNIGHT_ID,
@@ -26,7 +26,9 @@ import {
   MAXELLAND_ID,
   fieldGrantsFocusedFireMultihitExemption,
   isRyeomcho,
+  isRyeomchoSelfHealBasicAttackSealed,
   isRanigo,
+  isRanigoAllyHealBasicAttackSealed,
   RANIGO_ALLY_BASIC_HEAL_AMOUNT,
   elixir5StunTargetPatch,
   applyEndTurnStunTickToFieldUnit,
@@ -38,6 +40,7 @@ import {
   IVERSON_SUMMON_WAIT_END_TURNS,
   IVERSON_NEAREST_ENEMY_MSG,
   getIversonClosestEnemyTargetSlots,
+  shouldEnforceIversonNearestEnemyTargeting,
   MOMO_SKILL_HEAL_AMOUNT,
   PENDING_SKILL,
   UNIT,
@@ -57,15 +60,22 @@ import {
   startingHeraldBasicAttackIgnoresTauntTargetingRestrictions,
   isStartingWraithTrueStrikeBasicAttacker,
   isStartingWraithBasicAttackChainKillEligible,
+  isStartingWraithBasicAttackChainFollowUpPending,
+  startingWraithChainFollowUpBypassesAntiGangup,
+  isStartingWraithPassivesPausedByConfusion,
   countOtherLivingDefenderUnits,
   canEnemyFieldSourceTargetMaengsugyeonPo,
+  getUnitFacingOppAtSlot,
   splitDamageThroughHpBarrier,
   hpBarrierPatchFromRemaining,
   applyEndTurnBaekseuInvulnTickToFieldUnit,
+  applyEndTurnEondeokSilenceTickToFieldUnit,
   resolveBaekseuFatalDamage,
+  isBaekseuPassivesPausedByConfusion,
   stripBaekseuHarmfulEffectsForInvuln,
   applyBaekseuInvulnThresholdExecutePass,
   cleanupSimulationUnitDeath,
+  suppressActiveSkillLinksForConfusion,
   isHiddenSpellCard,
   GONCHUNG_JEONMOGA_ACTIVE,
   spellStackHasHiddenSpell,
@@ -166,10 +176,13 @@ export function useSimulationLogic(cards: CardRow[]) {
 
   const baekseuExecuteFieldsSig = useMemo(() => {
     if (!state) return "";
-    const u = (c: FieldCard | null) =>
-      c ? `${c.currentHp};${Number(c.hp) || 0};${c.baekseuInvulnerableEndTurnTicksRemaining ?? 0};${c.baekseuLastStandUsed ? 1 : 0}` : "x";
-    const pack = (f: PlayerState["field"]) => [u(f.is), u(f.m), u(f.os)].join("/");
-    return `${pack(state.playerA.field)}|${pack(state.playerB.field)}`;
+    const u = (c: FieldCard | null, facing: FieldCard | null) =>
+      c
+        ? `${c.currentHp};${Number(c.hp) || 0};${c.baekseuInvulnerableEndTurnTicksRemaining ?? 0};${c.baekseuLastStandUsed ? 1 : 0};${isBaekseuPassivesPausedByConfusion(c, facing) ? 1 : 0}`
+        : "x";
+    const pack = (f: PlayerState["field"], opp: PlayerState["field"]) =>
+      [u(f.is, opp.is), u(f.m, opp.m), u(f.os, opp.os)].join("/");
+    return `${pack(state.playerA.field, state.playerB.field)}|${pack(state.playerB.field, state.playerA.field)}`;
   }, [state?.playerA.field, state?.playerB.field]);
 
   useEffect(() => {
@@ -242,7 +255,7 @@ export function useSimulationLogic(cards: CardRow[]) {
       globalTurnCount: 1, 
       elapsedTime: 0, 
       turnTimeLeft: 60,
-      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" },
+      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" },
       deckCards: currentDeck,
       rewindCards: [],
       playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
@@ -343,9 +356,9 @@ export function useSimulationLogic(cards: CardRow[]) {
         
         parsed.elapsedTime = parsed.elapsedTime || 0; 
         parsed.turnTimeLeft = parsed.turnTimeLeft ?? 60;
-        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" };
-        parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false; 
-        parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
+        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" };
+        parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false;
+        parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
         parsed.globalTurnCount = parsed.globalTurnCount ?? 1; 
         
         setState(parsed); 
@@ -381,6 +394,30 @@ export function useSimulationLogic(cards: CardRow[]) {
     });
   }, [state]);
 
+  useEffect(() => {
+    if (!state) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+      const changed = suppressActiveSkillLinksForConfusion(
+        newPlayerA,
+        newPlayerB,
+        prev.globalTurnCount
+      );
+      if (!changed) return prev;
+      return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+    });
+  }, [
+    state?.playerA.field.is,
+    state?.playerA.field.m,
+    state?.playerA.field.os,
+    state?.playerB.field.is,
+    state?.playerB.field.m,
+    state?.playerB.field.os,
+    state?.globalTurnCount,
+  ]);
+
   const handleReset = (onCloseModals: () => void) => {
     if (winner || window.confirm("진행 중인 모든 시뮬레이션 기록을 삭제하고 초기화할까요?")) {
       localStorage.removeItem("pp_sim_save");
@@ -409,7 +446,11 @@ export function useSimulationLogic(cards: CardRow[]) {
         is: f.is
           ? {
               ...applyEndTurnIversonWaitTickToFieldUnit(
-                applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.is))
+                applyEndTurnStunTickToFieldUnit(
+                  applyEndTurnBaekseuInvulnTickToFieldUnit(
+                    applyEndTurnEondeokSilenceTickToFieldUnit(f.is),
+                  ),
+                ),
               ),
               hasAttacked: false,
               hasBeenAttackedThisTurn: false,
@@ -418,7 +459,11 @@ export function useSimulationLogic(cards: CardRow[]) {
         m: f.m
           ? {
               ...applyEndTurnIversonWaitTickToFieldUnit(
-                applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.m))
+                applyEndTurnStunTickToFieldUnit(
+                  applyEndTurnBaekseuInvulnTickToFieldUnit(
+                    applyEndTurnEondeokSilenceTickToFieldUnit(f.m),
+                  ),
+                ),
               ),
               hasAttacked: false,
               hasBeenAttackedThisTurn: false,
@@ -427,7 +472,11 @@ export function useSimulationLogic(cards: CardRow[]) {
         os: f.os
           ? {
               ...applyEndTurnIversonWaitTickToFieldUnit(
-                applyEndTurnStunTickToFieldUnit(applyEndTurnBaekseuInvulnTickToFieldUnit(f.os))
+                applyEndTurnStunTickToFieldUnit(
+                  applyEndTurnBaekseuInvulnTickToFieldUnit(
+                    applyEndTurnEondeokSilenceTickToFieldUnit(f.os),
+                  ),
+                ),
               ),
               hasAttacked: false,
               hasBeenAttackedThisTurn: false,
@@ -746,7 +795,17 @@ export function useSimulationLogic(cards: CardRow[]) {
       return;
     }
 
-    if (isRyeomcho(attackerCard)) {
+    if (
+      isRyeomchoSelfHealBasicAttackSealed(
+        attackerCard,
+        getUnitFacingOppAtSlot(
+          attackerPlayer,
+          attackerSlotName,
+          state.playerA.field,
+          state.playerB.field
+        )
+      )
+    ) {
       alert(BATTLE_MSG.ryeomcho.cannotAttackOrTarget);
       setAttackingSlot(null);
       setAttackOptionOverride(null);
@@ -754,6 +813,21 @@ export function useSimulationLogic(cards: CardRow[]) {
     }
 
     if (isRanigo(attackerCard)) {
+      if (
+        isRanigoAllyHealBasicAttackSealed(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer,
+            attackerSlotName,
+            state.playerA.field,
+            state.playerB.field
+          )
+        )
+      ) {
+        setAttackingSlot(null);
+        setAttackOptionOverride(null);
+        return;
+      }
       alert(BATTLE_MSG.ranigo.cannotAttackEnemy);
       setAttackingSlot(null);
       setAttackOptionOverride(null);
@@ -767,8 +841,14 @@ export function useSimulationLogic(cards: CardRow[]) {
       !defenderFieldForPlayerStrike.is &&
       !defenderFieldForPlayerStrike.m &&
       !defenderFieldForPlayerStrike.os;
+    const wraithFacingPlayerStrike = getUnitFacingOppAtSlot(
+      attackerPlayer,
+      attackerSlotName,
+      state.playerA.field,
+      state.playerB.field
+    );
     const wraithPlayerHpFollowUpValidate =
-      isStartingWraithTrueStrikeBasicAttacker(attackerCard) &&
+      isStartingWraithTrueStrikeBasicAttacker(attackerCard, wraithFacingPlayerStrike) &&
       defenderFieldEmptyForWraithPlayerFollowUp &&
       (activeForPlayerStrike.attacksThisTurn || 0) < 2 &&
       (!!attackerCard.hasAttacked || pendingStartingWraithChainPlayerHp);
@@ -791,8 +871,15 @@ export function useSimulationLogic(cards: CardRow[]) {
     if (
       !wraithPlayerHpFollowUpValidate &&
       targetPlayerState.hasBeenAttackedThisTurn &&
-      !fieldGrantsFocusedFireMultihitExemption(attackerField) &&
-      !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard)
+      !fieldGrantsFocusedFireMultihitExemption(attackerField, {
+        allyPlayer: attackerPlayer,
+        playerAField: state!.playerA.field,
+        playerBField: state!.playerB.field,
+      }) &&
+      !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+        attackerCard,
+        getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+      )
     ) {
       alert('다른 유닛이 이미 상대 플레이어를 공격했습니다. (플레이어 다구리 금지)');
       setAttackingSlot(null);
@@ -834,7 +921,11 @@ export function useSimulationLogic(cards: CardRow[]) {
       0
     ));
 
-    primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCard, attackerField);
+    primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCard, attackerField, {
+      allyPlayer: attackerPlayer,
+      playerAField: state!.playerA.field,
+      playerBField: state!.playerB.field,
+    });
 
     let fieldHealAmount = 0;
     let fieldBuffKey = "";
@@ -1118,6 +1209,22 @@ export function useSimulationLogic(cards: CardRow[]) {
           setPendingSecondaryAttack(null);
           return;
         }
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer,
+              attackerSlotName,
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          setPendingSecondaryAttack(null);
+          return;
+        }
 
         const maxHp = Number(card.hp);
         if (card.currentHp >= maxHp) {
@@ -1216,13 +1323,17 @@ export function useSimulationLogic(cards: CardRow[]) {
         }
 
         if (
-          !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard) &&
+          !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+            attackerCard,
+            getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+          ) &&
           !canEnemyFieldSourceTargetMaengsugyeonPo(
             attackerPlayer,
             attackerSlotName,
             player,
             slot as "is" | "m" | "os",
-            card
+            card,
+            getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
           )
         ) {
           alert("올바른 대상이 아닙니다.");
@@ -1232,13 +1343,29 @@ export function useSimulationLogic(cards: CardRow[]) {
         let damage = pendingSecondaryAttack.damage;
 
         if (attackerCard) {
-          damage = scalePakkiOutgoingHit(damage, attackerCard, attackerField);
+          damage = scalePakkiOutgoingHit(damage, attackerCard, attackerField, {
+            allyPlayer: attackerPlayer,
+            playerAField: state!.playerA.field,
+            playerBField: state!.playerB.field,
+          });
         }
 
-        const kalliVsDefenseSecondary = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
+        const attackerFacingOppSecondary =
+          (attackerPlayer === "A" ? state!.playerB.field : state!.playerA.field)[attackerSlotName] ??
+          null;
+        const kalliVsDefenseSecondary = kalliBasicAttackSkipsTargetMitigationVsDefenseType(
+          attackerCard,
+          card,
+          attackerFacingOppSecondary
+        );
         const mitigationBypassSecondary =
-          kalliVsDefenseSecondary || isStartingWraithTrueStrikeBasicAttacker(attackerCard);
-        const kalliPureSecondary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+          kalliVsDefenseSecondary ||
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary);
+        const kalliPureSecondary = getKalliVsDefenseTypePureBonus(
+          attackerCard,
+          card,
+          attackerFacingOppSecondary
+        );
 
         if (
           !mitigationBypassSecondary &&
@@ -1271,20 +1398,35 @@ export function useSimulationLogic(cards: CardRow[]) {
         const barrierSplitSecondary = splitDamageThroughHpBarrier(
           card,
           actualDamage,
-          isStartingWraithTrueStrikeBasicAttacker(attackerCard) ? { bypassAbsorption: true } : undefined
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
+            ? { bypassAbsorption: true }
+            : undefined
         );
         const hpAfterRaw = card.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
           card,
           hpAfterRaw,
-          barrierSplitSecondary.damageToCurrentHp
+          barrierSplitSecondary.damageToCurrentHp,
+          getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
         );
         const newHp = resolvedSecondary.finalHp;
         const isDestroyed = resolvedSecondary.isDestroyed;
         const baekseuPatchSecondary = resolvedSecondary.patch;
 
-        const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
-        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualDamage);
+        const morningMoodFacingOpp = getUnitFacingOppAtSlot(
+          player,
+          slot as "is" | "m" | "os",
+          state!.playerA.field,
+          state!.playerB.field
+        );
+        const morningMoodDeathHeal = isDestroyed
+          ? getMorningMoodDeathAllyHeal(card, morningMoodFacingOpp)
+          : 0;
+        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+          card,
+          actualDamage,
+          morningMoodFacingOpp
+        );
 
         let fieldHealAmount = 0;
         let fieldBuffKey = "";
@@ -1310,9 +1452,17 @@ export function useSimulationLogic(cards: CardRow[]) {
           attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
         const pakkiDebuffSecondary =
           isDestroyed &&
-          card.name === PAKKI_ID &&
           attackerCard &&
-          canApplyPakkiKillDebuff(attackerFieldForPakkiCurseSec);
+          shouldApplyPakkiKillDebuffOnDeath(
+            card,
+            getUnitFacingOppAtSlot(player, slot, state!.playerA.field, state!.playerB.field),
+            attackerFieldForPakkiCurseSec,
+            {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            }
+          );
 
         setState(prev => {
           if (!prev) return prev;
@@ -1325,7 +1475,17 @@ export function useSimulationLogic(cards: CardRow[]) {
               : card;
           const updatedTarget = {
             ...baseTargetCard,
-            ...elixir5StunTargetPatch(attackerCard?.name ?? "", actualDamage, isDestroyed),
+            ...elixir5StunTargetPatch(
+              attackerCard,
+              actualDamage,
+              isDestroyed,
+              getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                prev.playerA.field,
+                prev.playerB.field
+              )
+            ),
             ...baekseuPatchSecondary,
             ...hpBarrierPatchFromRemaining(barrierSplitSecondary.nextBarrierRemaining),
             currentHp: newHp,
@@ -1335,7 +1495,16 @@ export function useSimulationLogic(cards: CardRow[]) {
           else newPlayerB.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
           
           if (attackerCard) {
-            const bumpKillSec = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+            const bumpKillSec = bumpMaxellandTenacityGaugeOnEnemyKill(
+              attackerCard,
+              isDestroyed,
+              getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                state!.playerA.field,
+                state!.playerB.field
+              )
+            );
             const updatedAttacker = {
               ...attackerCard,
               ...skillUpdates,
@@ -1446,7 +1615,34 @@ export function useSimulationLogic(cards: CardRow[]) {
       const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
       const attackerCard = attackerField[attackerSlotName];
 
-      if (attackerCard && isRyeomcho(attackerCard)) {
+      if (
+        attackerCard &&
+        isStartingWraithPassivesPausedByConfusion(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer,
+            attackerSlotName,
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        )
+      ) {
+        setPendingStartingWraithChainKill(null);
+        setPendingStartingWraithChainPlayerHp(false);
+      }
+
+      if (
+        attackerCard &&
+        isRyeomchoSelfHealBasicAttackSealed(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer,
+            attackerSlotName,
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        )
+      ) {
         if (player === attackerPlayer && slot === attackerSlotName && card) {
           const activeForAttack = attackerPlayer === "A" ? state!.playerA : state!.playerB;
           const atkValidation = validateAttack({
@@ -1510,6 +1706,19 @@ export function useSimulationLogic(cards: CardRow[]) {
       }
 
       if (attackerCard && isRanigo(attackerCard)) {
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer,
+              attackerSlotName,
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
+          return;
+        }
         if (player === attackerPlayer && slot !== "spell" && card) {
           if (slot === attackerSlotName) {
             alert(BATTLE_MSG.ranigo.cannotTargetSelf);
@@ -1652,14 +1861,22 @@ export function useSimulationLogic(cards: CardRow[]) {
           mySlotKey: `${player}-${slot}`,
         });
 
-        const startingHeraldAbsBasic = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard);
+        const startingHeraldAbsBasic = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+          attackerCard,
+          getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+        );
 
         if (tauntExists && !isTargetTaunted && !startingHeraldAbsBasic) {
            alert("적 필드에 [도발] 능력을 가진 유닛이 있습니다! 도발 유닛을 먼저 공격해야 합니다.");
            return; 
         }
 
-        if (attackerCard?.name === IVERSON_ID) {
+        if (
+          shouldEnforceIversonNearestEnemyTargeting(
+            attackerCard,
+            getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+          )
+        ) {
           const allowed = getIversonClosestEnemyTargetSlots(
             attackerSlotName,
             { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
@@ -1683,12 +1900,24 @@ export function useSimulationLogic(cards: CardRow[]) {
             attackerSlotName,
             player,
             slot as "is" | "m" | "os",
-            card
+            card,
+            getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
           )
         ) {
           alert("올바른 대상이 아닙니다");
           return;
         }
+
+        const isStartingWraithChainFollowUp = isStartingWraithBasicAttackChainFollowUpPending(
+          pendingStartingWraithChainKill,
+          attackerPlayer,
+          attackerSlotName
+        );
+        const wraithChainBypassesAntiGangup = startingWraithChainFollowUpBypassesAntiGangup(
+          isStartingWraithChainFollowUp,
+          attackerCard,
+          getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+        );
 
         if (attackerCard) {
           if (isAttackDisabledUnit(attackerCard)) {
@@ -1702,8 +1931,13 @@ export function useSimulationLogic(cards: CardRow[]) {
           if (
             card.hasBeenAttackedThisTurn &&
             !isTargetTaunted &&
-            !fieldGrantsFocusedFireMultihitExemption(attackerField) &&
-            !startingHeraldAbsBasic
+            !fieldGrantsFocusedFireMultihitExemption(attackerField, {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            }) &&
+            !startingHeraldAbsBasic &&
+            !wraithChainBypassesAntiGangup
           ) {
             alert("다른 유닛이 이미 이 유닛을 공격했습니다.\n(단, [도발] 효과를 가진 유닛은 한 턴에 여러 번 공격받을 수 있습니다.)");
             setAttackingSlot(null);
@@ -1715,10 +1949,6 @@ export function useSimulationLogic(cards: CardRow[]) {
 
           const activeForUnitStrike =
             attackerPlayer === "A" ? state!.playerA : state!.playerB;
-          const isStartingWraithChainFollowUp =
-            pendingStartingWraithChainKill != null &&
-            pendingStartingWraithChainKill.attackerPlayer === attackerPlayer &&
-            pendingStartingWraithChainKill.attackerSlotName === attackerSlotName;
           const unitStrikeRules = validateAttack({
             attackerCard,
             currentTurnKey: `${state!.turnCount}-${state!.currentTurn}`,
@@ -1800,12 +2030,29 @@ export function useSimulationLogic(cards: CardRow[]) {
           let actualPrimaryDamage = scalePakkiOutgoingHit(
             primaryDamage,
             attackerCard,
-            attackerField
+            attackerField,
+            {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            }
           );
-          const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
+          const attackerFacingOppPrimary =
+            (attackerPlayer === "A" ? state!.playerB.field : state!.playerA.field)[attackerSlotName] ??
+            null;
+          const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(
+            attackerCard,
+            card,
+            attackerFacingOppPrimary
+          );
           const mitigationBypassPrimary =
-            kalliVsDefenseStrike || isStartingWraithTrueStrikeBasicAttacker(attackerCard);
-          const kalliPurePrimary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+            kalliVsDefenseStrike ||
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary);
+          const kalliPurePrimary = getKalliVsDefenseTypePureBonus(
+            attackerCard,
+            card,
+            attackerFacingOppPrimary
+          );
           if (
             !mitigationBypassPrimary &&
             (card as any).hasBanjitgori &&
@@ -1837,28 +2084,51 @@ export function useSimulationLogic(cards: CardRow[]) {
           const barrierSplitPrimary = splitDamageThroughHpBarrier(
             card,
             actualPrimaryDamage,
-            isStartingWraithTrueStrikeBasicAttacker(attackerCard) ? { bypassAbsorption: true } : undefined
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
+              ? { bypassAbsorption: true }
+              : undefined
           );
           const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(
             card,
             hpAfterRawPrimary,
-            barrierSplitPrimary.damageToCurrentHp
+            barrierSplitPrimary.damageToCurrentHp,
+            getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
           );
           const newHp = resolvedPrimary.finalHp;
           const isDestroyed = resolvedPrimary.isDestroyed;
           const baekseuPatchPrimary = resolvedPrimary.patch;
 
-          const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
-          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualPrimaryDamage);
+          const morningMoodFacingOppPrimary = getUnitFacingOppAtSlot(
+            player,
+            slot as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          );
+          const morningMoodDeathHeal = isDestroyed
+            ? getMorningMoodDeathAllyHeal(card, morningMoodFacingOppPrimary)
+            : 0;
+          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+            card,
+            actualPrimaryDamage,
+            morningMoodFacingOppPrimary
+          );
 
           const attackerFieldForPakkiCurse =
             attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
           const pakkiDebuffPrimary =
             isDestroyed &&
-            card.name === PAKKI_ID &&
             attackerCard &&
-            canApplyPakkiKillDebuff(attackerFieldForPakkiCurse);
+            shouldApplyPakkiKillDebuffOnDeath(
+              card,
+              getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field),
+              attackerFieldForPakkiCurse,
+              {
+                allyPlayer: attackerPlayer,
+                playerAField: state!.playerA.field,
+                playerBField: state!.playerB.field,
+              }
+            );
 
           const willBeEmpty = isDestroyed && 
             (slot === "is" ? true : targetPlayerState.field.is === null) &&
@@ -1880,6 +2150,7 @@ export function useSimulationLogic(cards: CardRow[]) {
             player === "A" ? state!.playerA.field : state!.playerB.field;
           const keepWraithChainForNextEnemy = isStartingWraithBasicAttackChainKillEligible({
             attackerCard,
+            facingOppCard: attackerFacingOppPrimary,
             attackType,
             secondaryHits,
             isDestroyed,
@@ -1888,7 +2159,7 @@ export function useSimulationLogic(cards: CardRow[]) {
             killedSlot: slot as "is" | "m" | "os",
           });
           const wraithSeeksPlayerAfterClear =
-            isStartingWraithTrueStrikeBasicAttacker(attackerCard) &&
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary) &&
             attackType === "NORMAL" &&
             secondaryHits === 0 &&
             isDestroyed &&
@@ -1909,21 +2180,53 @@ export function useSimulationLogic(cards: CardRow[]) {
               Object.keys(baekseuPatchPrimary).length > 0
                 ? stripBaekseuHarmfulEffectsForInvuln(card)
                 : card;
-            const wraithChainSkipsGangupMark =
-              isStartingWraithChainFollowUp &&
-              isStartingWraithTrueStrikeBasicAttacker(attackerCard);
+            const wraithChainSkipsGangupMark = startingWraithChainFollowUpBypassesAntiGangup(
+              isStartingWraithChainFollowUp,
+              attackerCard,
+              getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                prev.playerA.field,
+                prev.playerB.field
+              )
+            );
             const updatedTarget = {
               ...baseTargetPrimary,
-              ...elixir5StunTargetPatch(attackerCard.name, actualPrimaryDamage, isDestroyed),
+              ...elixir5StunTargetPatch(
+                attackerCard,
+                actualPrimaryDamage,
+                isDestroyed,
+                getUnitFacingOppAtSlot(
+                  attackerPlayer,
+                  attackerSlotName,
+                  prev.playerA.field,
+                  prev.playerB.field
+                )
+              ),
               ...baekseuPatchPrimary,
               ...hpBarrierPatchFromRemaining(barrierSplitPrimary.nextBarrierRemaining),
               currentHp: newHp,
               ...(wraithChainSkipsGangupMark ? {} : { hasBeenAttackedThisTurn: true }),
             }; 
-            const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+            const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(
+              attackerCard,
+              isDestroyed,
+              getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                state!.playerA.field,
+                state!.playerB.field
+              )
+            );
             const defendFieldPrev = player === "A" ? prev.playerA.field : prev.playerB.field;
             const wraithChainContinues = isStartingWraithBasicAttackChainKillEligible({
               attackerCard,
+              facingOppCard: getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                prev.playerA.field,
+                prev.playerB.field
+              ),
               attackType,
               secondaryHits,
               isDestroyed,
@@ -2041,14 +2344,6 @@ export function useSimulationLogic(cards: CardRow[]) {
                msg = `🛡️ [방어력] 효과로 방어력이 적용되었습니다!\n` + msg;
             }
 
-            if (keepWraithChainForNextEnemy) {
-              msg +=
-                "\n\n시작의 망령 — 처치 연쇄! 같은 공격권으로 다음 적 유닛을 필드에서 선택하세요.";
-            } else if (wraithSeeksPlayerAfterClear) {
-              msg +=
-                "\n\n시작의 망령 — 적 필드가 비었습니다. 같은 공격권으로 상대 플레이어 HP를 선택하세요.";
-            }
-
             if ((attackType === "ADDITION" || attackType === "MULTIPLICATION") && secondaryHits > 0 && secondaryDamage > 0) {
               if (willBeEmpty) {
                 msg += `\n\n(적 필드의 모든 유닛이 파괴되어 연쇄 공격이 자동으로 중단됩니다.)`;
@@ -2119,11 +2414,35 @@ export function useSimulationLogic(cards: CardRow[]) {
       const [attackerPlayer, attackerSlotName] = attackingSlot.split("-");
       const attackerCard = (attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field)[attackerSlotName as "is"|"m"|"os"];
 
-      if (attackerCard && isRyeomcho(attackerCard)) {
+      if (
+        attackerCard &&
+        isRyeomchoSelfHealBasicAttackSealed(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer as "A" | "B",
+            attackerSlotName as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        )
+      ) {
         return targetPlayer === attackerPlayer && slotName === attackerSlotName;
       }
 
       if (attackerCard && isRanigo(attackerCard)) {
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer as "A" | "B",
+              attackerSlotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
+          return false;
+        }
         return (
           targetPlayer === attackerPlayer &&
           slotName !== "spell" &&
@@ -2162,7 +2481,17 @@ export function useSimulationLogic(cards: CardRow[]) {
           }
         }
 
-        if (attackerCard?.name === IVERSON_ID) {
+        if (
+          shouldEnforceIversonNearestEnemyTargeting(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer as "A" | "B",
+              attackerSlotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
           const allowed = getIversonClosestEnemyTargetSlots(
             attackerSlotName as "is" | "m" | "os",
             { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
@@ -2219,10 +2548,34 @@ export function useSimulationLogic(cards: CardRow[]) {
     if (attackingSlot) {
       const [attackerPlayer, attackerSlotName] = attackingSlot.split("-");
       const attackerCard = (attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field)[attackerSlotName as "is"|"m"|"os"];
-      if (attackerCard && isRyeomcho(attackerCard)) {
+      if (
+        attackerCard &&
+        isRyeomchoSelfHealBasicAttackSealed(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer as "A" | "B",
+            attackerSlotName as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        )
+      ) {
           return 'border-[3px] border-green-400 bg-green-500/20 shadow-[0_0_25px_rgba(74,222,128,0.9)] animate-pulse cursor-pointer z-20';
       }
       if (attackerCard && isRanigo(attackerCard)) {
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer as "A" | "B",
+              attackerSlotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
+          return "";
+        }
         return "border-[3px] border-emerald-400 bg-emerald-500/20 shadow-[0_0_25px_rgba(52,211,153,0.85)] animate-pulse cursor-pointer z-20";
       }
     }

@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
 import { CardRow, FieldCard } from "../../types/game";
 import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
@@ -17,6 +18,8 @@ import {
   parseAttack,
   validateAttack,
   isSilenced,
+  isConfused,
+  DINNER_OPP_CONFUSION_STATUS,
   isStunned,
   isTaunting,
 } from "../../utils/cardskills";
@@ -26,8 +29,13 @@ import {
   MOMO_SKILL_HEAL_AMOUNT,
   BATTLE_MSG,
   GHOSTONE_ID,
+  shouldShowGhostoneKillFullHealFeedback,
+  shouldShowGhostoneKillVisualFeedback,
   PHILIP_ID,
+  fieldSlotGrantsPhilipFacingSilence,
+  DINNER_ID,
   CHEOLGIBYEONG_ID,
+  isCheolgibyeongPassivesPausedByConfusion,
   DIAGO_ID,
   IRON_KIWI_ID,
   MORNING_MOOD_ID,
@@ -48,21 +56,33 @@ import {
   maryDefenseBuffActive,
   PAKKI_ID,
   scalePakkiOutgoingHit,
-  canApplyPakkiKillDebuff,
+  shouldApplyPakkiKillDebuffOnDeath,
   stripPakkiDebuffUnderImmunityOnClonedFields,
   PAKKI_ATTACK_DEBUFF_BADGE,
   getDarkKnightYorinAtkBonus,
   getMaxellandTenacityAtkBonus,
   isMaxellandTenacityStatusBadge,
   darkKnightSoulGaugeFull,
+  darkKnightSoulGaugeFullForCombat,
+  isDarkKnightPassivesPausedByConfusion,
+  shouldPlayDarkKnightKillVfx,
   maxellandTenacityGaugeFull,
+  maxellandTenacityGaugeFullForCombat,
+  isMaxellandTenacityPassivePausedByConfusion,
+  shouldPlayMaxellandKillVfx,
   fieldGrantsFocusedFireMultihitExemption,
   getMorningMoodDeathAllyHeal,
   hasMorningMoodAttackAura,
   hasPyredAttackAura,
+  buildPyredAuraFieldContext,
+  fieldHasActivePyredAuraSource,
   getStartingTreeAllyHealOnDamaged,
   isRyeomcho,
+  isRyeomchoPassivesPausedByConfusion,
+  isRyeomchoSelfHealBasicAttackSealed,
   isRanigo,
+  isRanigoAllyHealBasicAttackSealed,
+  resolveFieldUnitSimulationBaseAtkRawWithFacing,
   RANIGO_ALLY_BASIC_HEAL_AMOUNT,
   elixir5StunTargetPatch,
   applyEndTurnStunTickToFieldUnit,
@@ -74,8 +94,13 @@ import {
   iversonWaitGaugeFill01,
   isIversonAttackLocked,
   iversonLiberationLabel,
+  shouldEnforceIversonNearestEnemyTargeting,
+  shouldLiberateIversonWaitOnConfusion,
+  forceCompleteIversonSummonWait,
   MAENGSUGYEON_PO_ID,
   canEnemyFieldSourceTargetMaengsugyeonPo,
+  getUnitFacingOppAtSlot,
+  isMaengsugyeonPoFacingPassiveSuppressed,
   useGeunyangMojaHitFlame,
   useDiagoHitFlame,
   useMomoHitFlame,
@@ -101,6 +126,14 @@ import {
   CHEOLBYEOK_SPELL_ID,
   CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS,
   getActiveCheolbyeokInvulnTicksFromField,
+  HYUGESOJAUI_ANSIK_SPELL_ID,
+  HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER,
+  HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS,
+  applyHyugesojauiAnsikHealAttempt,
+  applyHyugesojauiAnsikTurnStartForOwner,
+  type HyugesojauiAnsikHealSlotResult,
+  type HyugesojauiAnsikCombatPatch,
+  type HyugesojauiAnsikTurnStartVfx,
   isInvulnerableFromBaekseuOrCheolbyeok,
   applyEndTurnToSpellStack,
   appendSpellToStack,
@@ -111,6 +144,9 @@ import {
   initializeLegendarySwordFieldCard,
   isLegendarySwordCharging,
   isLegendarySwordArmed,
+  forceCompleteLegendarySwordArming,
+  isLegendarySwordAbilityPausedByConfusion,
+  getLegendarySwordFacingOppAtSlot,
   stripLegendarySwordForRewind,
   LEGENDARY_SWORD_FIRST_HIT_DAMAGE,
   LEGENDARY_SWORD_HIT_PLAYER_MARK,
@@ -119,11 +155,24 @@ import {
   countLivingFieldUnits,
   resolveLegendarySwordStrikeOnUnit,
   isJipjungSagyeokSpellCard,
+  isMeteoSpellCard,
+  applyMeteoDamageToEnemyUnit,
+  HYPER_BEAM_SPELL_ID,
+  isHyperBeamSpellCard,
+  applyHyperBeamDamageToEnemyUnit,
   BUFF_BAN_BADGE,
   callieBuffBanSuppressesBuffsForVictim,
   getKalliVsDefenseTypePureBonus,
   kalliBasicAttackSkipsTargetMitigationVsDefenseType,
   startingHeraldBasicAttackIgnoresTauntTargetingRestrictions,
+  STARTING_HERALD_ID,
+  isStartingHeraldExclusiveBasicAttackTarget,
+  isStartingWraithTrueStrikeBasicAttacker,
+  isStartingWraithBasicAttackChainKillEligible,
+  isStartingWraithBasicAttackChainFollowUpPending,
+  startingWraithChainFollowUpBypassesAntiGangup,
+  isStartingWraithPassivesPausedByConfusion,
+  countOtherLivingDefenderUnits,
   applyEndTurnBaekseuInvulnTickToFieldUnit,
   isBaekseuInvulnerable,
   resolveBaekseuFatalDamage,
@@ -131,14 +180,43 @@ import {
   BAEKSEU_INVULN_BADGE,
   applyBaekseuInvulnThresholdExecutePass,
   cleanupSimulationUnitDeath,
+  suppressActiveSkillLinksForConfusion,
   isBaekseuLastStandExecuteAuraActiveOnUnit,
+  isBaekseuPassivesPausedByConfusion,
   fieldHasBaekseuLastStandExecuteAura,
   isLibuty,
   LIBUTY_BASIC_AOE_DAMAGE,
   LIBUTY_REFLECT_PURE_DAMAGE,
   computeLibutyReflectPureDamageOnAggressor,
   applyLibutyReflectPatchToAggressorCard,
+  shouldApplyLibutyBasicAttackReflect,
+  isHiddenSpellCard,
+  isRonuBlockingCasterActiveSpell,
+  forEachOpponentRonuLivingSlotKey,
+  isSuperTeslaSpellCard,
+  isAttackTypeSpellCard,
+  findActivatableSuperTeslaInSpellStack,
+  areHiddenSpellsOnFieldSuppressedByRyeomhwa,
+  isTauntSuppressedByRyeomhwaForUnitOwner,
+  removeSpellFromStackAtIndex,
+  superTeslaActivationTokenCost,
+  areAllUnitSlotsFilledOnBothFields,
+  findActivatableOneNightWagers,
+  getPlayerUnitSlotCosts,
+  resolveOneNightWagerHigherSumPlayer,
+  resolveOneNightWagerLoser,
+  applyOneNightWagerTokenSettlement,
+  removeAllOneNightWagersFromSpellStack,
+  GONCHUNG_JEONMOGA_ACTIVE,
+  GONCHUNG_HIDDEN_PEEK_SKILL_LABEL,
+  spellStackHasHiddenSpell,
+  fieldHasActiveSimpanSpellDrawPassive,
 } from "../../utils/battle";
+import {
+  GonchungSpellStackTopFace,
+  HiddenSpellCardBackFace,
+} from "./simulation/gonchungSpellFace";
+import OneNightWagerModal from "./SimulationView/modals/OneNightWagerModal";
 import "./simulation-combat-flash.css";
 import "./simulation-stun-swirl.css";
 import "./simulation-iverson-wait-aura.css";
@@ -207,8 +285,8 @@ interface SimulationState {
   simpanPeekReveal: {
     player: "A" | "B";
     pendingCard: CardRow;
-    /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장 */
-    peekKind?: "simpan" | "draw" | "opening";
+    /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장, "teslaDrawRewind" = 슈퍼 테슬라 보상 드로우(손패) */
+    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind";
   } | null;
   simpanPeekQueue: { player: "A" | "B"; pendingCard: CardRow }[];
   /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
@@ -301,6 +379,110 @@ const SIMPAN_PEEK_HAND_FLY_MS = 600;
 const OPENING_PEEK_PREVIEW_MS = 0;
 const OPENING_PEEK_HAND_FLY_MS = 280;
 
+/** 손패 스펠 사용 — 중앙 프리뷰·슈퍼 테슬라 카운터 연출 */
+const SPELL_USAGE_PREVIEW_MS = 1750;
+const SPELL_USAGE_HAND_FLY_MS = 600;
+const SPELL_SLOT_PLACE_FLY_MS = 650;
+const SUPER_TESLA_COUNTER_AT_MS = 1000;
+const SUPER_TESLA_BLACKOUT_AT_MS = 1700;
+const SPELL_USAGE_PREVIEW_TESLA_MS = 2800;
+const SUPER_TESLA_REWARD_DRAW_DELAY_MS = 1300;
+const TESLA_DRAW_PEEK_MS = 1750;
+/** 한날 밤의 내기 — 비교 팝업 표시 후 닫힘 */
+const ONE_NIGHT_WAGER_POPUP_VISIBLE_MS = 6000;
+/** 팝업 닫힌 뒤 패배자 토큰 소거 연출까지 대기 */
+const ONE_NIGHT_WAGER_TOKEN_WIPE_DELAY_MS = 750;
+const SPELL_USAGE_CENTER_KEY = "spell-usage-center";
+
+function spellUsageCasterHaloLayerClass(player: "A" | "B", layer: 1 | 2): string {
+  const anim =
+    layer === 1
+      ? "[animation:spellUsageCasterHaloPulse_1.06s_ease-in-out_infinite]"
+      : "[animation:spellUsageCasterHaloPulseAlt_0.78s_ease-in-out_infinite]";
+  const size =
+    layer === 1
+      ? "aspect-square w-[min(88vw,26rem)] blur-[42px] md:blur-[52px]"
+      : "aspect-square w-[min(72vw,20rem)] blur-[32px] md:blur-[40px]";
+  const tone =
+    player === "A"
+      ? layer === 1
+        ? "bg-sky-500/48 shadow-[0_0_110px_rgba(14,165,233,0.55),0_0_170px_rgba(59,130,246,0.3)]"
+        : "bg-sky-400/36 shadow-[0_0_80px_rgba(56,189,248,0.42)]"
+      : layer === 1
+        ? "bg-red-500/45 shadow-[0_0_110px_rgba(239,68,68,0.52),0_0_170px_rgba(220,38,38,0.28)]"
+        : "bg-red-400/34 shadow-[0_0_80px_rgba(248,113,113,0.38)]";
+  return `absolute left-1/2 top-1/2 rounded-full ${size} ${anim} ${tone}`;
+}
+
+function spellUsageCasterCardShellClass(player: "A" | "B"): string {
+  return player === "A"
+    ? "border-sky-300/95 shadow-[0_0_28px_rgba(56,189,248,0.55),0_0_48px_rgba(14,165,233,0.3)]"
+    : "border-rose-300/95 shadow-[0_0_28px_rgba(251,113,133,0.55),0_0_48px_rgba(239,68,68,0.3)]";
+}
+
+type SpellUsageRevealVisualState = {
+  casterPlayer: "A" | "B";
+  previewCard: CardRow;
+  centerShowsCardBack?: boolean;
+};
+
+type SpellUsageFlyVisualState = {
+  casterPlayer: "A" | "B";
+  previewCard: CardRow;
+  targetPlayer: "A" | "B";
+  unitSlot: "is" | "m" | "os" | "spell";
+  flyTarget: "unit" | "spellSlot";
+  centerShowsCardBack?: boolean;
+  from: { x: number; y: number; w: number; h: number };
+  to: { x: number; y: number; w: number; h: number };
+  phase: 0 | 1;
+  flyMs?: number;
+};
+
+type SpellUsagePending = {
+  casterPlayer: "A" | "B";
+  previewCard: CardRow;
+  mode: "handUnitTarget" | "placeSpellSlot";
+  targetPlayer?: "A" | "B";
+  unitSlot?: "is" | "m" | "os";
+  centerShowsCardBack?: boolean;
+  flyToUnitAfterReveal?: boolean;
+  flyToSpellSlotAfterReveal?: boolean;
+  preApply: (prev: SimulationState) => SimulationState;
+  commit: (prev: SimulationState) => SimulationState;
+  afterCommitVfx?: () => void;
+  superTeslaCounter?: {
+    counterPlayer: "A" | "B";
+    teslaCard: FieldCard;
+    teslaStackIndex: number;
+  };
+};
+
+function resolveSuperTeslaCounter(
+  snap: SimulationState,
+  casterPlayer: "A" | "B"
+): NonNullable<SpellUsagePending["superTeslaCounter"]> | null {
+  const counterPlayer = casterPlayer === "A" ? "B" : "A";
+  if (
+    areHiddenSpellsOnFieldSuppressedByRyeomhwa(
+      counterPlayer,
+      snap.playerA.field,
+      snap.playerB.field
+    )
+  ) {
+    return null;
+  }
+  const counterField = counterPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+  const tokens = counterPlayer === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+  const match = findActivatableSuperTeslaInSpellStack(counterField, tokens);
+  if (!match) return null;
+  return {
+    counterPlayer,
+    teslaCard: match.teslaCard,
+    teslaStackIndex: match.stackIndex,
+  };
+}
+
 function isSpellCardRow(row: CardRow): boolean {
   const typeStr = String(row.type || "").toLowerCase();
   const categoryStr = String(row.category || "").toLowerCase();
@@ -314,19 +496,67 @@ function isSpellCardRow(row: CardRow): boolean {
   );
 }
 
-/** 스펠 No.7 언덕! / No.19 번개 / No.31 소멸 — 적 유닛 슬롯에 드래그하여 발동 */
-function isEnemyUnitDragTargetSpell(row: CardRow): boolean {
-  return (
-    isSpellCardRow(row) &&
-    (row.name === EONDEOK_SPELL_ID || row.name === BEONGGAE_SPELL_ID || row.name === SOMYEOL_SPELL_ID)
+/** 자기 스펠 칸에 올릴 수 있는 손패 스펠(적 유닛 타겟·오리에트 초상 제외) */
+function canHandDragPlaceSpellOnOwnSpellSlot(
+  drag: { player: "A" | "B"; card: CardRow },
+  snap: SimulationState,
+  targetPlayer: "A" | "B"
+): boolean {
+  if (!isSpellCardRow(drag.card)) return false;
+  if (snap.currentTurn !== drag.player) return false;
+  if (targetPlayer !== drag.player) return false;
+  if (isEnemyUnitDragTargetSpell(drag.card)) return false;
+  if (isOrietChosangSpellCard(drag.card)) return false;
+  const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+  const cost = isHiddenSpellCard(drag.card) ? 0 : Number(drag.card.cost) || 0;
+  if (tokens < cost) return false;
+  if (
+    isRonuBlockingCasterActiveSpell(
+      drag.player,
+      drag.card,
+      snap.playerA.field,
+      snap.playerB.field
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** 로누(No.20) — 상대 필드에 비혼란 로누가 있을 때 히든이 아닌 손패 스펠 착지 차단 */
+function isRonuBlockingSpellHandPlayAt(
+  snap: SimulationState,
+  drag: { player: "A" | "B"; card: CardRow }
+): boolean {
+  if (snap.currentTurn !== drag.player) return false;
+  return isRonuBlockingCasterActiveSpell(
+    drag.player,
+    drag.card,
+    snap.playerA.field,
+    snap.playerB.field
   );
 }
 
-/** 마주보는 슬롯에 상대 필립이 살아 있으면 true (패시브 시각용) */
-function oppSlotHasLivePhilip(sim: SimulationState, player: "A" | "B", slot: "is" | "m" | "os"): boolean {
+/** 스펠 No.7 언덕! / No.19 번개 / No.31 소멸 / No.34 하이퍼 빔 — 적 유닛 슬롯에 드래그하여 발동 */
+function isEnemyUnitDragTargetSpell(row: CardRow): boolean {
+  return (
+    isSpellCardRow(row) &&
+    (row.name === EONDEOK_SPELL_ID ||
+      row.name === BEONGGAE_SPELL_ID ||
+      row.name === SOMYEOL_SPELL_ID ||
+      row.name === HYPER_BEAM_SPELL_ID ||
+      isHyperBeamSpellCard(row))
+  );
+}
+
+function facingOppUnitAtSlot(
+  sim: SimulationState,
+  player: "A" | "B",
+  slot: "is" | "m" | "os"
+): FieldCard | null {
   const opp = player === "A" ? "B" : "A";
   const f = opp === "A" ? sim.playerA.field : sim.playerB.field;
-  return f[slot]?.name === PHILIP_ID;
+  return f[slot] ?? null;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -336,6 +566,8 @@ type CombatDamagePopupExtras = {
   maxellandFullGaugeVictimDamageOutline?: true;
   /** 캘리 vs [방어형] — 추가 고정 피해 포함 시 밝은 회색 플로팅 */
   kalliVsDefensePureDamageText?: true;
+  /** 시작의 망령 트루 스트라이크 기본 공격 — 어두운 회색 플로팅 */
+  startingWraithTrueStrikeDamageText?: true;
 };
 
 function mergeKalliPureDamageFloat(
@@ -347,6 +579,13 @@ function mergeKalliPureDamageFloat(
   return { ...base, kalliVsDefensePureDamageText: true };
 }
 
+function mergeStartingWraithTrueStrikeDamageFloat(
+  base?: CombatDamagePopupExtras
+): CombatDamagePopupExtras | undefined {
+  if (!base) return { startingWraithTrueStrikeDamageText: true };
+  return { ...base, startingWraithTrueStrikeDamageText: true };
+}
+
 type CombatPopupEntry =
   | {
       id: number;
@@ -355,6 +594,7 @@ type CombatPopupEntry =
       dkFullGaugeNavyDamageText?: true;
       maxellandFullGaugeVictimDamageOutline?: true;
       kalliVsDefensePureDamageText?: true;
+      startingWraithTrueStrikeDamageText?: true;
     }
   | { id: number; kind: "heal"; amount: number }
   | { id: number; kind: "banjitgoriBuff"; lines: readonly string[] }
@@ -368,12 +608,12 @@ type CombatPopupEntry =
    * 발행은 `pushInfoFloat(slotKey, text, durationMs, tone?)` — `tone` 생략 시 흰색, `"executeGray"` 시 백스 처형용 회색.
    * 동일 슬롯에 같은 `text`가 이미 떠 있으면 `pushInfoFloat`가 기존 항목을 즉시 제거한 뒤 새로 연다.
    */
-  | { id: number; kind: "infoFloat"; text: string; durationMs: number; tone?: "executeGray" };
+  | { id: number; kind: "infoFloat"; text: string; durationMs: number; tone?: "executeGray" | "skyBlue" };
 
 /**
  * 카드 섬광 레이어(z-22) — 플로팅 숫자 종류와 별개로 플래시만 구분.
  * 능력 발동 이펙트: 카드 테두리 밖까지 이어지는 정사각형 형태 짧은 명멸.
- * — ghostoneKill(고스톤 처치), philipSummon(필립 소환·패시브 맺음),
+ * — ghostoneKill(고스톤 처치), philipSummon(필립 소환·패시브 맺음), dinnerSummon(디너 소환·패시브 맺음·핑크),
  * — cheolgibyeongSummon(철기병 소환 및 같은 진영 아군 지연 연출 재사용),
  * — ryeomchoSummon(렴초 소환 — 철기병과 동일 규격·아군 지연, 베이지 톤),
  * — diagoSummon(다이아고 소환 — 철기병과 동형 연출·연두 톤, 아군 전원 동시 발동),
@@ -393,9 +633,12 @@ type CombatPopupEntry =
  * — pakkiDeathCurse(패키 처치 시 — 필립 소환과 동형 능력 발동 명멸·노랑·주황만 다름; 대상은 붉은 피격 대신 즉시, 처치자는 저주 부여 시).
  * — eondeokSpell(스펠 No.7 언덕! 적 유닛 적중 — 밝은 하늘·시안 능력 발동 이펙트).
  * — beonggaeSpell(스펠 No.19 번개 적 유닛 적중 — 파랑 능력 발동 이펙트).
+ * — meteoSpellHit(스펠 No.21 메테오 적중 — 고스톤 처치와 동형·주황빛).
+ * — hyperBeamSpellHit(스펠 No.34 하이퍼 빔 적중 — 고스톤과 동형·노란색).
  * — somyeolSpellErase(스펠 No.31 소멸 — 적 즉시 제거, 고스톤 처치와 동형 규격·파랑·시안).
  * — danhaMagicHook(단하「마법의 갈고리」— 고스톤 처치와 동형·하늘색).
  * — superGreenKingSpellBreaker(슈퍼 그린킹「주문 파괴자」— 고스톤 처치와 동형 규격·녹색; 스펠 칸은 가로 타원 전용 레이어).
+ * — gonchungHiddenPeek(곤충 전문가「A) 탐색」— 슈퍼 그린킹 스펠 칸 동형·연두).
  * — kalliBuffBan(캘리 [버프 금지] 부여 — 고스톤 능력 발동과 동형·밝은 회색).
  * (damage / heal / philipBasicHit / cheolgibyeongBasicHit 는 동형이 아님.)
  */
@@ -403,7 +646,9 @@ type FlashOverlayKind =
   | "damage"
   | "heal"
   | "ghostoneKill"
+  | "startingWraithChainKill"
   | "philipSummon"
+  | "dinnerSummon"
   | "cheolgibyeongSummon"
   | "ryeomchoSummon"
   | "diagoSummon"
@@ -427,12 +672,20 @@ type FlashOverlayKind =
   | "spellBangEomakAllyPulse"
   | "spellJipjungAllyPulse"
   | "spellCheolbyeokAllyPulse"
+  | "spellHyugesojauiAnsikAllyPulse"
   | "orietShieldAllyPulse"
+  | "ronuPassiveSpellBlock"
+  | "meteoSpellHit"
+  | "hyperBeamSpellHit"
   | "beonggaeSpell"
   | "somyeolSpellErase"
   | "danhaMagicHook"
   | "legendarySwordSkill"
   | "superGreenKingSpellBreaker"
+  | "gonchungHiddenPeek"
+  | "superTeslaSpellTrigger"
+  | "oneNightWagerSpellTrigger"
+  | "oneNightWagerTokenWipe"
   | "kalliBuffBan";
 
 /** 플래시 오버레이 메타(슬롯당 1개) */
@@ -476,13 +729,6 @@ function clearPpSimHandNewGlowInStateByToken(prev: SimulationState, token: strin
   };
 }
 
-function fieldHasLiveSimpan(field: PlayerState["field"]): boolean {
-  return (["is", "m", "os"] as const).some(k => {
-    const u = field[k];
-    return !!u && u.name === UNIT.SIMPAN && (u.currentHp ?? 0) > 0;
-  });
-}
-
 function promoteSimpanAfterClearChoice(prev: SimulationState): SimulationState {
   const q = [...(prev.simpanHandChoiceQueue ?? [])];
   let next: SimulationState;
@@ -510,7 +756,8 @@ function primeSimpanPeekReveal(s: SimulationState): SimulationState {
 
 function mergeOnePlayerSimpanDraw(s: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
   const field = playerLetter === "A" ? s.playerA.field : s.playerB.field;
-  if (!fieldHasLiveSimpan(field)) return s;
+  const oppField = playerLetter === "A" ? s.playerB.field : s.playerA.field;
+  if (!fieldHasActiveSimpanSpellDrawPassive(field, oppField)) return s;
   if (s.deckCards.length === 0) return s;
 
   const deck = [...s.deckCards];
@@ -652,6 +899,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     phase: 1 | 2;
     hitTargets: string[];
   } | null>(null);
+  const [pendingStartingWraithChainKill, setPendingStartingWraithChainKill] = useState<{
+    attackerPlayer: "A" | "B";
+    attackerSlotName: "is" | "m" | "os";
+  } | null>(null);
+  const [pendingStartingWraithChainPlayerHp, setPendingStartingWraithChainPlayerHp] =
+    useState(false);
   const legendarySwordAutoOpenResolvedKeyRef = useRef<string | null>(null);
   
   const [pendingSkill, setPendingSkill] = useState<{
@@ -659,6 +912,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     slot: "is" | "m" | "os";
     name: string;
   } | null>(null);
+
+  const [gonchungHiddenReveal, setGonchungHiddenReveal] = useState<{
+    player: "A" | "B";
+    spellStatsInstanceId: string;
+  } | null>(null);
+  const gonchungHiddenRevealTimerRef = useRef<number | null>(null);
 
   const [attackOptionOverride, setAttackOptionOverride] = useState<string | null>(null);
   const [isRewindModalOpen, setIsRewindModalOpen] = useState(false);
@@ -669,6 +928,29 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
   const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
+  const [spellUsageReveal, setSpellUsageReveal] = useState<SpellUsageRevealVisualState | null>(null);
+  const [spellUsageRevealTick, setSpellUsageRevealTick] = useState(0);
+  const [spellUsageFly, setSpellUsageFly] = useState<SpellUsageFlyVisualState | null>(null);
+  const [spellUsageTeslaHideOppCenterCard, setSpellUsageTeslaHideOppCenterCard] = useState(false);
+  const [spellUsageTeslaFlipPlayer, setSpellUsageTeslaFlipPlayer] = useState<"A" | "B" | null>(null);
+  const [spellUsageTeslaFieldCard, setSpellUsageTeslaFieldCard] = useState<FieldCard | null>(null);
+  const [spellUsageHiddenRevealCards, setSpellUsageHiddenRevealCards] = useState<
+    Partial<Record<"A" | "B", FieldCard>> | null
+  >(null);
+  const [oneNightWagerModal, setOneNightWagerModal] = useState<{
+    costsA: ReturnType<typeof getPlayerUnitSlotCosts>;
+    costsB: ReturnType<typeof getPlayerUnitSlotCosts>;
+    glowPlayer: "A" | "B" | null;
+  } | null>(null);
+  const spellUsagePendingRef = useRef<SpellUsagePending | null>(null);
+  const oneNightWagerSequenceActiveRef = useRef(false);
+  const spellUsageMotionActiveRef = useRef(false);
+  const spellUsageRevealTimerRef = useRef<number | null>(null);
+  const spellUsageTeslaCounterTimerRef = useRef<number | null>(null);
+  const spellUsageTeslaBlackoutTimerRef = useRef<number | null>(null);
+  const spellUsageCardMeasureRef = useRef<HTMLDivElement | null>(null);
+  const spellUsageRevealTransitionStartedRef = useRef(false);
+  const spellUsageCenterFlashRef = useRef<HTMLDivElement | null>(null);
   const simpanPeekCardMeasureRef = useRef<HTMLDivElement | null>(null);
   const handSlotOuterRefsA = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const handSlotOuterRefsB = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
@@ -678,6 +960,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
   /** 게임 시작 초기 드로우 1장 연출 완료 시 resolve */
   const openingDrawWaitRef = useRef<(() => void) | null>(null);
+  const openingSkipRequestedRef = useRef(false);
+  const openingCoinFlipIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simulationStateRef = useRef<SimulationState | null>(null);
   const winnerStateRef = useRef<"A" | "B" | null>(null);
 
@@ -718,7 +1002,118 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
   };
 
-  /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸 적 유닛 / 자기 스펠칸(방어막 등) */
+  const scheduleTeslaRewardDrawPeek = useCallback((counterPlayer: "A" | "B") => {
+    setState(prev => {
+      if (!prev || prev.deckCards.length === 0) return prev;
+      const deck = [...prev.deckCards];
+      const drawn = deck.pop()!;
+      return {
+        ...prev,
+        deckCards: deck,
+        simpanPeekReveal: {
+          player: counterPlayer,
+          pendingCard: stripPpSimHandNewGlow(drawn),
+          peekKind: "teslaDrawRewind",
+        },
+        simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+      };
+    });
+  }, []);
+
+  const runSuperTeslaCounterCommit = useCallback(() => {
+    const pending = spellUsagePendingRef.current;
+    if (!pending?.superTeslaCounter) return;
+    const { counterPlayer, teslaStackIndex } = pending.superTeslaCounter;
+    const previewCard = pending.previewCard;
+    setState(prev => {
+      if (!prev) return prev;
+      const counterIsA = counterPlayer === "A";
+      const counterPs = counterIsA ? prev.playerA : prev.playerB;
+      const stack = normalizeSpellStack(counterPs.field);
+      const at = stack[teslaStackIndex];
+      if (!at || !isSuperTeslaSpellCard(at)) return prev;
+      const teslaCost = superTeslaActivationTokenCost(at);
+      if (counterPs.tokens < teslaCost) return prev;
+      const newStack = removeSpellFromStackAtIndex(stack, teslaStackIndex);
+      const counterKey = counterIsA ? "playerA" : "playerB";
+      const updatedCounter = {
+        ...counterPs,
+        tokens: counterPs.tokens - teslaCost,
+        field: { ...counterPs.field, spellStack: newStack },
+      };
+      return {
+        ...prev,
+        rewindCards: [...prev.rewindCards, previewCard, at],
+        [counterKey]: updatedCounter,
+      };
+    });
+    window.setTimeout(() => {
+      scheduleTeslaRewardDrawPeek(counterPlayer);
+    }, SUPER_TESLA_REWARD_DRAW_DELAY_MS);
+  }, [scheduleTeslaRewardDrawPeek]);
+
+  const finishSpellUsageSequence = useCallback(() => {
+    const pending = spellUsagePendingRef.current;
+    if (!pending) {
+      spellUsageMotionActiveRef.current = false;
+      setSpellUsageReveal(null);
+      setSpellUsageTeslaHideOppCenterCard(false);
+      setSpellUsageTeslaFlipPlayer(null);
+      setSpellUsageTeslaFieldCard(null);
+      return;
+    }
+    if (pending.superTeslaCounter) {
+      runSuperTeslaCounterCommit();
+      spellUsagePendingRef.current = null;
+      spellUsageMotionActiveRef.current = false;
+      setSpellUsageReveal(null);
+      setSpellUsageTeslaHideOppCenterCard(false);
+      setSpellUsageTeslaFlipPlayer(null);
+      setSpellUsageTeslaFieldCard(null);
+      return;
+    }
+    /* 플라이 종료 등 setTimeout 경로에서는 commit 업데이터가 afterCommitVfx보다 늦게 돌 수 있음 */
+    flushSync(() => {
+      setState(prev => {
+        if (!prev) return prev;
+        return pending.commit(prev);
+      });
+    });
+    pending.afterCommitVfx?.();
+    spellUsagePendingRef.current = null;
+    spellUsageMotionActiveRef.current = false;
+    setSpellUsageReveal(null);
+    setSpellUsageTeslaHideOppCenterCard(false);
+    setSpellUsageTeslaFlipPlayer(null);
+    setSpellUsageTeslaFieldCard(null);
+  }, [runSuperTeslaCounterCommit]);
+
+  const scheduleSpellHandUsageSequence = useCallback(
+    (snap: SimulationState, params: Omit<SpellUsagePending, "superTeslaCounter">) => {
+      const snapForTeslaCounter = simulationStateRef.current ?? snap;
+      const superTeslaCounter = isAttackTypeSpellCard(params.previewCard)
+        ? resolveSuperTeslaCounter(snapForTeslaCounter, params.casterPlayer)
+        : null;
+      spellUsagePendingRef.current = {
+        ...params,
+        superTeslaCounter: superTeslaCounter ?? undefined,
+      };
+      spellUsageMotionActiveRef.current = true;
+      setSpellUsageTeslaHideOppCenterCard(false);
+      setSpellUsageTeslaFlipPlayer(null);
+      setSpellUsageTeslaFieldCard(superTeslaCounter?.teslaCard ?? null);
+      setState(prev => (prev ? params.preApply(prev) : prev));
+      setSpellUsageReveal({
+        casterPlayer: params.casterPlayer,
+        previewCard: params.previewCard,
+        centerShowsCardBack: params.centerShowsCardBack,
+      });
+      setSpellUsageRevealTick(t => t + 1);
+    },
+    []
+  );
+
+  /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸·하이퍼 빔 적 유닛 / 자기 스펠칸(방어막 등) */
   const resolveHandDragHoverFieldKey = (clientX: number, clientY: number): string | null => {
     const drag = activeHandDragRef.current;
     const snap = simulationStateRef.current;
@@ -742,6 +1137,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
       const cost = Number(drag.card.cost) || 0;
       if (tokens < cost) return null;
+      if (isRonuBlockingSpellHandPlayAt(snap, drag)) return null;
       return `${targetPlayer}-${slot}`;
     }
 
@@ -758,6 +1154,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
       const cost = Number(drag.card.cost) || 0;
       if (tokens < cost) return null;
+      if (isRonuBlockingSpellHandPlayAt(snap, drag)) return null;
       return `${targetPlayer}-${slot}`;
     }
 
@@ -767,12 +1164,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       targetPlayer === drag.player &&
       slot === "spell"
     ) {
-      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
-      if (isEnemyUnitDragTargetSpell(drag.card)) return null;
-      if (isOrietChosangSpellCard(drag.card)) return null;
-      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
-      const cost = Number(drag.card.cost) || 0;
-      if (tokens < cost) return null;
+      if (!canHandDragPlaceSpellOnOwnSpellSlot(drag, snap, targetPlayer)) return null;
       return `${targetPlayer}-spell`;
     }
 
@@ -846,7 +1238,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     if (!state) return;
     const refMap = lastDarkKnightSoulGaugeBySlotRef.current;
     const bumped: string[] = [];
-    const consider = (slotKey: string, card: FieldCard | null) => {
+    const consider = (
+      slotKey: string,
+      card: FieldCard | null,
+      owner: "A" | "B",
+      slot: "is" | "m" | "os"
+    ) => {
       if (!card || card.name !== DARK_KNIGHT_ID) {
         delete refMap[slotKey];
         return;
@@ -854,14 +1251,22 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const g = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
       const prevG = refMap[slotKey];
       refMap[slotKey] = g;
-      if (prevG !== undefined && g > prevG) bumped.push(slotKey);
+      const facing =
+        owner === "A" ? state.playerB.field[slot] ?? null : state.playerA.field[slot] ?? null;
+      if (
+        prevG !== undefined &&
+        g > prevG &&
+        !isDarkKnightPassivesPausedByConfusion(card, facing)
+      ) {
+        bumped.push(slotKey);
+      }
     };
-    consider("A-is", state.playerA.field.is);
-    consider("A-m", state.playerA.field.m);
-    consider("A-os", state.playerA.field.os);
-    consider("B-is", state.playerB.field.is);
-    consider("B-m", state.playerB.field.m);
-    consider("B-os", state.playerB.field.os);
+    consider("A-is", state.playerA.field.is, "A", "is");
+    consider("A-m", state.playerA.field.m, "A", "m");
+    consider("A-os", state.playerA.field.os, "A", "os");
+    consider("B-is", state.playerB.field.is, "B", "is");
+    consider("B-m", state.playerB.field.m, "B", "m");
+    consider("B-os", state.playerB.field.os, "B", "os");
     if (bumped.length === 0) return;
     setDarkKnightGaugeChargePulseBySlot(prev => {
       const next = { ...prev };
@@ -936,7 +1341,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     heal: 700,
     // 능력 발동 이펙트(정사각 명멸) 유지 시간 — 고스톤·필립·철기병·렴초·다이아고·에리스티나
     ghostoneKill: 820,
+    startingWraithChainKill: 820,
     philipSummon: 820,
+    dinnerSummon: 820,
     cheolgibyeongSummon: 820,
     ryeomchoSummon: 820,
     diagoSummon: 820,
@@ -958,7 +1365,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellBangEomakAllyPulse: 820,
     spellJipjungAllyPulse: 820,
     spellCheolbyeokAllyPulse: 820,
+    spellHyugesojauiAnsikAllyPulse: 820,
     orietShieldAllyPulse: 820,
+    ronuPassiveSpellBlock: 820,
+    meteoSpellHit: 820,
+    hyperBeamSpellHit: 820,
     beonggaeSpell: 1500,
     somyeolSpellErase: 820,
     philipBasicHit: 700,
@@ -966,6 +1377,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     danhaMagicHook: 820,
     legendarySwordSkill: 820,
     superGreenKingSpellBreaker: 820,
+    gonchungHiddenPeek: 820,
+    superTeslaSpellTrigger: 980,
+    oneNightWagerSpellTrigger: 980,
+    oneNightWagerTokenWipe: 900,
     kalliBuffBan: 820,
   };
 
@@ -984,6 +1399,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }, FLASH_CLEAR_MS[kind]);
   };
 
+  const playHyugesojauiAnsikAllyPulseAndHealVfx = (
+    allyPlayer: "A" | "B",
+    perSlot: readonly HyugesojauiAnsikHealSlotResult[]
+  ) => {
+    if (perSlot.length === 0) return;
+    for (const s of perSlot) {
+      const key = `${allyPlayer}-${s.slot}`;
+      triggerCardFlash(key, "spellHyugesojauiAnsikAllyPulse");
+      if (s.healed > 0) showHealNumber(key, s.healed, { skipHealFlash: true });
+    }
+  };
+
   useEffect(() => {
     if (!state) return;
     const slots = ["A-is", "A-m", "A-os", "B-is", "B-m", "B-os"] as const;
@@ -994,7 +1421,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const now =
         !!card &&
         card.name === MARY_ID &&
-        maryDefenseBuffActive(card, state.playerA.field, state.playerB.field, key);
+        maryDefenseBuffActive(
+          card,
+          state.playerA.field,
+          state.playerB.field,
+          key,
+          facingOppUnitAtSlot(state, p, s)
+        );
       const prev = prevMap[key];
       if (now && !prev) {
         triggerCardFlash(key, "maryDefenseBuff");
@@ -1012,6 +1445,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       setPendingSkill(null);
     }
   }, [state, pendingSkill]);
+
+  useEffect(() => {
+    if (!state || !pendingSkill || pendingSkill.name !== PENDING_SKILL.GONCHUNG_HIDDEN_PEEK) return;
+    const { player, slot } = pendingSkill;
+    const f = player === "A" ? state.playerA.field : state.playerB.field;
+    const u = f[slot as "is" | "m" | "os"];
+    if (!u || u.name !== UNIT.GONCHUNG_JEONMOGA) {
+      setPendingSkill(null);
+    }
+  }, [state, pendingSkill]);
+
+  useEffect(() => {
+    return () => {
+      if (gonchungHiddenRevealTimerRef.current != null) {
+        window.clearTimeout(gonchungHiddenRevealTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!state) return;
@@ -1041,7 +1492,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const prev = refMap[key];
       if (card?.name === IVERSON_ID) {
         const cur = card.iversonSummonWaitEndTurnTicksRemaining;
-        if (prev === 1 && cur === undefined) {
+        if ((prev ?? 0) > 0 && (cur ?? 0) <= 0) {
           triggerCardFlash(key, "iversonAttackReady");
         }
         refMap[key] = cur;
@@ -1050,6 +1501,45 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
     }
   }, [state]);
+
+  /** 아이버슨 — [혼란] 부여 시 소환 대기 즉시 해방 */
+  useEffect(() => {
+    if (!state) return;
+    setState(prev => {
+      if (!prev) return prev;
+      let changed = false;
+      const nextA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const nextB = { ...prev.playerB, field: { ...prev.playerB.field } };
+      const slots = ["is", "m", "os"] as const;
+
+      const tryLiberate = (
+        owner: "A" | "B",
+        field: typeof prev.playerA.field,
+        outField: typeof nextA.field
+      ) => {
+        for (const slot of slots) {
+          const card = field[slot];
+          if (!card || card.name !== IVERSON_ID) continue;
+          const facing = getUnitFacingOppAtSlot(owner, slot, prev.playerA.field, prev.playerB.field);
+          if (!shouldLiberateIversonWaitOnConfusion(card, facing)) continue;
+          outField[slot] = forceCompleteIversonSummonWait(card);
+          changed = true;
+        }
+      };
+
+      tryLiberate("A", prev.playerA.field, nextA.field);
+      tryLiberate("B", prev.playerB.field, nextB.field);
+      if (!changed) return prev;
+      return { ...prev, playerA: nextA, playerB: nextB };
+    });
+  }, [
+    state?.playerA.field.is,
+    state?.playerA.field.m,
+    state?.playerA.field.os,
+    state?.playerB.field.is,
+    state?.playerB.field.m,
+    state?.playerB.field.os,
+  ]);
 
   useEffect(() => {
     if (!state) return;
@@ -1069,13 +1559,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const baekseuExecuteFieldsSig = useMemo(() => {
     if (!state) return "";
-    const u = (c: FieldCard | null) =>
+    const u = (c: FieldCard | null, facing: FieldCard | null) =>
       c
-        ? `${c.currentHp};${Number(c.hp) || 0};${c.baekseuInvulnerableEndTurnTicksRemaining ?? 0};${c.baekseuLastStandUsed ? 1 : 0}`
+        ? `${c.currentHp};${Number(c.hp) || 0};${c.baekseuInvulnerableEndTurnTicksRemaining ?? 0};${c.baekseuLastStandUsed ? 1 : 0};${isBaekseuPassivesPausedByConfusion(c, facing) ? 1 : 0}`
         : "x";
-    const pack = (f: (typeof state)["playerA"]["field"]) =>
-      [u(f.is), u(f.m), u(f.os)].join("/");
-    return `${pack(state.playerA.field)}|${pack(state.playerB.field)}`;
+    const pack = (
+      f: (typeof state)["playerA"]["field"],
+      opp: (typeof state)["playerA"]["field"]
+    ) => [u(f.is, opp.is), u(f.m, opp.m), u(f.os, opp.os)].join("/");
+    return `${pack(state.playerA.field, state.playerB.field)}|${pack(state.playerB.field, state.playerA.field)}`;
   }, [state?.playerA.field, state?.playerB.field]);
 
   const gameStatsDisplayUnitRows = useMemo((): UnitCombatStatsRow[] => {
@@ -1163,6 +1655,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               : {}),
             ...(damageExtras?.kalliVsDefensePureDamageText
               ? { kalliVsDefensePureDamageText: true as const }
+              : {}),
+            ...(damageExtras?.startingWraithTrueStrikeDamageText
+              ? { startingWraithTrueStrikeDamageText: true as const }
               : {}),
           }
         : { id, kind, amount };
@@ -1310,13 +1805,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     slotKey: string,
     text: string,
     durationMs: number,
-    tone?: "default" | "executeGray"
+    tone?: "default" | "executeGray" | "skyBlue"
   ) => {
     const id = ++combatPopupIdRef.current;
     const entry: CombatPopupEntry =
       tone === "executeGray"
         ? { id, kind: "infoFloat", text, durationMs, tone: "executeGray" }
-        : { id, kind: "infoFloat", text, durationMs };
+        : tone === "skyBlue"
+          ? { id, kind: "infoFloat", text, durationMs, tone: "skyBlue" }
+          : { id, kind: "infoFloat", text, durationMs };
     setCombatPopups(prev => {
       const list = prev[slotKey] ?? [];
       const withoutSameText = list.filter(
@@ -1324,7 +1821,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           !(
             e.kind === "infoFloat" &&
             e.text === text &&
-            (e.tone === "executeGray") === (tone === "executeGray")
+            e.tone === (tone === "executeGray" ? "executeGray" : tone === "skyBlue" ? "skyBlue" : undefined)
           )
       );
       return {
@@ -1344,6 +1841,31 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return { ...prev, [slotKey]: next };
       });
     }, durationMs);
+  };
+
+  /** 로누 패시브 — 액티브 스펠 차단 시 로누 슬롯 하늘색 능력 발동 + 시스템 플로팅 */
+  const blockRonuActiveSpellHandPlay = (
+    snap: SimulationState,
+    card: CardRow,
+    caster: "A" | "B",
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    if (
+      !isRonuBlockingCasterActiveSpell(
+        caster,
+        card,
+        snap.playerA.field,
+        snap.playerB.field
+      )
+    ) {
+      return false;
+    }
+    pushInfoFloat(`${targetPlayer}-${slot}`, BATTLE_MSG.ronu.cannotUseActiveSpells, INFO_FLOAT_MS);
+    forEachOpponentRonuLivingSlotKey(caster, snap.playerA.field, snap.playerB.field, key => {
+      triggerCardFlash(key, "ronuPassiveSpellBlock");
+    });
+    return true;
   };
 
   const showDamageNumber = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
@@ -1379,6 +1901,49 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     triggerCardFlash(slotKey, "ghostoneKill");
   };
 
+  /** 시작의 망령 트루 스트라이크 기본 공격: 어두운 회색 플로팅만(붉은 피격 섬광 없음) */
+  const showStartingWraithTrueStrikeDamageOnTarget = (
+    slotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+  };
+
+  /** 시작의 망령 처치 연쇄: 고스톤과 동형 갈색 능력 발동 + 피해 숫자 */
+  const showStartingWraithChainKillOnTarget = (
+    slotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "startingWraithChainKill");
+  };
+
+  const triggerStartingWraithChainKillFlashOnAttacker = (attackerSlotKey: string) => {
+    triggerCardFlash(attackerSlotKey, "startingWraithChainKill");
+  };
+
+  /** 스펠 No.21 메테오 — 적중: 고스톤과 동형 주황빛 능력 발동 이펙트 + 피해 숫자 */
+  const showMeteoSpellHitOnTarget = (
+    slotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "meteoSpellHit");
+  };
+
+  /** 스펠 No.34 하이퍼 빔 — 적중: 고스톤과 동형 노란색 능력 발동 이펙트 + 피해 숫자 */
+  const showHyperBeamSpellHitOnTarget = (
+    slotKey: string,
+    amount: number,
+    damageExtras?: CombatDamagePopupExtras
+  ) => {
+    pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "hyperBeamSpellHit");
+  };
+
   /** 고스톤 처치 시 공격자 슬롯 — 능력 발동 이펙트 동일 재생(숫자 없음) */
   const triggerGhostoneKillFlashOnAttacker = (attackerSlotKey: string) => {
     triggerCardFlash(attackerSlotKey, "ghostoneKill");
@@ -1396,14 +1961,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     triggerCardFlash(attackerSlotKey, "darkKnightKill");
   };
 
-  /** 맥셀렌드가 적 유닛을 처치: 붉은 능력 발동 이펙트(대상·자신 동시) + 피해 숫자 */
+  /** 맥셀렌드가 적 유닛을 처치: 붉은 능력 발동 이펙트(대상·자신 동시) + 피해 숫자 — [혼란] 시 이펙트만 생략 */
   const showMaxellandKillDamageOnTarget = (
     targetSlotKey: string,
     amount: number,
     attackerSlotKey: string,
-    damageExtras?: CombatDamagePopupExtras
+    damageExtras?: CombatDamagePopupExtras,
+    attackerCard?: FieldCard | null,
+    facingOppCard?: FieldCard | null
   ) => {
     pushCombatPopup(targetSlotKey, "damage", amount, damageExtras);
+    if (attackerCard && !shouldPlayMaxellandKillVfx(attackerCard, facingOppCard ?? null)) return;
     triggerCardFlash(targetSlotKey, "maxellandKill");
     triggerCardFlash(attackerSlotKey, "maxellandKill");
   };
@@ -1448,9 +2016,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }, delayMs);
   };
 
-  const showHealNumber = (slotKey: string, amount: number) => {
+  const showHealNumber = (
+    slotKey: string,
+    amount: number,
+    opts?: { skipHealFlash?: boolean }
+  ) => {
     pushCombatPopup(slotKey, "heal", amount);
-    triggerCardFlash(slotKey, "heal");
+    if (!opts?.skipHealFlash) triggerCardFlash(slotKey, "heal");
   };
 
   const showLegendarySwordSkillHit = (slotKey: string, amount: number) => {
@@ -1508,6 +2080,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       "0 0 2px #faf5ff, 0 0 8px rgba(196, 181, 253, 0.95), 0 0 14px rgba(167, 139, 250, 0.5), -1px -1px 0 rgba(237, 233, 254, 0.9), 1px -1px 0 rgba(237, 233, 254, 0.9), -1px 1px 0 rgba(237, 233, 254, 0.9), 1px 1px 0 rgba(237, 233, 254, 0.9)";
     const maxellFullGaugeYellowDamageOutline =
       "0 0 2px #facc15, 0 0 7px rgba(250, 204, 21, 0.95), 0 0 12px rgba(234, 179, 8, 0.55), -1px -1px 0 #fef08a, 1px -1px 0 #fef08a, -1px 1px 0 #fef08a, 1px 1px 0 #fef08a";
+    /** 시작의 망령 트루 스트라이크 회색 데미지 — 얇은 흰색 윤곽(가독성) */
+    const startingWraithTrueStrikeFloatingOutline =
+      "-1px -1px 0 rgba(255, 255, 255, 0.92), 1px -1px 0 rgba(255, 255, 255, 0.92), -1px 1px 0 rgba(255, 255, 255, 0.92), 1px 1px 0 rgba(255, 255, 255, 0.92), 0 0 2px rgba(255, 255, 255, 0.55)";
     const healText =
       `${baseText} text-emerald-400 drop-shadow-[0_2px_0_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.55)]`;
     const stackAboveDamagesHeals =
@@ -1539,25 +2114,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     /** 백스 처형 플로팅 — 능력 발동(밝은 회색)과 맞춘 슬레이트 톤 */
     const infoFloatExecuteGrayText =
       "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-slate-200 antialiased drop-shadow-[0_1px_2px_rgba(15,23,42,0.92),0_0_10px_rgba(226,232,240,0.35)]";
+    const infoFloatSkyBlueText =
+      "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-sky-300 antialiased drop-shadow-[0_1px_2px_rgba(8,47,73,0.92),0_0_12px_rgba(56,189,248,0.45)]";
 
     return (
       <>
         {damages.map((e, i) => {
-          const isKalliPureFloat = e.kalliVsDefensePureDamageText === true;
-          const isDkNavy = e.dkFullGaugeNavyDamageText === true && !isKalliPureFloat;
+          const isWraithTrueStrikeFloat = e.startingWraithTrueStrikeDamageText === true;
+          const isKalliPureFloat = e.kalliVsDefensePureDamageText === true && !isWraithTrueStrikeFloat;
+          const isDkNavy = e.dkFullGaugeNavyDamageText === true && !isKalliPureFloat && !isWraithTrueStrikeFloat;
           const stackStyle = isKalliPureFloat
             ? {}
-            : isDkNavy
-              ? { textShadow: dkFullGaugeNavyFloatingOutline }
-              : e.maxellandFullGaugeVictimDamageOutline === true
-                ? { textShadow: maxellFullGaugeYellowDamageOutline }
-                : {};
+            : isWraithTrueStrikeFloat
+              ? { textShadow: startingWraithTrueStrikeFloatingOutline }
+              : isDkNavy
+                ? { textShadow: dkFullGaugeNavyFloatingOutline }
+                : e.maxellandFullGaugeVictimDamageOutline === true
+                  ? { textShadow: maxellFullGaugeYellowDamageOutline }
+                  : {};
           const zDamage = isKalliPureFloat ? "z-[40]" : isDkNavy ? "z-[52]" : "z-[40]";
-          const textDamage = isKalliPureFloat
-            ? "text-slate-200"
-            : isDkNavy
-              ? "text-[#1e1b4b]"
-              : "text-red-500";
+          const textDamage = isWraithTrueStrikeFloat
+            ? "text-zinc-500"
+            : isKalliPureFloat
+              ? "text-slate-200"
+              : isDkNavy
+                ? "text-[#1e1b4b]"
+                : "text-red-500";
           return (
           <span
             key={e.id}
@@ -1682,7 +2264,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         {infoFloats.map((e, infIdx) => (
           <div
             key={e.id}
-            className={e.tone === "executeGray" ? infoFloatExecuteGrayText : infoFloatBaseText}
+            className={
+              e.tone === "executeGray"
+                ? infoFloatExecuteGrayText
+                : e.tone === "skyBlue"
+                  ? infoFloatSkyBlueText
+                  : infoFloatBaseText
+            }
             style={{
               top: popupTopFromAnchor(stackAboveBuffBlocks + 8 + infIdx * 44),
               animation: `damageFloat ${e.durationMs / 1000}s ease-out forwards`,
@@ -1699,6 +2287,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderFlashOverlay = (slotKey: string, roundedClass: string) => {
     const snap = flashOverlay[slotKey];
     if (!snap) return null;
+    /* 능력 발동 이펙트 — 시작의 망령 처치 연쇄(갈색-주황·고스톤 동형) */
+    if (snap.kind === "startingWraithChainKill") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-wraith-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-wraith-aura`}
+            className={`pp-combat-flash-layer--starting-wraith-chain-kill-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-wraith-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--starting-wraith-chain-kill`}
+          />
+        </div>
+      );
+    }
     /* 능력 발동 이펙트 — 고스톤(처치 시) */
     if (snap.kind === "ghostoneKill") {
       return (
@@ -1772,6 +2379,93 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-${k}-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--danha-magic-hook`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 한날 밤의 내기(슈퍼 테슬라 동형·자주색) */
+    if (snap.kind === "oneNightWagerSpellTrigger") {
+      const isSpellSlot = slotKey === "A-spell" || slotKey === "B-spell";
+      const auraLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--one-night-wager-spell-trigger-aura--spell-land"
+        : "pp-combat-flash-layer--one-night-wager-spell-trigger-aura";
+      const innerLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--one-night-wager-spell-trigger--spell-land"
+        : "pp-combat-flash-layer--one-night-wager-spell-trigger";
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-onw-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-onw-aura`}
+            className={`${auraLayerClass} pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-onw-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerLayerClass}`}
+          />
+        </div>
+      );
+    }
+    if (snap.kind === "oneNightWagerTokenWipe") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-onw-tokens`}
+          className={`pointer-events-none absolute inset-0 z-[24] overflow-visible ${roundedClass} pp-combat-flash-layer--one-night-wager-token-wipe`}
+          aria-hidden
+        />
+      );
+    }
+    /* 능력 발동 이펙트 — 슈퍼 테슬라(스펠 칸·중앙 연출; 고스톤/그린킹 동형·코발트) */
+    if (snap.kind === "superTeslaSpellTrigger") {
+      const isSpellSlot = slotKey === "A-spell" || slotKey === "B-spell";
+      const auraLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--super-tesla-spell-trigger-aura--spell-land"
+        : "pp-combat-flash-layer--super-tesla-spell-trigger-aura";
+      const innerLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--super-tesla-spell-trigger--spell-land"
+        : "pp-combat-flash-layer--super-tesla-spell-trigger";
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-st-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-st-aura`}
+            className={`${auraLayerClass} pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-st-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerLayerClass}`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 곤충 전문가「A) 탐색」(슈퍼 그린킹 스펠 칸 동형·연두) */
+    if (snap.kind === "gonchungHiddenPeek") {
+      const isSpellSlot = slotKey === "A-spell" || slotKey === "B-spell";
+      const auraLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--gonchung-hidden-peek-aura--spell-land"
+        : "pp-combat-flash-layer--gonchung-hidden-peek-aura";
+      const innerLayerClass = isSpellSlot
+        ? "pp-combat-flash-layer--gonchung-hidden-peek--spell-land"
+        : "pp-combat-flash-layer--gonchung-hidden-peek";
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-gonchung-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-gonchung-aura`}
+            className={`${auraLayerClass} pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-gonchung-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerLayerClass}`}
           />
         </div>
       );
@@ -1893,6 +2587,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-philip-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--philip-summon`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 디너(필드 소환·마주 패시브 맺음, 핑크) */
+    if (snap.kind === "dinnerSummon") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-dinner-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-dinner-aura`}
+            className={`pp-combat-flash-layer--dinner-summon-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-dinner-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--dinner-summon`}
           />
         </div>
       );
@@ -2125,20 +2838,77 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       );
     }
-    /* 능력 발동 이펙트 — 오리에트의 초상 보호막 부여(고스톤과 동형·하늘색) */
-    if (snap.kind === "orietShieldAllyPulse") {
+    /* 능력 발동 이펙트 — 스펠 No.26 휴게소의 안식(고스톤과 동형·따뜻한 금색) */
+    if (snap.kind === "spellHyugesojauiAnsikAllyPulse") {
       return (
         <div
-          key={`${slotKey}-${snap.id}-oriet-shield-wrap`}
+          key={`${slotKey}-${snap.id}-hyugesojaui-wrap`}
           className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
           aria-hidden
         >
           <div
-            key={`${slotKey}-${snap.id}-oriet-shield-aura`}
+            key={`${slotKey}-${snap.id}-hyugesojaui-aura`}
+            className={`pp-combat-flash-layer--spell-hyugesojaui-ansik-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-hyugesojaui-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-hyugesojaui-ansik-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.21 메테오(고스톤과 동형·주황빛) */
+    if (snap.kind === "meteoSpellHit") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-meteo-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-meteo-aura`}
+            className={`pp-combat-flash-layer--meteo-spell-hit-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-meteo-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--meteo-spell-hit`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.34 하이퍼 빔(고스톤과 동형·노란색) */
+    if (snap.kind === "hyperBeamSpellHit") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-hyper-beam-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-hyper-beam-aura`}
+            className={`pp-combat-flash-layer--hyper-beam-spell-hit-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-hyper-beam-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--hyper-beam-spell-hit`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 오리에트의 초상 보호막 / 로누 패시브 스펠 차단(고스톤과 동형·하늘색) */
+    if (snap.kind === "orietShieldAllyPulse" || snap.kind === "ronuPassiveSpellBlock") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-${snap.kind}-oriet-sky-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-${snap.kind}-oriet-sky-aura`}
             className={`pp-combat-flash-layer--oriet-shield-ally-pulse-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
           />
           <div
-            key={`${slotKey}-${snap.id}-oriet-shield-inner`}
+            key={`${slotKey}-${snap.id}-${snap.kind}-oriet-sky-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--oriet-shield-ally-pulse`}
           />
         </div>
@@ -2326,17 +3096,71 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const fieldSlotCombatPopupOverlayClass =
     "pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-[8px]";
 
+  const finishOpeningInstantly = useCallback((firstTurn: "A" | "B") => {
+    setState(prev => {
+      if (!prev) return prev;
+      const deck = [...prev.deckCards];
+      const handA = [...prev.playerA.hand];
+      const handB = [...prev.playerB.hand];
+      const peek = prev.simpanPeekReveal;
+      if (peek?.peekKind === "opening") {
+        const pending = stripPpSimHandNewGlow(peek.pendingCard);
+        if (peek.player === "A") handA.push(pending);
+        else handB.push(pending);
+      }
+      while (handA.length < 4 && deck.length > 0) handA.push(deck.pop()!);
+      while (handB.length < 4 && deck.length > 0) handB.push(deck.pop()!);
+      return {
+        ...prev,
+        deckCards: deck,
+        simpanPeekReveal: null,
+        playerA: { ...prev.playerA, hand: handA, tokens: 4 },
+        playerB: { ...prev.playerB, hand: handB, tokens: 4 },
+        currentTurn: firstTurn,
+        turnTimeLeft: 60,
+      };
+    });
+    setSimpanPeekFly(null);
+    setCoinTossDisplay(null);
+  }, []);
+
+  const skipOpeningInitialization = useCallback(() => {
+    openingSkipRequestedRef.current = true;
+    if (openingCoinFlipIntervalRef.current != null) {
+      clearInterval(openingCoinFlipIntervalRef.current);
+      openingCoinFlipIntervalRef.current = null;
+    }
+    if (simpanPeekRevealTimerRef.current != null) {
+      window.clearTimeout(simpanPeekRevealTimerRef.current);
+      simpanPeekRevealTimerRef.current = null;
+    }
+    openingDrawWaitRef.current?.();
+    openingDrawWaitRef.current = null;
+    setSimpanPeekFly(null);
+  }, []);
+
   const runInitialization = async (initialDeck: CardRow[]) => {
     if (!initialDeck || initialDeck.length === 0) return;
 
+    openingSkipRequestedRef.current = false;
     setIsInitializing(true);
     setCoinTossDisplay(null);
     setSelectedSlot(null);
     setAttackingSlot(null);
-    setPendingSecondaryAttack(null); 
+    setPendingSecondaryAttack(null);
+    setPendingStartingWraithChainKill(null);
+    setPendingStartingWraithChainPlayerHp(false);
+    setOneNightWagerModal(null);
+    setSpellUsageHiddenRevealCards(null);
+    oneNightWagerSequenceActiveRef.current = false;
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
-    setPendingSkill(null); 
+    setPendingSkill(null);
+    setGonchungHiddenReveal(null);
+    if (gonchungHiddenRevealTimerRef.current != null) {
+      window.clearTimeout(gonchungHiddenRevealTimerRef.current);
+      gonchungHiddenRevealTimerRef.current = null;
+    }
     setAttackOptionOverride(null);
     setIsRewindModalOpen(false);
     setIsSettingsOpen(false);
@@ -2367,7 +3191,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       globalTurnCount: 1, 
       elapsedTime: 0, 
       turnTimeLeft: 60,
-      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" },
+      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" },
       deckCards: currentDeck,
       rewindCards: [],
       unitCombatStats: {},
@@ -2382,13 +3206,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
     });
 
-    await delay(800);
-
     const OPENING_DRAW_ANIMATION_TIMEOUT_MS =
       OPENING_PEEK_PREVIEW_MS + OPENING_PEEK_HAND_FLY_MS + 200;
 
+    const skippableDelay = (ms: number) =>
+      new Promise<void>(resolve => {
+        if (openingSkipRequestedRef.current) {
+          resolve();
+          return;
+        }
+        const started = Date.now();
+        const tick = () => {
+          if (openingSkipRequestedRef.current) {
+            resolve();
+            return;
+          }
+          if (Date.now() - started >= ms) {
+            resolve();
+            return;
+          }
+          window.setTimeout(tick, 40);
+        };
+        window.setTimeout(tick, Math.min(40, ms));
+      });
+
+    const abortOpeningIfSkipped = (): boolean => {
+      if (!openingSkipRequestedRef.current) return false;
+      const firstTurn: "A" | "B" = Math.random() < 0.5 ? "A" : "B";
+      finishOpeningInstantly(firstTurn);
+      setIsInitializing(false);
+      openingSkipRequestedRef.current = false;
+      return true;
+    };
+
+    await skippableDelay(800);
+    if (abortOpeningIfSkipped()) return;
+
     const revealOpeningDraw = (player: "A" | "B", card: CardRow): Promise<void> =>
       new Promise(resolve => {
+        if (openingSkipRequestedRef.current) {
+          resolve();
+          return;
+        }
         let safetyId: number | null = null;
         const finish = () => {
           if (openingDrawWaitRef.current !== finish) return;
@@ -2417,39 +3276,55 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
 
     for (let i = 0; i < 4; i++) {
+      if (openingSkipRequestedRef.current) break;
       const cardA = currentDeck.pop()!;
       await revealOpeningDraw("A", cardA);
+      if (openingSkipRequestedRef.current) break;
 
       const cardB = currentDeck.pop()!;
       await revealOpeningDraw("B", cardB);
     }
 
-    await delay(500);
+    if (abortOpeningIfSkipped()) return;
+
+    await skippableDelay(500);
+    if (abortOpeningIfSkipped()) return;
 
     for (let i = 1; i <= 4; i++) {
+      if (openingSkipRequestedRef.current) break;
       setState(prev => ({
         ...prev!,
         playerA: { ...prev!.playerA, tokens: i },
         playerB: { ...prev!.playerB, tokens: i },
       }));
-      await delay(250);
+      await skippableDelay(250);
     }
 
-    await delay(600);
+    if (abortOpeningIfSkipped()) return;
+
+    await skippableDelay(600);
+    if (abortOpeningIfSkipped()) return;
 
     setCoinTossDisplay("FLIPPING");
-    
-    const flipInterval = setInterval(() => {
-      setCoinFlipSide(prev => prev === "A" ? "B" : "A");
+
+    openingCoinFlipIntervalRef.current = setInterval(() => {
+      setCoinFlipSide(prev => (prev === "A" ? "B" : "A"));
     }, 100);
 
-    await delay(1500);
-    clearInterval(flipInterval);
+    await skippableDelay(1500);
+    if (openingCoinFlipIntervalRef.current != null) {
+      clearInterval(openingCoinFlipIntervalRef.current);
+      openingCoinFlipIntervalRef.current = null;
+    }
+
+    if (abortOpeningIfSkipped()) return;
 
     const firstTurn: "A" | "B" = Math.random() < 0.5 ? "A" : "B";
     setCoinTossDisplay(firstTurn);
 
-    await delay(2000);
+    await skippableDelay(2000);
+
+    if (abortOpeningIfSkipped()) return;
 
     setState(prev => ({ ...prev!, currentTurn: firstTurn, turnTimeLeft: 60 }));
     setCoinTossDisplay(null);
@@ -2492,93 +3367,71 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.turnTimeLeft]); 
 
-  /** No.16 전설의 검 — 충전 완료 후 자신의 턴 시작 시 연격 자동 개시 */
+  /** No.16 전설의 검 — 무장·충전 완료(또는 [혼란] 해제) 시 자신의 턴에 연격 개시 */
   useEffect(() => {
     if (!state?.currentTurn || winner || isInitializing || pendingLegendarySwordStrike) return;
 
     const owner = state.currentTurn;
     const ownerField = owner === "A" ? state.playerA.field : state.playerB.field;
-    let swordSlot: "is" | "m" | "os" | null = null;
-    for (const s of ["is", "m", "os"] as const) {
-      if (isLegendarySwordArmed(ownerField[s])) {
-        swordSlot = s;
-        break;
-      }
-    }
-    if (!swordSlot) return;
 
-    const openKey = `${state.turnCount}-${owner}-${swordSlot}`;
-    if (legendarySwordAutoOpenResolvedKeyRef.current === openKey) return;
-    legendarySwordAutoOpenResolvedKeyRef.current = openKey;
-    playLegendarySwordStrikeOpenOnSelf(owner, swordSlot);
+    for (const swordSlot of ["is", "m", "os"] as const) {
+      const sword = ownerField[swordSlot];
+      if (!sword || sword.name !== UNIT.LEGENDARY_SWORD) continue;
+      if (!isLegendarySwordArmed(sword) && !isLegendarySwordCharging(sword)) continue;
 
-    const enemy = owner === "A" ? "B" : "A";
-    const enemyFieldAtOpen = enemy === "A" ? state.playerA.field : state.playerB.field;
-    const livingAtOpen = countLivingFieldUnits(enemyFieldAtOpen);
+      const facingOpp = getLegendarySwordFacingOppAtSlot(
+        owner,
+        swordSlot,
+        state.playerA.field,
+        state.playerB.field
+      );
+      if (isLegendarySwordAbilityPausedByConfusion(sword, facingOpp)) continue;
 
-    if (livingAtOpen === 0) {
+      const openKey = `${state.turnCount}-${owner}-${swordSlot}`;
+      if (legendarySwordAutoOpenResolvedKeyRef.current === openKey) continue;
+      legendarySwordAutoOpenResolvedKeyRef.current = openKey;
+
+      playLegendarySwordStrikeOpenOnSelf(owner, swordSlot);
+
       setState(prev => {
         if (!prev || prev.currentTurn !== owner) return prev;
         const ownerKey = owner === "A" ? "playerA" : "playerB";
-        const enemyKey = enemy === "A" ? "playerA" : "playerB";
         const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
-        const sword = newOwner.field[swordSlot!];
-        if (!isLegendarySwordArmed(sword)) return prev;
-        newOwner.field[swordSlot!] = { ...sword!, legendarySwordArmed: false };
+        const s = newOwner.field[swordSlot];
+        if (!s || s.name !== UNIT.LEGENDARY_SWORD) return prev;
 
-        const newEnemy = { ...prev[enemyKey] };
-        newEnemy.hp = Math.max(0, newEnemy.hp - LEGENDARY_SWORD_FIRST_HIT_DAMAGE);
-
-        const enemyFieldAfter =
-          enemy === "A" ? prev.playerA.field : prev.playerB.field;
-        if (countLivingFieldUnits(enemyFieldAfter) === 0) {
-          newEnemy.hp = Math.max(0, newEnemy.hp - LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE);
-          const stripped = stripLegendarySwordForRewind(sword!);
-          newOwner.field[swordSlot!] = null;
-          return {
-            ...prev,
-            [ownerKey]: newOwner,
-            [enemyKey]: newEnemy,
-            rewindCards: [...prev.rewindCards, stripped],
-          };
+        let nextSword = s;
+        if (isLegendarySwordCharging(s)) {
+          nextSword = forceCompleteLegendarySwordArming(s);
         }
+        if (!isLegendarySwordArmed(nextSword)) return prev;
 
-        return { ...prev, [ownerKey]: newOwner, [enemyKey]: newEnemy };
+        newOwner.field[swordSlot] = { ...nextSword, legendarySwordArmed: false };
+        return { ...prev, [ownerKey]: newOwner };
       });
-
-      showLegendarySwordSkillHit(`player-${enemy}`, LEGENDARY_SWORD_FIRST_HIT_DAMAGE);
-      if (countLivingFieldUnits(enemyFieldAtOpen) === 0) {
-        showLegendarySwordSkillHit(`player-${enemy}`, LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE);
-        return;
-      }
 
       setPendingLegendarySwordStrike({
         ownerPlayer: owner,
         swordSlot,
-        phase: 2,
-        hitTargets: [LEGENDARY_SWORD_HIT_PLAYER_MARK],
+        phase: 1,
+        hitTargets: [],
       });
-      return;
+      break;
     }
-
-    setState(prev => {
-      if (!prev || prev.currentTurn !== owner) return prev;
-      const ownerKey = owner === "A" ? "playerA" : "playerB";
-      const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
-      const sword = newOwner.field[swordSlot!];
-      if (!isLegendarySwordArmed(sword)) return prev;
-      newOwner.field[swordSlot!] = { ...sword!, legendarySwordArmed: false };
-      return { ...prev, [ownerKey]: newOwner };
-    });
-
-    setPendingLegendarySwordStrike({
-      ownerPlayer: owner,
-      swordSlot,
-      phase: 1,
-      hitTargets: [],
-    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.currentTurn, state?.turnCount, winner, isInitializing, pendingLegendarySwordStrike]);
+  }, [
+    state?.currentTurn,
+    state?.turnCount,
+    state?.playerA.field.is,
+    state?.playerA.field.m,
+    state?.playerA.field.os,
+    state?.playerB.field.is,
+    state?.playerB.field.m,
+    state?.playerB.field.os,
+    winner,
+    isInitializing,
+    pendingLegendarySwordStrike,
+  ]);
 
   useEffect(() => {
     if (!state?.simpanPeekReveal) {
@@ -2590,7 +3443,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const peekKind = state.simpanPeekReveal.peekKind ?? "simpan";
     const previewMs =
-      peekKind === "opening" ? OPENING_PEEK_PREVIEW_MS : SIMPAN_PEEK_PREVIEW_MS;
+      peekKind === "opening"
+        ? OPENING_PEEK_PREVIEW_MS
+        : peekKind === "teslaDrawRewind"
+          ? TESLA_DRAW_PEEK_MS
+          : SIMPAN_PEEK_PREVIEW_MS;
     const flyMs =
       peekKind === "opening" ? OPENING_PEEK_HAND_FLY_MS : SIMPAN_PEEK_HAND_FLY_MS;
 
@@ -2716,6 +3573,175 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   }, [simpanPeekFly]);
 
   useEffect(() => {
+    if (!spellUsageReveal) {
+      spellUsageRevealTransitionStartedRef.current = false;
+      return;
+    }
+
+    spellUsageRevealTransitionStartedRef.current = false;
+    const pending = spellUsagePendingRef.current;
+
+    const clearSpellUsageTimers = () => {
+      if (spellUsageRevealTimerRef.current != null) {
+        window.clearTimeout(spellUsageRevealTimerRef.current);
+        spellUsageRevealTimerRef.current = null;
+      }
+      if (spellUsageTeslaCounterTimerRef.current != null) {
+        window.clearTimeout(spellUsageTeslaCounterTimerRef.current);
+        spellUsageTeslaCounterTimerRef.current = null;
+      }
+      if (spellUsageTeslaBlackoutTimerRef.current != null) {
+        window.clearTimeout(spellUsageTeslaBlackoutTimerRef.current);
+        spellUsageTeslaBlackoutTimerRef.current = null;
+      }
+    };
+
+    if (pending?.superTeslaCounter) {
+      const cp = pending.superTeslaCounter.counterPlayer;
+      spellUsageTeslaCounterTimerRef.current = window.setTimeout(() => {
+        spellUsageTeslaCounterTimerRef.current = null;
+        setSpellUsageTeslaFlipPlayer(cp);
+        triggerCardFlash(`${cp}-spell`, "superTeslaSpellTrigger");
+        pushInfoFloat(SPELL_USAGE_CENTER_KEY, "파괴됨", INFO_FLOAT_MS, "skyBlue");
+        triggerCardFlash(SPELL_USAGE_CENTER_KEY, "legendarySwordSkill");
+      }, SUPER_TESLA_COUNTER_AT_MS);
+      spellUsageTeslaBlackoutTimerRef.current = window.setTimeout(() => {
+        spellUsageTeslaBlackoutTimerRef.current = null;
+        setSpellUsageTeslaHideOppCenterCard(true);
+      }, SUPER_TESLA_BLACKOUT_AT_MS);
+    }
+
+    const runAfterPreview = () => {
+      if (spellUsageRevealTransitionStartedRef.current) return;
+      const snap = simulationStateRef.current;
+      const pend = spellUsagePendingRef.current;
+      if (!snap || !pend) return;
+      spellUsageRevealTransitionStartedRef.current = true;
+
+      if (pend.superTeslaCounter) {
+        finishSpellUsageSequence();
+        return;
+      }
+
+      const flyToSpellSlot =
+        pend.mode === "placeSpellSlot" &&
+        pend.flyToSpellSlotAfterReveal &&
+        pend.targetPlayer;
+      const flyToUnit =
+        pend.flyToUnitAfterReveal &&
+        pend.targetPlayer &&
+        pend.unitSlot &&
+        pend.mode === "handUnitTarget";
+
+      if (flyToSpellSlot || flyToUnit) {
+        const slot = flyToSpellSlot ? "spell" : pend.unitSlot!;
+        const fromEl = spellUsageCardMeasureRef.current;
+        const toEl = document.querySelector(
+          `[data-field-drop][data-field-player="${pend.targetPlayer}"][data-field-slot="${slot}"]`
+        ) as HTMLElement | null;
+        const fr = fromEl?.getBoundingClientRect();
+        const tr = toEl?.getBoundingClientRect();
+        if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+          finishSpellUsageSequence();
+          return;
+        }
+        queueMicrotask(() => {
+          const from = { x: fr.left, y: fr.top, w: fr.width, h: fr.height };
+          const to = flyToSpellSlot
+            ? {
+                x: tr.left + (tr.width - fr.width) / 2,
+                y: tr.top + (tr.height - fr.height) / 2,
+                w: fr.width,
+                h: fr.height,
+              }
+            : { x: tr.left, y: tr.top, w: tr.width, h: tr.height };
+          setSpellUsageFly({
+            casterPlayer: pend.casterPlayer,
+            previewCard: pend.previewCard,
+            targetPlayer: pend.targetPlayer!,
+            unitSlot: slot,
+            flyTarget: flyToSpellSlot ? "spellSlot" : "unit",
+            centerShowsCardBack: flyToSpellSlot ? pend.centerShowsCardBack : undefined,
+            from,
+            to,
+            phase: 0,
+            flyMs: flyToSpellSlot ? SPELL_SLOT_PLACE_FLY_MS : SPELL_USAGE_HAND_FLY_MS,
+          });
+        });
+        return;
+      }
+
+      finishSpellUsageSequence();
+    };
+
+    const previewMs = pending?.superTeslaCounter
+      ? SPELL_USAGE_PREVIEW_TESLA_MS
+      : SPELL_USAGE_PREVIEW_MS;
+
+    spellUsageRevealTimerRef.current = window.setTimeout(() => {
+      spellUsageRevealTimerRef.current = null;
+      runAfterPreview();
+    }, previewMs);
+
+    return () => {
+      clearSpellUsageTimers();
+    };
+  }, [spellUsageReveal, spellUsageRevealTick, finishSpellUsageSequence]);
+
+  useLayoutEffect(() => {
+    if (!spellUsageFly || spellUsageFly.phase !== 0) return;
+    let cancelled = false;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setSpellUsageFly(f => (f && f.phase === 0 ? { ...f, phase: 1 } : f));
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [spellUsageFly]);
+
+  useEffect(() => {
+    if (!spellUsageFly || spellUsageFly.phase !== 1) return;
+    const flyMs = spellUsageFly.flyMs ?? SPELL_USAGE_HAND_FLY_MS;
+    const tid = window.setTimeout(() => {
+      setSpellUsageFly(null);
+      finishSpellUsageSequence();
+    }, flyMs + 50);
+    return () => window.clearTimeout(tid);
+  }, [spellUsageFly, finishSpellUsageSequence]);
+
+  /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */
+  useEffect(() => {
+    if (!state) return;
+    setState(prev => {
+      if (!prev) return prev;
+      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+      const changed = suppressActiveSkillLinksForConfusion(
+        newPlayerA,
+        newPlayerB,
+        prev.globalTurnCount
+      );
+      if (!changed) return prev;
+      return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+    });
+  }, [
+    state?.playerA.field.is,
+    state?.playerA.field.m,
+    state?.playerA.field.os,
+    state?.playerB.field.is,
+    state?.playerB.field.m,
+    state?.playerB.field.os,
+    state?.globalTurnCount,
+  ]);
+
+  useEffect(() => {
     if (!cards || cards.length === 0) return;
     if (initialized.current) return;
     
@@ -2729,9 +3755,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         
         parsed.elapsedTime = parsed.elapsedTime || 0; 
         parsed.turnTimeLeft = parsed.turnTimeLeft ?? 60;
-        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" };
+        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" };
         parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false; 
-        parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
+        parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
         parsed.globalTurnCount = parsed.globalTurnCount ?? 1; 
         parsed.unitCombatStats = parsed.unitCombatStats ?? {};
         parsed.unitStatsOrder = parsed.unitStatsOrder ?? [];
@@ -2777,13 +3803,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
     if (!state || state.currentTurn !== player || isInitializing || winner) return;
-    if (state.simpanHandChoice || state.simpanPeekReveal || simpanPeekFly) {
+    if (
+      state.simpanHandChoice ||
+      state.simpanPeekReveal ||
+      simpanPeekFly ||
+      spellUsageReveal ||
+      spellUsageFly ||
+      spellUsageMotionActiveRef.current
+    ) {
       alert("[연출] 중앙 카드가 패로 합류할 때까지, 또는 심판 대기 카드를 정리한 뒤 턴을 넘겨 주세요.");
       return;
     }
     setSelectedSlot(null);
-    setAttackingSlot(null); 
+    setAttackingSlot(null);
     setPendingSecondaryAttack(null);
+    setPendingStartingWraithChainKill(null);
+    setPendingStartingWraithChainPlayerHp(false);
     setPendingLegendarySwordStrike(null);
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
@@ -2791,21 +3826,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setAttackOptionOverride(null);
     setIsDrawModalOpen(false);
 
-    setState(prev => {
+    const hyuTurnVfxBag: { vfx: HyugesojauiAnsikTurnStartVfx | null } = { vfx: null };
+    flushSync(() => {
+      setState(prev => {
       if (!prev) return prev;
       const isA = player === "A";
 
       const resetFieldUnits = (f: PlayerState["field"], fieldOwner: "A" | "B") => {
-        const ticked = applyEndTurnLegendarySwordArmingTickForFieldOwner(f, fieldOwner, player);
+        const ticked = applyEndTurnLegendarySwordArmingTickForFieldOwner(
+          f,
+          fieldOwner,
+          player,
+          prev.playerA.field,
+          prev.playerB.field
+        );
+        const tickUnit = (u: FieldCard) =>
+          applyEndTurnIversonWaitTickToFieldUnit(
+            applyEndTurnStunTickToFieldUnit(
+              applyEndTurnBaekseuInvulnTickToFieldUnit(
+                applyEndTurnEondeokSilenceTickToFieldUnit(u),
+              ),
+            ),
+          );
         return {
           is: ticked.is
-            ? { ...ticked.is, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            ? { ...tickUnit(ticked.is), hasAttacked: false, hasBeenAttackedThisTurn: false }
             : null,
           m: ticked.m
-            ? { ...ticked.m, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            ? { ...tickUnit(ticked.m), hasAttacked: false, hasBeenAttackedThisTurn: false }
             : null,
           os: ticked.os
-            ? { ...ticked.os, hasAttacked: false, hasBeenAttackedThisTurn: false }
+            ? { ...tickUnit(ticked.os), hasAttacked: false, hasBeenAttackedThisTurn: false }
             : null,
         };
       };
@@ -2817,14 +3868,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (tb.expiredBangEomakToRewind) rewindCards = [...rewindCards, tb.expiredBangEomakToRewind];
       if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
       if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
+      if (ta.expiredHyugesojauiAnsikToRewind) {
+        rewindCards = [...rewindCards, ta.expiredHyugesojauiAnsikToRewind];
+      }
+      if (tb.expiredHyugesojauiAnsikToRewind) {
+        rewindCards = [...rewindCards, tb.expiredHyugesojauiAnsikToRewind];
+      }
 
-      const fieldA = { ...resetFieldUnits(prev.playerA.field, "A"), spellStack: ta.nextStack };
-      const fieldB = { ...resetFieldUnits(prev.playerB.field, "B"), spellStack: tb.nextStack };
+      const nextTurn = isA ? "B" : "A";
+      let fieldA = { ...resetFieldUnits(prev.playerA.field, "A"), spellStack: ta.nextStack };
+      let fieldB = { ...resetFieldUnits(prev.playerB.field, "B"), spellStack: tb.nextStack };
 
-      return {
+      const hyu = applyHyugesojauiAnsikTurnStartForOwner({
+        nextTurnOwner: nextTurn,
+        playerAField: fieldA,
+        playerBField: fieldB,
+      });
+      fieldA = hyu.nextPlayerAField;
+      fieldB = hyu.nextPlayerBField;
+      hyuTurnVfxBag.vfx = hyu.vfx;
+
+      let nextState: typeof prev = {
         ...prev,
         rewindCards,
-        currentTurn: isA ? "B" : "A",
+        currentTurn: nextTurn,
         turnCount: !isA ? prev.turnCount + 1 : prev.turnCount,
         globalTurnCount: prev.globalTurnCount + 1,
         turnTimeLeft: 60,
@@ -2845,7 +3912,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           field: fieldB,
         },
       };
+      if (hyu.combatPatches.length > 0) {
+        nextState = {
+          ...nextState,
+          unitCombatStats: patchManyUnitCombatStats(nextState.unitCombatStats, hyu.combatPatches),
+        };
+      }
+      return nextState;
+      });
     });
+    if (hyuTurnVfxBag.vfx) {
+      playHyugesojauiAnsikAllyPulseAndHealVfx(hyuTurnVfxBag.vfx.allyPlayer, hyuTurnVfxBag.vfx.perSlot);
+    }
   };
 
   const handleSkillDiscard = (cardIndex: number, player: "A" | "B") => {
@@ -3000,7 +4078,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     if (!state || isInitializing || !state.currentTurn || winner) return;
     if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
-    if (state.simpanHandChoice || state.simpanPeekReveal) {
+    if (
+      state.simpanHandChoice ||
+      state.simpanPeekReveal ||
+      spellUsageReveal ||
+      spellUsageFly ||
+      spellUsageMotionActiveRef.current
+    ) {
       alert("중앙 카드 연출이 끝난 뒤 덱을 눌러 주세요.");
       return;
     }
@@ -3022,7 +4106,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const executeDraw = (selectedCardIndex: number | null) => {
     setState(prev => {
       if (!prev) return prev;
-      if (prev.simpanHandChoice || prev.simpanPeekReveal) return prev;
+      if (prev.simpanHandChoice || prev.simpanPeekReveal || spellUsageMotionActiveRef.current) {
+        return prev;
+      }
       const isA = prev.currentTurn === "A";
       const targetPlayer = isA ? prev.playerA : prev.playerB;
       if (targetPlayer.hand.length >= 6) return prev;
@@ -3058,6 +4144,83 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setIsDrawModalOpen(false);
   };
 
+  const tryTriggerOneNightWagerSequence = useCallback(() => {
+    if (oneNightWagerSequenceActiveRef.current) return;
+    const snap = simulationStateRef.current;
+    if (!snap || winner || isInitializing) return;
+    if (!areAllUnitSlotsFilledOnBothFields(snap.playerA.field, snap.playerB.field)) return;
+
+    const matches = findActivatableOneNightWagers({
+      playerA: snap.playerA,
+      playerB: snap.playerB,
+      playerAField: snap.playerA.field,
+      playerBField: snap.playerB.field,
+    });
+    if (matches.length === 0) return;
+
+    oneNightWagerSequenceActiveRef.current = true;
+
+    const costsA = getPlayerUnitSlotCosts(snap.playerA.field);
+    const costsB = getPlayerUnitSlotCosts(snap.playerB.field);
+    const glowPlayer = resolveOneNightWagerHigherSumPlayer(costsA.total, costsB.total);
+    const loserPlayer = resolveOneNightWagerLoser(costsA.total, costsB.total);
+
+    const reveal: Partial<Record<"A" | "B", FieldCard>> = {};
+    for (const m of matches) reveal[m.ownerPlayer] = m.wagerCard;
+    setSpellUsageHiddenRevealCards(reveal);
+
+    window.setTimeout(() => {
+      for (const m of matches) {
+        triggerCardFlash(`${m.ownerPlayer}-spell`, "oneNightWagerSpellTrigger");
+      }
+    }, 0);
+
+    setOneNightWagerModal({ costsA, costsB, glowPlayer });
+
+    window.setTimeout(() => {
+      setOneNightWagerModal(null);
+      setSpellUsageHiddenRevealCards(null);
+      setState(prev => {
+        if (!prev) return prev;
+        const stripWagers = (field: PlayerState["field"]) => ({
+          ...field,
+          spellStack: removeAllOneNightWagersFromSpellStack(normalizeSpellStack(field)),
+        });
+        return {
+          ...prev,
+          playerA: { ...prev.playerA, field: stripWagers(prev.playerA.field) },
+          playerB: { ...prev.playerB, field: stripWagers(prev.playerB.field) },
+        };
+      });
+
+      window.setTimeout(() => {
+        const wipeFlashPlayer =
+          loserPlayer && loserPlayer !== glowPlayer ? loserPlayer : null;
+        setState(prev => {
+          if (!prev) return prev;
+          const settled = applyOneNightWagerTokenSettlement({
+            playerA: { tokens: prev.playerA.tokens },
+            playerB: { tokens: prev.playerB.tokens },
+            matches,
+            costsA,
+            costsB,
+          });
+          return {
+            ...prev,
+            playerA: { ...prev.playerA, tokens: settled.playerA.tokens },
+            playerB: { ...prev.playerB, tokens: settled.playerB.tokens },
+          };
+        });
+        if (wipeFlashPlayer) {
+          triggerCardFlash(`player-${wipeFlashPlayer}`, "oneNightWagerTokenWipe");
+        }
+        window.setTimeout(() => {
+          oneNightWagerSequenceActiveRef.current = false;
+        }, 900);
+      }, ONE_NIGHT_WAGER_TOKEN_WIPE_DELAY_MS);
+    }, ONE_NIGHT_WAGER_POPUP_VISIBLE_MS);
+  }, [winner, isInitializing, triggerCardFlash]);
+
   const placeHandCardFromHand = (
     gameState: SimulationState,
     cardIndex: number,
@@ -3068,6 +4231,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!gameState || winner) return;
     if (pendingLegendarySwordStrike) {
       alert("전설의 검 연격이 끝날 때까지 다른 행동을 할 수 없습니다.");
+      return;
+    }
+    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) {
       return;
     }
 
@@ -3120,6 +4286,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (slot === "spell" && handCard.name === CHEOLBYEOK_SPELL_ID) {
       card.cheolbyeokAllyInvulnEndTurnTicksRemaining = CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS;
     }
+    if (slot === "spell" && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+      card.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
+    }
 
     const typeStr = String(card.type || "").toLowerCase();
     const categoryStr = String(card.category || "").toLowerCase();
@@ -3152,9 +4321,268 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     const currentTokens = isPlayerA ? gameState.playerA.tokens : gameState.playerB.tokens;
-    const cost = Number(card.cost) || 0;
-    if (currentTokens < cost) {
+    const placementCost =
+      isSpellSlot && isHiddenSpellCard(handCard) ? 0 : Number(card.cost) || 0;
+    if (currentTokens < placementCost) {
       pushInfoFloat(`${targetPlayer}-${slot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return;
+    }
+
+    if (
+      isSpellSlot &&
+      isSpellCard &&
+      blockRonuActiveSpellHandPlay(gameState, handCard, sourcePlayer, targetPlayer, slot)
+    ) {
+      return;
+    }
+
+    if (isSpellSlot) {
+      if (isMeteoSpellCard(handCard)) {
+        const enemyPlayer = sourcePlayer === "A" ? "B" : "A";
+        const meteoVfxHits: { slotKey: string; hpLoss: number }[] = [];
+        scheduleSpellHandUsageSequence(gameState, {
+          casterPlayer: sourcePlayer,
+          previewCard: handCard,
+          mode: "placeSpellSlot",
+          targetPlayer,
+          flyToSpellSlotAfterReveal: true,
+          centerShowsCardBack: isHiddenSpellCard(handCard),
+          preApply: prev => {
+            const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+            if (cardIndex < 0 || cardIndex >= h.length) return prev;
+            const row = h[cardIndex];
+            if (!row || !isMeteoSpellCard(row)) return prev;
+            h.splice(cardIndex, 1);
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            return {
+              ...prev,
+              [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost },
+            };
+          },
+          commit: prev => {
+            /* Strict Mode 등에서 commit 업데이터가 2회 호출될 때 VFX 중복 방지 */
+            meteoVfxHits.length = 0;
+            const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+            const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+            const enemySide = enemyPlayer === "A" ? newPlayerA : newPlayerB;
+            let rewindCards = [...prev.rewindCards, handCardForField];
+            let unitCombatStats = prev.unitCombatStats;
+            let unitStatsOrder = prev.unitStatsOrder;
+
+            for (const slotName of ["is", "m", "os"] as const) {
+              const unit = enemySide.field[slotName];
+              if (!unit || unit.currentHp <= 0) continue;
+
+              const resolved = applyMeteoDamageToEnemyUnit({
+                target: unit,
+                targetPlayer: enemyPlayer,
+                targetSlot: slotName,
+                playerAField: newPlayerA.field,
+                playerBField: newPlayerB.field,
+              });
+
+              const baseTarget =
+                Object.keys(resolved.baekseuPatch).length > 0
+                  ? stripBaekseuHarmfulEffectsForInvuln(unit)
+                  : unit;
+              const updatedTarget: FieldCard = {
+                ...baseTarget,
+                ...resolved.baekseuPatch,
+                ...resolved.barrierPatch,
+                currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
+              };
+
+              if (resolved.isDestroyed) {
+                enemySide.field[slotName] = null;
+                cleanupSimulationUnitDeath(
+                  unit,
+                  { field: newPlayerA.field },
+                  { field: newPlayerB.field },
+                  prev.globalTurnCount
+                );
+                rewindCards = [...rewindCards, unit];
+                const sid = unit.statsInstanceId;
+                if (sid) {
+                  const { [sid]: _removed, ...restStats } = unitCombatStats;
+                  unitCombatStats = restStats;
+                  unitStatsOrder = unitStatsOrder.filter(x => x !== sid);
+                }
+              } else {
+                enemySide.field[slotName] = updatedTarget;
+              }
+
+              if (resolved.morningMoodDeathHeal > 0) {
+                (["is", "m", "os"] as const).forEach(s => {
+                  const ally = enemySide.field[s];
+                  if (!ally) return;
+                  enemySide.field[s] = {
+                    ...ally,
+                    currentHp: Math.min(
+                      Number(ally.hp),
+                      ally.currentHp + resolved.morningMoodDeathHeal
+                    ),
+                  };
+                });
+              }
+              if (resolved.startingTreeAllyHeal > 0) {
+                (["is", "m", "os"] as const).forEach(s => {
+                  if (s === slotName) return;
+                  const ally = enemySide.field[s];
+                  if (!ally) return;
+                  enemySide.field[s] = {
+                    ...ally,
+                    currentHp: Math.min(
+                      Number(ally.hp),
+                      ally.currentHp + resolved.startingTreeAllyHeal
+                    ),
+                  };
+                });
+              }
+
+              if (resolved.hpLoss > 0) {
+                meteoVfxHits.push({
+                  slotKey: `${enemyPlayer}-${slotName}`,
+                  hpLoss: resolved.hpLoss,
+                });
+              }
+            }
+
+            return finalizeSpellWithSimpan({
+              ...prev,
+              unitCombatStats,
+              unitStatsOrder,
+              playerA: newPlayerA,
+              playerB: newPlayerB,
+              rewindCards,
+            });
+          },
+          afterCommitVfx: () => {
+            const meteoVfxBySlot = new Map<string, number>();
+            for (const hit of meteoVfxHits) meteoVfxBySlot.set(hit.slotKey, hit.hpLoss);
+            for (const [slotKey, hpLoss] of meteoVfxBySlot) {
+              showMeteoSpellHitOnTarget(slotKey, hpLoss);
+            }
+          },
+        });
+        return;
+      }
+
+      const statsId = createSimulationStatsInstanceId();
+      const fieldCard: FieldCard = {
+        ...handCardForField,
+        statsInstanceId: statsId,
+        currentHp: Number(handCard.hp) || 0,
+        hasAttacked: false,
+        hasBeenAttackedThisTurn: false,
+        summonedTurn: `${gameState.turnCount}-${gameState.currentTurn}`,
+      };
+      if (handCard.name === BANG_EOMAK_SPELL_ID) {
+        fieldCard.bangEomakDefenseEndTurnTicksRemaining = BANG_EOMAK_DEFENSE_INITIAL_END_TURN_TICKS;
+      }
+      if (handCard.name === CHEOLBYEOK_SPELL_ID) {
+        fieldCard.cheolbyeokAllyInvulnEndTurnTicksRemaining =
+          CHEOLBYEOK_ALLY_INVULN_INITIAL_END_TURN_TICKS;
+      }
+      if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+        fieldCard.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
+      }
+      let hyuPlacePerSlot: HyugesojauiAnsikHealSlotResult[] = [];
+      let hyuPlaceCombatPatches: HyugesojauiAnsikCombatPatch[] = [];
+      scheduleSpellHandUsageSequence(gameState, {
+        casterPlayer: sourcePlayer,
+        previewCard: handCard,
+        mode: "placeSpellSlot",
+        targetPlayer,
+        flyToSpellSlotAfterReveal: true,
+        centerShowsCardBack: isHiddenSpellCard(handCard),
+        preApply: prev => {
+          const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+          if (cardIndex < 0 || cardIndex >= h.length) return prev;
+          h.splice(cardIndex, 1);
+          const key = isPlayerA ? "playerA" : "playerB";
+          const ps = isPlayerA ? prev.playerA : prev.playerB;
+          return {
+            ...prev,
+            [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost },
+          };
+        },
+        commit: prev => {
+          const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
+          const stackBefore = normalizeSpellStack(tf);
+          let updatedField: PlayerState["field"] = {
+            ...tf,
+            spellStack: appendSpellToStack(stackBefore, fieldCard),
+          };
+          if (handCard.name === CHEOLBYEOK_SPELL_ID) {
+            updatedField = {
+              ...updatedField,
+              is: updatedField.is ? stripBaekseuHarmfulEffectsForInvuln(updatedField.is) : null,
+              m: updatedField.m ? stripBaekseuHarmfulEffectsForInvuln(updatedField.m) : null,
+              os: updatedField.os ? stripBaekseuHarmfulEffectsForInvuln(updatedField.os) : null,
+            };
+          }
+          if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+            const hr = applyHyugesojauiAnsikHealAttempt(updatedField, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
+            updatedField = hr.nextField;
+            hyuPlacePerSlot = hr.perSlot;
+            hyuPlaceCombatPatches = hr.combatPatches;
+          }
+          const key = isPlayerA ? "playerA" : "playerB";
+          const ps = isPlayerA ? prev.playerA : prev.playerB;
+          const nextSpellLog = [
+            ...prev.spellDeployLog,
+            {
+              statsInstanceId: fieldCard.statsInstanceId!,
+              name: fieldCard.name,
+              player: sourcePlayer,
+              summonedTurn: fieldCard.summonedTurn,
+            },
+          ];
+          let r: typeof prev = {
+            ...prev,
+            spellDeployLog: nextSpellLog,
+            [key]: { ...ps, field: updatedField },
+          };
+          if (hyuPlaceCombatPatches.length > 0) {
+            r = {
+              ...r,
+              unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
+            };
+          }
+          return finalizeSpellWithSimpan(r);
+        },
+        afterCommitVfx: () => {
+          const fieldAfterPlace = {
+            ...targetField,
+            spellStack: appendSpellToStack(spellStackBefore, fieldCard),
+          };
+          if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlacePerSlot.length > 0) {
+            playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuPlacePerSlot);
+          }
+          if (handCard.name === BANG_EOMAK_SPELL_ID) {
+            window.setTimeout(() => {
+              (["is", "m", "os"] as const).forEach(s =>
+                triggerCardFlash(`${targetPlayer}-${s}`, "spellBangEomakAllyPulse")
+              );
+            }, 0);
+          }
+          if (isJipjungSagyeokSpellCard(handCard)) {
+            window.setTimeout(() => {
+              (["is", "m", "os"] as const).forEach(s =>
+                triggerCardFlash(`${targetPlayer}-${s}`, "spellJipjungAllyPulse")
+              );
+            }, 0);
+          }
+          if (handCard.name === CHEOLBYEOK_SPELL_ID) {
+            window.setTimeout(() => {
+              (["is", "m", "os"] as const).forEach(s =>
+                triggerCardFlash(`${targetPlayer}-${s}`, "spellCheolbyeokAllyPulse")
+              );
+            }, 0);
+          }
+        },
+      });
       return;
     }
 
@@ -3179,6 +4607,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           os: updatedField.os ? stripBaekseuHarmfulEffectsForInvuln(updatedField.os) : null,
         };
       }
+      let hyuDirectPerSlot: HyugesojauiAnsikHealSlotResult[] = [];
+      let hyuDirectCombatPatches: HyugesojauiAnsikCombatPatch[] = [];
+      if (isSpellSlot && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+        const hr = applyHyugesojauiAnsikHealAttempt(updatedField, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
+        updatedField = hr.nextField;
+        hyuDirectPerSlot = hr.perSlot;
+        hyuDirectCombatPatches = hr.combatPatches;
+      }
 
       if (isPlayerA) {
         const nextUnitCombat = !isSpellSlot
@@ -3201,18 +4637,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               },
             ]
           : prev.spellDeployLog;
-        const rA = {
+        let rA: typeof prev = {
           ...prev,
           unitCombatStats: nextUnitCombat,
           unitStatsOrder: nextUnitOrder,
           spellDeployLog: nextSpellLog,
           playerA: {
             ...prev.playerA,
-            tokens: prev.playerA.tokens - cost,
+            tokens: prev.playerA.tokens - placementCost,
             hand: newHand,
             field: updatedField
           }
         };
+        if (hyuDirectCombatPatches.length > 0) {
+          rA = {
+            ...rA,
+            unitCombatStats: patchManyUnitCombatStats(rA.unitCombatStats, hyuDirectCombatPatches),
+          };
+        }
+        if (isSpellSlot && hyuDirectPerSlot.length > 0) {
+          window.setTimeout(
+            () => playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectPerSlot),
+            0
+          );
+        }
         return isSpellSlot ? finalizeSpellWithSimpan(rA) : rA;
       } else {
         const nextUnitCombat = !isSpellSlot
@@ -3235,18 +4683,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               },
             ]
           : prev.spellDeployLog;
-        const rB = {
+        let rB: typeof prev = {
           ...prev,
           unitCombatStats: nextUnitCombat,
           unitStatsOrder: nextUnitOrder,
           spellDeployLog: nextSpellLog,
           playerB: {
             ...prev.playerB,
-            tokens: prev.playerB.tokens - cost,
+            tokens: prev.playerB.tokens - placementCost,
             hand: newHand,
             field: updatedField
           }
         };
+        if (hyuDirectCombatPatches.length > 0) {
+          rB = {
+            ...rB,
+            unitCombatStats: patchManyUnitCombatStats(rB.unitCombatStats, hyuDirectCombatPatches),
+          };
+        }
+        if (isSpellSlot && hyuDirectPerSlot.length > 0) {
+          window.setTimeout(
+            () => playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectPerSlot),
+            0
+          );
+        }
         return isSpellSlot ? finalizeSpellWithSimpan(rB) : rB;
       }
     });
@@ -3282,20 +4742,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }, 0);
     }
 
+    const pyredAuraCtxAfterPlace = buildPyredAuraFieldContext(
+      targetPlayer,
+      fieldAfterPlace,
+      targetPlayer === "A" ? fieldAfterPlace : gameState.playerA.field,
+      targetPlayer === "B" ? fieldAfterPlace : gameState.playerB.field
+    );
+
     /* 능력 발동 이펙트 — 파이레드 필드 배치 시 본인 + 지금 효과를 받는 [공격형] 아군 */
     if (!isSpellSlot && card.name === PYRED_ID) {
       const pyredKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
       triggerCardFlash(pyredKey, "pyredSummon");
-      (["is", "m", "os"] as const).forEach(s => {
-        if (s === slot) return;
-        const ally = fieldAfterPlace[s];
-        if (!hasPyredAttackAura(ally, fieldAfterPlace)) return;
-        triggerCardFlash(`${sourcePlayer}-${s}`, "pyredSummon");
-      });
+      if (fieldHasActivePyredAuraSource(pyredAuraCtxAfterPlace)) {
+        (["is", "m", "os"] as const).forEach(s => {
+          if (s === slot) return;
+          const ally = fieldAfterPlace[s];
+          if (!hasPyredAttackAura(ally, fieldAfterPlace, pyredAuraCtxAfterPlace)) return;
+          triggerCardFlash(`${sourcePlayer}-${s}`, "pyredSummon");
+        });
+      }
     }
 
     /* 파이레드가 이미 있을 때 [공격형] 아군 신규 배치 — 파이레드와 해당 아군 동시 연출 */
-    if (!isSpellSlot && card.name !== PYRED_ID && hasPyredAttackAura(card, fieldAfterPlace)) {
+    if (
+      !isSpellSlot &&
+      card.name !== PYRED_ID &&
+      hasPyredAttackAura(card, fieldAfterPlace, pyredAuraCtxAfterPlace)
+    ) {
       const allyKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
       triggerCardFlash(allyKey, "pyredSummon");
       (["is", "m", "os"] as const).forEach(s => {
@@ -3312,13 +4785,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (["is", "m", "os"] as const).forEach(s => {
         if (s === slot) return;
         const ally = fieldAfterPlace[s];
-        if (!hasMorningMoodAttackAura(ally, fieldAfterPlace)) return;
+        if (!hasMorningMoodAttackAura(ally, fieldAfterPlace, pyredAuraCtxAfterPlace)) return;
         triggerCardFlash(`${sourcePlayer}-${s}`, "morningMoodSummon");
       });
     }
 
     /* 모닝 무드가 이미 있을 때 [지원형] 아군 신규 배치 — 모닝 무드와 해당 아군 동시 연출 */
-    if (!isSpellSlot && card.name !== MORNING_MOOD_ID && hasMorningMoodAttackAura(card, fieldAfterPlace)) {
+    if (
+      !isSpellSlot &&
+      card.name !== MORNING_MOOD_ID &&
+      hasMorningMoodAttackAura(card, fieldAfterPlace, pyredAuraCtxAfterPlace)
+    ) {
       const allyKey = `${sourcePlayer}-${slot as "is" | "m" | "os"}`;
       triggerCardFlash(allyKey, "morningMoodSummon");
       (["is", "m", "os"] as const).forEach(s => {
@@ -3344,6 +4821,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       triggerCardFlash(`${sourcePlayer}-${uSlot}`, "philipSummon");
       if (oppField[uSlot]) {
         triggerCardFlash(`${opp}-${uSlot}`, "philipSummon");
+      }
+    }
+
+    if (!isSpellSlot && card.name === DINNER_ID) {
+      const uSlot = slot as "is" | "m" | "os";
+      const opp = sourcePlayer === "A" ? "B" : "A";
+      const oppField = opp === "A" ? gameState.playerA.field : gameState.playerB.field;
+      triggerCardFlash(`${sourcePlayer}-${uSlot}`, "dinnerSummon");
+      if (oppField[uSlot]) {
+        triggerCardFlash(`${opp}-${uSlot}`, "dinnerSummon");
       }
     }
 
@@ -3410,7 +4897,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     /* 필립이 먼저 깔려 있고 마주 칸에 유닛을 나중에 올릴 때 — 능력 발동 이펙트(패시브 맺음) 1회 */
-    if (!isSpellSlot && card.name !== PHILIP_ID) {
+    if (!isSpellSlot && card.name !== PHILIP_ID && card.name !== DINNER_ID) {
       const uSlot = slot as "is" | "m" | "os";
       const opp = sourcePlayer === "A" ? "B" : "A";
       const oppField = opp === "A" ? gameState.playerA.field : gameState.playerB.field;
@@ -3418,6 +4905,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         triggerCardFlash(`${sourcePlayer}-${uSlot}`, "philipSummon");
         triggerCardFlash(`${opp}-${uSlot}`, "philipSummon");
       }
+      if (oppField[uSlot]?.name === DINNER_ID) {
+        triggerCardFlash(`${sourcePlayer}-${uSlot}`, "dinnerSummon");
+        triggerCardFlash(`${opp}-${uSlot}`, "dinnerSummon");
+      }
+    }
+
+    if (!isSpellSlot) {
+      window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
     }
   };
 
@@ -3430,13 +4925,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (state.simpanHandChoice?.player === player) {
       return;
     }
-    if (state.simpanPeekReveal?.player === player || simpanPeekFly?.player === player) {
+    if (
+      state.simpanPeekReveal?.player === player ||
+      simpanPeekFly?.player === player ||
+      spellUsageReveal ||
+      spellUsageFly ||
+      spellUsageMotionActiveRef.current ||
+      oneNightWagerModal
+    ) {
       return;
     }
     e.preventDefault();
     setSelectedSlot(null);
     setAttackingSlot(null);
     setPendingSecondaryAttack(null);
+    setPendingStartingWraithChainKill(null);
+    setPendingStartingWraithChainPlayerHp(false);
     setPendingAttackSelection(null);
     setPendingLibutyAllEnemiesAttack(null);
     setAttackOptionOverride(null);
@@ -3482,6 +4986,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const spellRow = hand[saved.cardIndex];
     if (!spellRow || spellRow.name !== BEONGGAE_SPELL_ID || !isSpellCardRow(spellRow)) return false;
     if (snap.currentTurn !== saved.player) return false;
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, slot)) return true;
 
     if (targetPlayer === saved.player || slot === "spell") {
       pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
@@ -3513,59 +5018,49 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
-    setState(prev => {
-      if (!prev) return prev;
-      const casterIsA = saved.player === "A";
-      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-      const c = h[saved.cardIndex];
-      if (!c || c.name !== BEONGGAE_SPELL_ID || !isSpellCardRow(c)) return prev;
-      const cst = Number(c.cost) || 0;
-      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-      h.splice(saved.cardIndex, 1);
-
-      const sk2 = slot as "is" | "m" | "os";
-      const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
-      const u2 = victim.field[sk2];
-      if (!u2) return prev;
-      if (!isBeonggaeValidTargetUnit(u2)) return prev;
-      if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
-      const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
-      const nextVictim = { ...victim, field: { ...victim.field, [sk2]: updated } };
-
-      if (casterIsA && targetPlayer === "A") {
-        return finalizeSpellWithSimpan({
+    const skCommit = slot as "is" | "m" | "os";
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: skCommit,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || c.name !== BEONGGAE_SPELL_ID || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        const casterIsA = saved.player === "A";
+        const c = spellRow;
+        const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+        const u2 = victim.field[skCommit];
+        if (!u2) return prev;
+        if (!isBeonggaeValidTargetUnit(u2)) return prev;
+        if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
+        const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
+        const nextVictim = { ...victim, field: { ...victim.field, [skCommit]: updated } };
+        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+        const base = {
           ...prev,
-          playerA: { ...nextVictim, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: prev.playerB,
+          [victimKey]: nextVictim,
           rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      if (casterIsA && targetPlayer === "B") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: nextVictim,
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      if (!casterIsA && targetPlayer === "A") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: nextVictim,
-          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      return finalizeSpellWithSimpan({
-        ...prev,
-        playerA: prev.playerA,
-        playerB: { ...nextVictim, hand: h, tokens: prev.playerB.tokens - cst },
-        rewindCards: [...prev.rewindCards, c],
-      });
+        };
+        return finalizeSpellWithSimpan(base);
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "beonggaeSpell"), 0);
+      },
     });
-
-    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "beonggaeSpell"), 0);
     return true;
   };
 
@@ -3580,6 +5075,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const spellRow = hand[saved.cardIndex];
     if (!spellRow || spellRow.name !== EONDEOK_SPELL_ID || !isSpellCardRow(spellRow)) return false;
     if (snap.currentTurn !== saved.player) return false;
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, slot)) return true;
 
     if (targetPlayer === saved.player || slot === "spell") {
       pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
@@ -3606,60 +5102,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
-    setState(prev => {
-      if (!prev) return prev;
-      const casterIsA = saved.player === "A";
-      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-      const c = h[saved.cardIndex];
-      if (!c || c.name !== EONDEOK_SPELL_ID || !isSpellCardRow(c)) return prev;
-      const cst = Number(c.cost) || 0;
-      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-      h.splice(saved.cardIndex, 1);
-
-      const sk = slot as "is" | "m" | "os";
-      const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
-      const u2 = victim.field[sk];
-      if (!u2) return prev;
-      const updated: FieldCard = {
-        ...u2,
-        eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
-      };
-      const nextVictim = { ...victim, field: { ...victim.field, [sk]: updated } };
-
-      if (casterIsA && targetPlayer === "A") {
+    const skCommit = slot as "is" | "m" | "os";
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: skCommit,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || c.name !== EONDEOK_SPELL_ID || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        const c = spellRow;
+        const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
+        const u2 = victim.field[skCommit];
+        if (!u2) return prev;
+        const updated: FieldCard = {
+          ...u2,
+          eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
+        };
+        const nextVictim = { ...victim, field: { ...victim.field, [skCommit]: updated } };
+        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
         return finalizeSpellWithSimpan({
           ...prev,
-          playerA: { ...nextVictim, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: prev.playerB,
+          [victimKey]: nextVictim,
           rewindCards: [...prev.rewindCards, c],
         });
-      }
-      if (casterIsA && targetPlayer === "B") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: nextVictim,
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      if (!casterIsA && targetPlayer === "A") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: nextVictim,
-          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      return finalizeSpellWithSimpan({
-        ...prev,
-        playerA: prev.playerA,
-        playerB: { ...nextVictim, hand: h, tokens: prev.playerB.tokens - cst },
-        rewindCards: [...prev.rewindCards, c],
-      });
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "eondeokSpell"), 0);
+      },
     });
-
-    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "eondeokSpell"), 0);
     return true;
   };
 
@@ -3674,6 +5158,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const spellRow = hand[saved.cardIndex];
     if (!spellRow || spellRow.name !== SOMYEOL_SPELL_ID || !isSpellCardRow(spellRow)) return false;
     if (snap.currentTurn !== saved.player) return false;
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, slot)) return true;
 
     if (targetPlayer === saved.player || slot === "spell") {
       pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
@@ -3695,79 +5180,219 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
-    setState(prev => {
-      if (!prev) return prev;
-      const casterIsA = saved.player === "A";
-      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-      const c = h[saved.cardIndex];
-      if (!c || c.name !== SOMYEOL_SPELL_ID || !isSpellCardRow(c)) return prev;
-      const cst = Number(c.cost) || 0;
-      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-      h.splice(saved.cardIndex, 1);
+    const skCommit = slot as "is" | "m" | "os";
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: skCommit,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || c.name !== SOMYEOL_SPELL_ID || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        const c = spellRow;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+        const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
+        const erased = victimState.field[skCommit];
+        if (!erased) return prev;
 
-      const sk2 = slot as "is" | "m" | "os";
-      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
-      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
-      const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
-      const erased = victimState.field[sk2];
-      if (!erased) return prev;
-
-      cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
-        skipDarkKnightSoulIncrement: true,
-      });
-      victimState.field[sk2] = null;
-
-      let nextUnitCombatStats = prev.unitCombatStats;
-      let nextUnitStatsOrder = prev.unitStatsOrder;
-      const sid = erased.statsInstanceId;
-      if (sid) {
-        const { [sid]: _removed, ...restStats } = nextUnitCombatStats;
-        nextUnitCombatStats = restStats;
-        nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
-      }
-
-      if (casterIsA && targetPlayer === "A") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          unitCombatStats: nextUnitCombatStats,
-          unitStatsOrder: nextUnitStatsOrder,
-          playerA: { ...newPlayerA, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: newPlayerB,
-          rewindCards: [...prev.rewindCards, c, erased],
+        cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
+          skipDarkKnightSoulIncrement: true,
         });
-      }
-      if (casterIsA && targetPlayer === "B") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          unitCombatStats: nextUnitCombatStats,
-          unitStatsOrder: nextUnitStatsOrder,
-          playerA: { ...newPlayerA, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: newPlayerB,
-          rewindCards: [...prev.rewindCards, c, erased],
-        });
-      }
-      if (!casterIsA && targetPlayer === "A") {
+        victimState.field[skCommit] = null;
+
+        let nextUnitCombatStats = prev.unitCombatStats;
+        let nextUnitStatsOrder = prev.unitStatsOrder;
+        const sid = erased.statsInstanceId;
+        if (sid) {
+          const { [sid]: _removed, ...restStats } = nextUnitCombatStats;
+          nextUnitCombatStats = restStats;
+          nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+        }
+
+        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
         return finalizeSpellWithSimpan({
           ...prev,
           unitCombatStats: nextUnitCombatStats,
           unitStatsOrder: nextUnitStatsOrder,
           playerA: newPlayerA,
-          playerB: { ...newPlayerB, hand: h, tokens: prev.playerB.tokens - cst },
+          playerB: newPlayerB,
           rewindCards: [...prev.rewindCards, c, erased],
         });
-      }
-      return finalizeSpellWithSimpan({
-        ...prev,
-        unitCombatStats: nextUnitCombatStats,
-        unitStatsOrder: nextUnitStatsOrder,
-        playerA: newPlayerA,
-        playerB: { ...newPlayerB, hand: h, tokens: prev.playerB.tokens - cst },
-        rewindCards: [...prev.rewindCards, c, erased],
-      });
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "somyeolSpellErase"), 0);
+      },
     });
+    return true;
+  };
 
-    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "somyeolSpellErase"), 0);
+  /** 스펠 No.34 하이퍼 빔 — 적 is/m/os에 드롭 시 2000 피해(공격 유형·방어/무적/보호막 규칙 적용) */
+  const attemptCastHyperBeamSpellDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || !isHyperBeamSpellCard(spellRow) || !isSpellCardRow(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, slot)) return true;
+
+    if (targetPlayer === saved.player || slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const sk = slot as "is" | "m" | "os";
+    const enemyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const enemyUnit = enemyField[sk];
+    if (!enemyUnit) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${sk}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const skCommit = slot as "is" | "m" | "os";
+    const hyperBeamVfx = { slotKey: "", hpLoss: 0 };
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: skCommit,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || !isHyperBeamSpellCard(c) || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        hyperBeamVfx.slotKey = "";
+        hyperBeamVfx.hpLoss = 0;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+        const enemySide = targetPlayer === "A" ? newPlayerA : newPlayerB;
+        const unit = enemySide.field[skCommit];
+        if (!unit || unit.currentHp <= 0) return prev;
+
+        const resolved = applyHyperBeamDamageToEnemyUnit({
+          target: unit,
+          targetPlayer,
+          targetSlot: skCommit,
+          playerAField: newPlayerA.field,
+          playerBField: newPlayerB.field,
+        });
+
+        const baseTarget =
+          Object.keys(resolved.baekseuPatch).length > 0
+            ? stripBaekseuHarmfulEffectsForInvuln(unit)
+            : unit;
+        const updatedTarget: FieldCard = {
+          ...baseTarget,
+          ...resolved.baekseuPatch,
+          ...resolved.barrierPatch,
+          currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
+        };
+
+        let rewindCards = [...prev.rewindCards, spellRow];
+        let unitCombatStats = prev.unitCombatStats;
+        let unitStatsOrder = prev.unitStatsOrder;
+
+        if (resolved.isDestroyed) {
+          enemySide.field[skCommit] = null;
+          cleanupSimulationUnitDeath(
+            unit,
+            { field: newPlayerA.field },
+            { field: newPlayerB.field },
+            prev.globalTurnCount
+          );
+          rewindCards = [...rewindCards, unit];
+          const sid = unit.statsInstanceId;
+          if (sid) {
+            const { [sid]: _removed, ...restStats } = unitCombatStats;
+            unitCombatStats = restStats;
+            unitStatsOrder = unitStatsOrder.filter(x => x !== sid);
+          }
+        } else {
+          enemySide.field[skCommit] = updatedTarget;
+        }
+
+        if (resolved.morningMoodDeathHeal > 0) {
+          (["is", "m", "os"] as const).forEach(s => {
+            const ally = enemySide.field[s];
+            if (!ally) return;
+            enemySide.field[s] = {
+              ...ally,
+              currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+            };
+          });
+        }
+        if (resolved.startingTreeAllyHeal > 0) {
+          (["is", "m", "os"] as const).forEach(s => {
+            if (s === skCommit) return;
+            const ally = enemySide.field[s];
+            if (!ally) return;
+            enemySide.field[s] = {
+              ...ally,
+              currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+            };
+          });
+        }
+
+        if (resolved.hpLoss > 0) {
+          hyperBeamVfx.slotKey = `${targetPlayer}-${skCommit}`;
+          hyperBeamVfx.hpLoss = resolved.hpLoss;
+        }
+
+        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+        return finalizeSpellWithSimpan({
+          ...prev,
+          unitCombatStats,
+          unitStatsOrder,
+          playerA: newPlayerA,
+          playerB: newPlayerB,
+          [victimKey]: enemySide,
+          rewindCards,
+        });
+      },
+      afterCommitVfx: () => {
+        if (hyperBeamVfx.slotKey && hyperBeamVfx.hpLoss > 0) {
+          window.setTimeout(
+            () => showHyperBeamSpellHitOnTarget(hyperBeamVfx.slotKey, hyperBeamVfx.hpLoss),
+            0
+          );
+        }
+      },
+    });
     return true;
   };
 
@@ -3782,6 +5407,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const spellRow = hand[saved.cardIndex];
     if (!spellRow || !isOrietChosangSpellCard(spellRow) || !isSpellCardRow(spellRow)) return false;
     if (snap.currentTurn !== saved.player) return false;
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, slot)) return true;
 
     if (targetPlayer !== saved.player || slot === "spell") {
       pushInfoFloat(`${saved.player}-spell`, "아군 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
@@ -3803,59 +5429,51 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
-    setState(prev => {
-      if (!prev) return prev;
-      const casterIsA = saved.player === "A";
-      const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-      if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-      const c = h[saved.cardIndex];
-      if (!c || !isOrietChosangSpellCard(c) || !isSpellCardRow(c)) return prev;
-      const cst = Number(c.cost) || 0;
-      if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-      h.splice(saved.cardIndex, 1);
-
-      const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
-      const u = allySide.field[sk];
-      if (!u) return prev;
-      const updatedAlly: FieldCard = {
-        ...u,
-        hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
-      };
-      const nextAllySide = { ...allySide, field: { ...allySide.field, [sk]: updatedAlly } };
-
-      if (casterIsA && targetPlayer === "A") {
+    const skCommit = slot as "is" | "m" | "os";
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: skCommit,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || !isOrietChosangSpellCard(c) || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        const c = spellRow;
+        const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
+        const u = allySide.field[skCommit];
+        if (!u) return prev;
+        const updatedAlly: FieldCard = {
+          ...u,
+          hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
+        };
+        const nextAllySide = {
+          ...allySide,
+          field: { ...allySide.field, [skCommit]: updatedAlly },
+        };
+        const allyKey = targetPlayer === "A" ? "playerA" : "playerB";
         return finalizeSpellWithSimpan({
           ...prev,
-          playerA: { ...nextAllySide, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: prev.playerB,
+          [allyKey]: nextAllySide,
           rewindCards: [...prev.rewindCards, c],
         });
-      }
-      if (casterIsA && targetPlayer === "B") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: { ...prev.playerA, hand: h, tokens: prev.playerA.tokens - cst },
-          playerB: nextAllySide,
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      if (!casterIsA && targetPlayer === "A") {
-        return finalizeSpellWithSimpan({
-          ...prev,
-          playerA: nextAllySide,
-          playerB: { ...prev.playerB, hand: h, tokens: prev.playerB.tokens - cst },
-          rewindCards: [...prev.rewindCards, c],
-        });
-      }
-      return finalizeSpellWithSimpan({
-        ...prev,
-        playerA: prev.playerA,
-        playerB: { ...nextAllySide, hand: h, tokens: prev.playerB.tokens - cst },
-        rewindCards: [...prev.rewindCards, c],
-      });
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${skCommit}`, "orietShieldAllyPulse"), 0);
+      },
     });
-
-    window.setTimeout(() => triggerCardFlash(`${targetPlayer}-${sk}`, "orietShieldAllyPulse"), 0);
     return true;
   };
 
@@ -3874,6 +5492,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const snap = state;
     if (!snap) return;
+    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) return;
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const drop = under?.closest("[data-field-drop]");
@@ -3888,6 +5507,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) return;
     if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
     if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) return;
 
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
   };
@@ -3914,14 +5534,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const damage =
         pls.phase === 1 ? LEGENDARY_SWORD_FIRST_HIT_DAMAGE : LEGENDARY_SWORD_PLAYER_SECOND_HIT_DAMAGE;
 
+      let postEnemyHp = 0;
+      let finishStrike = false;
+
       setState(prev => {
         if (!prev) return prev;
         const enemyKey = enemyPlayer === "A" ? "playerA" : "playerB";
         const ownerKey = pls.ownerPlayer === "A" ? "playerA" : "playerB";
         const newEnemy = { ...prev[enemyKey] };
         newEnemy.hp = Math.max(0, newEnemy.hp - damage);
+        postEnemyHp = newEnemy.hp;
 
-        if (pls.phase === 2) {
+        const enemyField = enemyPlayer === "A" ? prev.playerA.field : prev.playerB.field;
+        const noLivingEnemyUnits = countLivingFieldUnits(enemyField) === 0;
+        finishStrike = pls.phase === 2 || (pls.phase === 1 && noLivingEnemyUnits);
+
+        if (finishStrike) {
           const newOwner = { ...prev[ownerKey], field: { ...prev[ownerKey].field } };
           const sword = newOwner.field[pls.swordSlot];
           if (sword?.name === UNIT.LEGENDARY_SWORD) {
@@ -3941,15 +5569,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       showLegendarySwordSkillHit(`player-${targetPlayer}`, damage);
 
-      if (pls.phase === 1) {
-        setPendingLegendarySwordStrike({
-          ...pls,
-          phase: 2,
-          hitTargets: [...pls.hitTargets, LEGENDARY_SWORD_HIT_PLAYER_MARK],
-        });
-      } else {
+      if (finishStrike) {
         setPendingLegendarySwordStrike(null);
+        setTimeout(() => {
+          if (postEnemyHp <= 0) {
+            setWinner(pls.ownerPlayer);
+          }
+        }, 50);
+        return;
       }
+
+      setPendingLegendarySwordStrike({
+        ...pls,
+        phase: 2,
+        hitTargets: [...pls.hitTargets, LEGENDARY_SWORD_HIT_PLAYER_MARK],
+      });
       return;
     }
 
@@ -3972,6 +5606,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
     if (isRanigo(attackerFieldPeek[attackerSlotName])) {
+      const ranigoFacing = facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName);
+      if (isRanigoAllyHealBasicAttackSealed(attackerFieldPeek[attackerSlotName], ranigoFacing)) {
+        setAttackingSlot(null);
+        setAttackOptionOverride(null);
+        return;
+      }
       alert(BATTLE_MSG.ranigo.cannotAttackEnemy);
       setAttackingSlot(null);
       setAttackOptionOverride(null);
@@ -3980,10 +5620,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const targetPlayerState = targetPlayer === "A" ? state.playerA : state.playerB;
     const attackerCardPeek = attackerFieldPeek[attackerSlotName];
+    const defenderFieldForWraithPlayerStrike =
+      targetPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const defenderFieldEmptyForWraithPlayerFollowUp =
+      !defenderFieldForWraithPlayerStrike.is &&
+      !defenderFieldForWraithPlayerStrike.m &&
+      !defenderFieldForWraithPlayerStrike.os;
+    const activeForPlayerStrikePre =
+      attackerPlayer === "A" ? state.playerA : state.playerB;
+    const wraithFacingPlayerStrike = facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName);
+    const wraithPlayerHpFollowUpValidate =
+      !!attackerCardPeek &&
+      isStartingWraithTrueStrikeBasicAttacker(attackerCardPeek, wraithFacingPlayerStrike) &&
+      defenderFieldEmptyForWraithPlayerFollowUp &&
+      (activeForPlayerStrikePre.attacksThisTurn || 0) < 2 &&
+      (!!attackerCardPeek.hasAttacked || pendingStartingWraithChainPlayerHp);
     if (
+      !wraithPlayerHpFollowUpValidate &&
       targetPlayerState.hasBeenAttackedThisTurn &&
-      !fieldGrantsFocusedFireMultihitExemption(attackerFieldPeek) &&
-      !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCardPeek)
+      !fieldGrantsFocusedFireMultihitExemption(attackerFieldPeek, {
+        allyPlayer: attackerPlayer,
+        playerAField: state.playerA.field,
+        playerBField: state.playerB.field,
+      }) &&
+      !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+        attackerCardPeek,
+        wraithFacingPlayerStrike
+      )
     ) {
       alert('다른 유닛이 이미 상대 플레이어를 공격했습니다. (플레이어 다구리 금지)');
       setAttackingSlot(null);
@@ -4008,6 +5671,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       attacksUsedThisTurn: activeForPlayerStrike.attacksThisTurn || 0,
       isSilenced: isSilenced(attackerCard, null),
       isStunned: isStunned(attackerCard),
+      overrideHasAttackedCheck: wraithPlayerHpFollowUpValidate,
     });
     if (!playerStrikeRules.canAttack) {
       alert(playerStrikeRules.reason ?? "공격할 수 없습니다.");
@@ -4016,7 +5680,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
 
-    const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(attackerCard, attackOptionOverride);
+    const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRawWithFacing(
+      attackerCard,
+      attackOptionOverride,
+      facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+    );
     const atkRaw = baseAtkRaw.replace(/[\(\)]/g, ""); 
     const atkRawLower = atkRaw.toLowerCase();
     
@@ -4050,20 +5718,28 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       0
     ));
 
-    primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCard, attackerField);
+    primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCard, attackerField, {
+      allyPlayer: attackerPlayer,
+      playerAField: state.playerA.field,
+      playerBField: state.playerB.field,
+    });
 
     let fieldHealAmount = 0;
     let fieldBuffKey = "";
-    const skillUpdates = applyPostAttackSkills(attackerCard, {
-      damageDealt: primaryDamage,
-      targetDestroyed: false,
-      applyFieldHeal: amt => {
-        fieldHealAmount = amt;
+    const skillUpdates = applyPostAttackSkills(
+      attackerCard,
+      {
+        damageDealt: primaryDamage,
+        targetDestroyed: false,
+        applyFieldHeal: amt => {
+          fieldHealAmount = amt;
+        },
+        applyFieldBuff: key => {
+          fieldBuffKey = key;
+        },
       },
-      applyFieldBuff: key => {
-        fieldBuffKey = key;
-      },
-    });
+      (attackerPlayer === "A" ? state.playerB.field : state.playerA.field)[attackerSlotName] ?? null
+    );
     const attackerHeal = getHealFromSkillUpdates(attackerCard, skillUpdates);
 
     const maengCombatPatches: Array<{
@@ -4174,6 +5850,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     setAttackingSlot(null);
     setAttackOptionOverride(null);
+    setPendingStartingWraithChainKill(null);
+    setPendingStartingWraithChainPlayerHp(false);
   };
 
   const commitLibutyAllEnemiesBasicAttack = () => {
@@ -4259,10 +5937,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         secondaryDamage,
         { attackType, secondaryHits }
       ));
-      primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCardSnap, attackerFieldSnap);
+      primaryDamage = scalePakkiOutgoingHit(primaryDamage, attackerCardSnap, attackerFieldSnap, {
+        allyPlayer: attackerPlayer,
+        playerAField,
+        playerBField,
+      });
 
-      const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCardSnap, card);
-      const kalliPurePrimary = getKalliVsDefenseTypePureBonus(attackerCardSnap, card);
+      const attackerFacingOppLibuty =
+        (attackerPlayer === "A" ? playerBField : playerAField)[attackerSlotName] ?? null;
+      const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(
+        attackerCardSnap,
+        card,
+        attackerFacingOppLibuty
+      );
+      const kalliPurePrimary = getKalliVsDefenseTypePureBonus(
+        attackerCardSnap,
+        card,
+        attackerFacingOppLibuty
+      );
       let afterBanjitPrimary = primaryDamage;
       let banjitMitPrimary = 0;
       if (
@@ -4306,7 +5998,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const resolvedPrimary = resolveBaekseuFatalDamage(
         card,
         hpAfterRawPrimary,
-        barrierSplitPrimary.damageToCurrentHp
+        barrierSplitPrimary.damageToCurrentHp,
+        facingOppUnitAtSlot(state!, defenderPlayer, slotName)
       );
       const newHp = resolvedPrimary.finalHp;
       const hpLossPrimary = Math.max(0, card.currentHp - newHp);
@@ -4316,28 +6009,46 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const baekseuPatchPrimary = resolvedPrimary.patch;
       const baekseuLastStandPrimary = resolvedPrimary.lastStandTriggered;
 
-      const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
-      const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualPrimaryDamage);
+      const morningMoodDeathHeal = isDestroyed
+        ? getMorningMoodDeathAllyHeal(card, facingOppUnitAtSlot(state!, defenderPlayer, slotName))
+        : 0;
+      const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+        card,
+        actualPrimaryDamage,
+        facingOppUnitAtSlot(state!, defenderPlayer, slotName)
+      );
 
       let fieldHealAmountPrimary = 0;
       let fieldBuffKeyPrimary = "";
-      const skillUpdates = applyPostAttackSkills(attackerCardSnap, {
-        damageDealt: actualPrimaryDamage,
-        targetDestroyed: isDestroyed,
-        targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
-        applyFieldHeal: amt => {
-          fieldHealAmountPrimary += amt;
+      const skillUpdates = applyPostAttackSkills(
+        attackerCardSnap,
+        {
+          damageDealt: actualPrimaryDamage,
+          targetDestroyed: isDestroyed,
+          targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+          applyFieldHeal: amt => {
+            fieldHealAmountPrimary += amt;
+          },
+          applyFieldBuff: key => {
+            fieldBuffKeyPrimary = key;
+          },
         },
-        applyFieldBuff: key => {
-          fieldBuffKeyPrimary = key;
-        },
-      });
+        facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+      );
       mergedSkillUpdates = { ...mergedSkillUpdates, ...skillUpdates };
 
       const pakkiDebuffPrimary =
         isDestroyed &&
-        String(card?.name ?? "").trim() === PAKKI_ID &&
-        canApplyPakkiKillDebuff(attackerFieldSnap);
+        shouldApplyPakkiKillDebuffOnDeath(
+          card,
+          facingOppUnitAtSlot(state, defenderPlayer, slotName),
+          attackerFieldSnap,
+          {
+            allyPlayer: attackerPlayer,
+            playerAField,
+            playerBField,
+          }
+        );
       if (pakkiDebuffPrimary) anyPakkiDebuff = true;
 
       rows.push({
@@ -4434,7 +6145,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     let gaugeSim: FieldCard = attackerCardSnap;
     for (const r of rows) {
       if (!r.isDestroyed) continue;
-      const b = bumpMaxellandTenacityGaugeOnEnemyKill({ ...gaugeSim, ...maxellCum }, true);
+      const b = bumpMaxellandTenacityGaugeOnEnemyKill(
+        { ...gaugeSim, ...maxellCum },
+        true,
+        facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+      );
       maxellCum = { ...maxellCum, ...b };
     }
 
@@ -4467,6 +6182,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
 
       const defSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
+      const elixir5AttackerFacingOpp =
+        (attackerPlayer === "A" ? playerBField : playerAField)[attackerSlotName] ?? null;
       for (const r of rows) {
         const baseTargetPrimary =
           Object.keys(r.baekseuPatchPrimary).length > 0
@@ -4474,7 +6191,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             : r.card;
         const updatedTarget: FieldCard = {
           ...baseTargetPrimary,
-          ...elixir5StunTargetPatch(attackerCardSnap.name, r.actualPrimaryDamage, r.isDestroyed),
+          ...elixir5StunTargetPatch(
+            attackerCardSnap,
+            r.actualPrimaryDamage,
+            r.isDestroyed,
+            elixir5AttackerFacingOpp
+          ),
           ...r.baekseuPatchPrimary,
           ...hpBarrierPatchFromRemaining(r.barrierNextRemaining),
           currentHp: r.newHp,
@@ -4552,13 +6274,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (r.pakkiDebuffPrimary) {
         triggerCardFlash(atkKey, "pakkiDeathCurse");
       }
+      const dkFacingPrimary = facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName);
       const dkFullSoulStrike =
         attackerCardSnap.name === DARK_KNIGHT_ID &&
-        darkKnightSoulGaugeFull(attackerCardSnap) &&
+        darkKnightSoulGaugeFullForCombat(attackerCardSnap, dkFacingPrimary) &&
         r.actualPrimaryDamage > 0;
       const maxellFullStrikeVfx =
         attackerCardSnap.name === MAXELLAND_ID &&
-        maxellandTenacityGaugeFull(attackerCardSnap) &&
+        maxellandTenacityGaugeFullForCombat(
+          attackerCardSnap,
+          facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+        ) &&
         r.actualPrimaryDamage > 0;
       const pakkiDestroyedPrimary = r.isDestroyed && String(r.card?.name ?? "").trim() === PAKKI_ID;
       if (pakkiDestroyedPrimary) {
@@ -4571,17 +6297,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           r.actualPrimaryDamage,
           mergeKalliPureDamageFloat(r.kalliPurePrimary, dkKillExtrasPrimary)
         );
-        if (attackerCardSnap.name === GHOSTONE_ID) {
+        if (
+          attackerCardSnap.name === GHOSTONE_ID &&
+          shouldShowGhostoneKillVisualFeedback(
+            attackerCardSnap,
+            facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName),
+            true
+          )
+        ) {
           triggerGhostoneKillFlashOnAttacker(atkKey);
-        } else if (attackerCardSnap.name === DARK_KNIGHT_ID) {
+        } else if (
+          attackerCardSnap.name === DARK_KNIGHT_ID &&
+          shouldPlayDarkKnightKillVfx(attackerCardSnap, dkFacingPrimary)
+        ) {
           triggerCardFlash(atkKey, "darkKnightKill");
-        } else if (attackerCardSnap.name === MAXELLAND_ID) {
+        } else if (
+          attackerCardSnap.name === MAXELLAND_ID &&
+          shouldPlayMaxellandKillVfx(
+            attackerCardSnap,
+            facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+          )
+        ) {
           triggerCardFlash(atkKey, "maxellandKill");
         }
-      } else if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
+      } else if (
+        r.isDestroyed &&
+        attackerCardSnap.name === GHOSTONE_ID &&
+        shouldShowGhostoneKillVisualFeedback(
+          attackerCardSnap,
+          facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName),
+          true
+        )
+      ) {
         showGhostoneKillDamageOnTarget(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
         triggerGhostoneKillFlashOnAttacker(atkKey);
-      } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
+      } else if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
+        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+      } else if (
+        r.isDestroyed &&
+        attackerCardSnap.name === DARK_KNIGHT_ID &&
+        shouldPlayDarkKnightKillVfx(attackerCardSnap, dkFacingPrimary)
+      ) {
         showDarkKnightKillDamageOnTarget(
           tgt,
           r.actualPrimaryDamage,
@@ -4591,13 +6347,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
           )
         );
+      } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
+        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
       } else if (r.isDestroyed && attackerCardSnap.name === MAXELLAND_ID) {
-        showMaxellandKillDamageOnTarget(
-          tgt,
-          r.actualPrimaryDamage,
-          atkKey,
-          mergeKalliPureDamageFloat(r.kalliPurePrimary)
-        );
+        const maxellFacing = facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName);
+        if (shouldPlayMaxellandKillVfx(attackerCardSnap, maxellFacing)) {
+          showMaxellandKillDamageOnTarget(
+            tgt,
+            r.actualPrimaryDamage,
+            atkKey,
+            mergeKalliPureDamageFloat(r.kalliPurePrimary),
+            attackerCardSnap,
+            maxellFacing
+          );
+        } else {
+          showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        }
       } else if (
         attackerCardSnap.name === PHILIP_ID &&
         r.actualPrimaryDamage > 0
@@ -4653,9 +6418,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
       const ah = getHealFromSkillUpdates(attackerCardSnap, r.skillUpdates);
       if (ah > 0) {
-        if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
+        if (
+          shouldShowGhostoneKillFullHealFeedback(
+            attackerCardSnap,
+            facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName),
+            ah,
+            r.isDestroyed
+          )
+        ) {
           showHealNumberAfterGhostoneKillFlash(atkKey, ah);
-        } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
+        } else if (
+          r.isDestroyed &&
+          attackerCardSnap.name === DARK_KNIGHT_ID &&
+          shouldPlayDarkKnightKillVfx(
+            attackerCardSnap,
+            facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName)
+          )
+        ) {
           showHealNumberAfterDarkKnightKillFlash(atkKey, ah);
         } else {
           showHealNumber(atkKey, ah);
@@ -4672,6 +6451,39 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
       });
     }
+  };
+
+  const clearGonchungHiddenReveal = () => {
+    if (gonchungHiddenRevealTimerRef.current != null) {
+      window.clearTimeout(gonchungHiddenRevealTimerRef.current);
+      gonchungHiddenRevealTimerRef.current = null;
+    }
+    setGonchungHiddenReveal(null);
+  };
+
+  const isGonchungHiddenPeekShowingFront = (
+    spellPlayer: "A" | "B",
+    spell: FieldCard | null | undefined
+  ): boolean => {
+    if (spellUsageTeslaFlipPlayer === spellPlayer) return true;
+    if (!spell) return false;
+    if (!isHiddenSpellCard(spell)) return true;
+    return (
+      gonchungHiddenReveal?.player === spellPlayer &&
+      !!spell.statsInstanceId &&
+      spell.statsInstanceId === gonchungHiddenReveal.spellStatsInstanceId
+    );
+  };
+
+  const getGonchungHiddenPeekSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!pendingSkill || pendingSkill.name !== PENDING_SKILL.GONCHUNG_HIDDEN_PEEK || !state) {
+      return "";
+    }
+    const opp = pendingSkill.player === "A" ? "B" : "A";
+    if (player !== opp) return "";
+    const oppField = opp === "A" ? state.playerA.field : state.playerB.field;
+    if (!spellStackHasHiddenSpell(oppField)) return "";
+    return "border-[3px] border-white/95 bg-white/12 shadow-[0_0_28px_rgba(255,255,255,0.88)] animate-pulse cursor-pointer z-[20]";
   };
 
   const handleSpellStackShuffleClick = (e: React.MouseEvent, player: "A" | "B") => {
@@ -4696,6 +6508,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleFieldClick = (e: React.MouseEvent, player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
+    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) return;
     e.stopPropagation(); 
     if (winner) return;
     if (!state) return;
@@ -4703,6 +6516,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (pendingLegendarySwordStrike) {
       if (slot === "spell" || player === pendingLegendarySwordStrike.ownerPlayer) {
         alert("전설의 검 연격 대상을 선택하세요.");
+        return;
+      }
+    }
+
+    if (slot === "spell" && gonchungHiddenReveal?.player === player) {
+      const oppFieldSnap = player === "A" ? state.playerA.field : state.playerB.field;
+      const topHidden = normalizeSpellStack(oppFieldSnap).at(-1);
+      if (
+        topHidden?.statsInstanceId &&
+        topHidden.statsInstanceId === gonchungHiddenReveal.spellStatsInstanceId
+      ) {
+        clearGonchungHiddenReveal();
         return;
       }
     }
@@ -4815,6 +6640,99 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
 
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.GONCHUNG_HIDDEN_PEEK) {
+      const ps = pendingSkill;
+      const caster = ps.player;
+      const expertSlot = ps.slot as "is" | "m" | "os";
+
+      if (player === caster) {
+        alert("상대방의 스펠 칸을 선택하세요.");
+        return;
+      }
+      if (slot !== "spell") {
+        alert("상대 스펠 칸을 선택하세요.");
+        return;
+      }
+
+      const allyFieldSnap = caster === "A" ? state.playerA.field : state.playerB.field;
+      const expert = allyFieldSnap[expertSlot];
+      if (!expert || expert.name !== UNIT.GONCHUNG_JEONMOGA) {
+        setPendingSkill(null);
+        alert(BATTLE_MSG.gonchungJeonmoga.skillCancelled);
+        return;
+      }
+      if (expert.gonchungHiddenPeekConsumed) {
+        setPendingSkill(null);
+        return;
+      }
+      if (
+        isConfused(
+          expert,
+          getUnitFacingOppAtSlot(caster, expertSlot, state.playerA.field, state.playerB.field)
+        )
+      ) {
+        setPendingSkill(null);
+        return;
+      }
+
+      const oppFieldSnap = player === "A" ? state.playerA.field : state.playerB.field;
+      if (!spellStackHasHiddenSpell(oppFieldSnap)) {
+        pushInfoFloat(`${player}-spell`, BATTLE_MSG.gonchungJeonmoga.noHiddenSpell, INFO_FLOAT_MS);
+        setPendingSkill(null);
+        return;
+      }
+
+      const topHidden = normalizeSpellStack(oppFieldSnap).at(-1);
+      if (!topHidden || !isHiddenSpellCard(topHidden)) {
+        pushInfoFloat(`${player}-spell`, BATTLE_MSG.gonchungJeonmoga.topNotHidden, INFO_FLOAT_MS);
+        return;
+      }
+
+      const spellStatsInstanceId = topHidden.statsInstanceId;
+      if (!spellStatsInstanceId) {
+        setPendingSkill(null);
+        return;
+      }
+
+      const oppSpellKey = `${player}-spell`;
+      triggerCardFlash(oppSpellKey, "gonchungHiddenPeek");
+
+      setGonchungHiddenReveal({ player, spellStatsInstanceId });
+      if (gonchungHiddenRevealTimerRef.current != null) {
+        window.clearTimeout(gonchungHiddenRevealTimerRef.current);
+      }
+      gonchungHiddenRevealTimerRef.current = window.setTimeout(() => {
+        gonchungHiddenRevealTimerRef.current = null;
+        setGonchungHiddenReveal(null);
+      }, GONCHUNG_JEONMOGA_ACTIVE.hiddenRevealMs);
+
+      setState(prev => {
+        if (!prev) return prev;
+        const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+        const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+        const allyF = caster === "A" ? newPlayerA.field : newPlayerB.field;
+        const eu = allyF[expertSlot];
+        if (!eu || eu.name !== UNIT.GONCHUNG_JEONMOGA || eu.gonchungHiddenPeekConsumed) {
+          return prev;
+        }
+        if (caster === "A") {
+          newPlayerA.field = {
+            ...newPlayerA.field,
+            [expertSlot]: { ...eu, gonchungHiddenPeekConsumed: true },
+          };
+        } else {
+          newPlayerB.field = {
+            ...newPlayerB.field,
+            [expertSlot]: { ...eu, gonchungHiddenPeekConsumed: true },
+          };
+        }
+        return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+      });
+
+      setPendingSkill(null);
+      return;
+    }
+
     if (pendingSkill && pendingSkill.name === PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER) {
       const ps = pendingSkill;
       const caster = ps.player;
@@ -4837,6 +6755,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return;
       }
       if (king.superGreenKingSpellBreakerConsumed) {
+        setPendingSkill(null);
+        return;
+      }
+      if (
+        isConfused(
+          king,
+          getUnitFacingOppAtSlot(caster, kingSlot, state.playerA.field, state.playerB.field)
+        )
+      ) {
         setPendingSkill(null);
         return;
       }
@@ -4929,7 +6856,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           pls.swordSlot,
           player,
           slot as "is" | "m" | "os",
-          card
+          card,
+          getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
         )
       ) {
         pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
@@ -5069,6 +6997,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           setPendingSecondaryAttack(null);
           return;
         }
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          )
+        ) {
+          setAttackingSlot(null);
+          setAttackOptionOverride(null);
+          setPendingSecondaryAttack(null);
+          return;
+        }
 
         const maxHp = Number(card.hp);
         if (card.currentHp >= maxHp) {
@@ -5083,16 +7022,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         let fieldBuffKey = "";
         let skillUpdates: Partial<FieldCard> = {};
         if (attackerCard) {
-          skillUpdates = applyPostAttackSkills(attackerCard, {
-            damageDealt: 0,
-            targetDestroyed: false,
-            applyFieldHeal: amt => {
-              fieldHealAmount = amt;
+          skillUpdates = applyPostAttackSkills(
+            attackerCard,
+            {
+              damageDealt: 0,
+              targetDestroyed: false,
+              applyFieldHeal: amt => {
+                fieldHealAmount = amt;
+              },
+              applyFieldBuff: key => {
+                fieldBuffKey = key;
+              },
             },
-            applyFieldBuff: key => {
-              fieldBuffKey = key;
-            },
-          });
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
         }
 
         const ranigoChainPatches: Array<{
@@ -5208,13 +7151,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
         const attackerCard = attackerField[attackerSlotName];
         if (
-          !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard) &&
+          !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+            attackerCard,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          ) &&
           !canEnemyFieldSourceTargetMaengsugyeonPo(
             attackerPlayer,
             attackerSlotName,
             player,
             slot as "is" | "m" | "os",
-            card
+            card,
+            getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
           )
         ) {
           pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
@@ -5229,16 +7176,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         let damageSec = pendingSecondaryAttack.damage;
 
         if (attackerCard) {
-          damageSec = scalePakkiOutgoingHit(damageSec, attackerCard, attackerField);
+          damageSec = scalePakkiOutgoingHit(damageSec, attackerCard, attackerField, {
+            allyPlayer: attackerPlayer,
+            playerAField: state!.playerA.field,
+            playerBField: state!.playerB.field,
+          });
         }
         const pakkiScaledSecondaryForMit = damageSec;
 
-        const kalliVsDefenseSecondary = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
-        const kalliPureSecondary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+        const attackerFacingOppSecondary =
+          (attackerPlayer === "A" ? state!.playerB.field : state!.playerA.field)[attackerSlotName] ??
+          null;
+        const kalliVsDefenseSecondary = kalliBasicAttackSkipsTargetMitigationVsDefenseType(
+          attackerCard,
+          card,
+          attackerFacingOppSecondary
+        );
+        const mitigationBypassSecondary =
+          kalliVsDefenseSecondary ||
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary);
+        const kalliPureSecondary = getKalliVsDefenseTypePureBonus(
+          attackerCard,
+          card,
+          attackerFacingOppSecondary
+        );
         let afterBanjitSecondary = pakkiScaledSecondaryForMit;
         let banjitMitSecondary = 0;
         if (
-          !kalliVsDefenseSecondary &&
+          !mitigationBypassSecondary &&
           (card as any).hasBanjitgori &&
           !callieBuffBanSuppressesBuffsForVictim(
             player,
@@ -5254,7 +7219,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
         const victimFieldSecondary = player === "A" ? state!.playerA.field : state!.playerB.field;
 
-        const secondaryDefenseResult = kalliVsDefenseSecondary
+        const secondaryDefenseResult = mitigationBypassSecondary
           ? { finalDamage: afterBanjitSecondary }
           : applyIncomingDefenseDamage(
               afterBanjitSecondary,
@@ -5264,23 +7229,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               `${player}-${slot}`
             );
         const defenseMitSecondary =
-          !kalliVsDefenseSecondary && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
+          !mitigationBypassSecondary && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
             ? Math.max(0, afterBanjitSecondary - secondaryDefenseResult.finalDamage)
             : 0;
         const coreAfterDefenseSecondary =
-          kalliVsDefenseSecondary || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
+          mitigationBypassSecondary || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
             ? afterBanjitSecondary
             : secondaryDefenseResult.finalDamage;
         const preInvulnTotalSecondary = coreAfterDefenseSecondary + kalliPureSecondary;
         let actualDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
           ? 0
           : preInvulnTotalSecondary;
-        const barrierSplitSecondary = splitDamageThroughHpBarrier(card, actualDamage);
+        const barrierSplitSecondary = splitDamageThroughHpBarrier(
+          card,
+          actualDamage,
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
+            ? { bypassAbsorption: true }
+            : undefined
+        );
         const hpAfterRaw = card.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
           card,
           hpAfterRaw,
-          barrierSplitSecondary.damageToCurrentHp
+          barrierSplitSecondary.damageToCurrentHp,
+          facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
         );
         const newHp = resolvedSecondary.finalHp;
         const hpLossSecondary = Math.max(0, card.currentHp - newHp);
@@ -5290,24 +7262,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const baekseuPatchSecondary = resolvedSecondary.patch;
         const baekseuLastStandSecondary = resolvedSecondary.lastStandTriggered;
 
-        const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
-        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualDamage);
+        const morningMoodDeathHeal = isDestroyed
+          ? getMorningMoodDeathAllyHeal(
+              card,
+              facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
+            )
+          : 0;
+        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+          card,
+          actualDamage,
+          facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
+        );
 
         let skillUpdates: Partial<FieldCard> = {};
         let fieldHealAmount = 0;
         let fieldBuffKey = "";
         if (attackerCard) {
-          skillUpdates = applyPostAttackSkills(attackerCard, {
-            damageDealt: actualDamage,
-            targetDestroyed: isDestroyed,
-            targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
-            applyFieldHeal: amt => {
-              fieldHealAmount = amt;
+          skillUpdates = applyPostAttackSkills(
+            attackerCard,
+            {
+              damageDealt: actualDamage,
+              targetDestroyed: isDestroyed,
+              targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+              applyFieldHeal: amt => {
+                fieldHealAmount = amt;
+              },
+              applyFieldBuff: key => {
+                fieldBuffKey = key;
+              },
             },
-            applyFieldBuff: key => {
-              fieldBuffKey = key;
-            },
-          });
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
         }
 
         const targetPlayerState = player === "A" ? state!.playerA : state!.playerB;
@@ -5320,9 +7305,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
         const pakkiDebuffSecondary =
           isDestroyed &&
-          String(card?.name ?? "").trim() === PAKKI_ID &&
           attackerCard &&
-          canApplyPakkiKillDebuff(attackerFieldForPakkiCurseSec);
+          shouldApplyPakkiKillDebuffOnDeath(
+            card,
+            facingOppUnitAtSlot(state!, player, slot),
+            attackerFieldForPakkiCurseSec,
+            {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            }
+          );
 
         const ahSecondary = attackerCard ? getHealFromSkillUpdates(attackerCard, skillUpdates) : 0;
 
@@ -5394,15 +7387,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         let reflectLibutySecondaryAgg: ReturnType<
           typeof computeLibutyReflectPureDamageOnAggressor
         > | null = null;
-        if (attackerCard && isLibuty(card) && hpLossSecondary > 0) {
+        if (
+          attackerCard &&
+          shouldApplyLibutyBasicAttackReflect(
+            card,
+            facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os"),
+            hpLossSecondary
+          )
+        ) {
           const mergedForReflectSec: FieldCard = {
             ...attackerCard,
             ...skillUpdates,
-            ...bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed),
+            ...bumpMaxellandTenacityGaugeOnEnemyKill(
+              attackerCard,
+              isDestroyed,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            ),
             ...(pakkiDebuffSecondary ? { hasPakiAttackHalveDebuff: true } : {}),
           };
           reflectLibutySecondaryAgg =
-            computeLibutyReflectPureDamageOnAggressor(mergedForReflectSec);
+            computeLibutyReflectPureDamageOnAggressor(
+              mergedForReflectSec,
+              undefined,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            );
           if (reflectLibutySecondaryAgg && reflectLibutySecondaryAgg.hpLoss > 0) {
             if (attackerCard.statsInstanceId) {
               secondaryCombatPatches.push({
@@ -5430,7 +7438,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               : card;
           const updatedTarget = {
             ...baseTargetCard,
-            ...elixir5StunTargetPatch(attackerCard?.name ?? "", actualDamage, isDestroyed),
+            ...elixir5StunTargetPatch(
+              attackerCard,
+              actualDamage,
+              isDestroyed,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            ),
             ...baekseuPatchSecondary,
             ...hpBarrierPatchFromRemaining(barrierSplitSecondary.nextBarrierRemaining),
             currentHp: newHp,
@@ -5440,7 +7453,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           else newPlayerB.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
           
           if (attackerCard) {
-            const bumpKillSec = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+            const bumpKillSec = bumpMaxellandTenacityGaugeOnEnemyKill(
+              attackerCard,
+              isDestroyed,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            );
             let updatedAttacker: FieldCard = {
               ...attackerCard,
               ...skillUpdates,
@@ -5538,15 +7555,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
         const pakkiDestroyed =
           isDestroyed && String(card?.name ?? "").trim() === PAKKI_ID;
+        const dkFacingSecondary = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
         const dkFullSoulStrike =
           attackerCard != null &&
           attackerCard.name === DARK_KNIGHT_ID &&
-          darkKnightSoulGaugeFull(attackerCard) &&
+          darkKnightSoulGaugeFullForCombat(attackerCard, dkFacingSecondary) &&
           actualDamage > 0;
         const maxellFullStrikeSecVfx =
           attackerCard != null &&
           attackerCard.name === MAXELLAND_ID &&
-          maxellandTenacityGaugeFull(attackerCard) &&
+          maxellandTenacityGaugeFullForCombat(attackerCard, dkFacingSecondary) &&
           actualDamage > 0;
         /* 패키 처치: 대상은 붉은 피격 대신 패키색 능력 발동(필립 동형) — 고스톤·다크나이트·맥셀은 공격자 칸 처치 이펙트 유지 */
         if (pakkiDestroyed) {
@@ -5559,17 +7577,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             actualDamage,
             mergeKalliPureDamageFloat(kalliPureSecondary, dkKillExtras)
           );
-          if (attackerCard?.name === GHOSTONE_ID) {
+          if (
+            attackerCard?.name === GHOSTONE_ID &&
+            shouldShowGhostoneKillVisualFeedback(
+              attackerCard,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+              true
+            )
+          ) {
             triggerGhostoneKillFlashOnAttacker(attackerSlotKey);
-          } else if (attackerCard?.name === DARK_KNIGHT_ID) {
+          } else if (
+            attackerCard?.name === DARK_KNIGHT_ID &&
+            shouldPlayDarkKnightKillVfx(attackerCard, dkFacingSecondary)
+          ) {
             triggerCardFlash(attackerSlotKey, "darkKnightKill");
-          } else if (attackerCard?.name === MAXELLAND_ID) {
+          } else if (
+            attackerCard?.name === MAXELLAND_ID &&
+            shouldPlayMaxellandKillVfx(attackerCard, dkFacingSecondary)
+          ) {
             triggerCardFlash(attackerSlotKey, "maxellandKill");
           }
-        } else if (isDestroyed && attackerCard?.name === GHOSTONE_ID) {
+        } else if (
+          isDestroyed &&
+          attackerCard?.name === GHOSTONE_ID &&
+          shouldShowGhostoneKillVisualFeedback(
+            attackerCard,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+            true
+          )
+        ) {
           showGhostoneKillDamageOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
           triggerGhostoneKillFlashOnAttacker(attackerSlotKey);
-        } else if (isDestroyed && attackerCard?.name === DARK_KNIGHT_ID) {
+        } else if (isDestroyed && attackerCard?.name === GHOSTONE_ID) {
+          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+        } else if (
+          isDestroyed &&
+          attackerCard?.name === DARK_KNIGHT_ID &&
+          shouldPlayDarkKnightKillVfx(attackerCard, dkFacingSecondary)
+        ) {
           showDarkKnightKillDamageOnTarget(
             targetKey,
             actualDamage,
@@ -5579,13 +7624,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
             )
           );
+        } else if (isDestroyed && attackerCard?.name === DARK_KNIGHT_ID) {
+          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
         } else if (isDestroyed && attackerCard?.name === MAXELLAND_ID) {
-          showMaxellandKillDamageOnTarget(
+          const maxellFacingSec = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
+          if (shouldPlayMaxellandKillVfx(attackerCard, maxellFacingSec)) {
+            showMaxellandKillDamageOnTarget(
+              targetKey,
+              actualDamage,
+              attackerSlotKey,
+              mergeKalliPureDamageFloat(kalliPureSecondary),
+              attackerCard,
+              maxellFacingSec
+            );
+          } else {
+            showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          }
+        } else if (
+          isDestroyed &&
+          attackerCard != null &&
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
+        ) {
+          showStartingWraithChainKillOnTarget(
             targetKey,
             actualDamage,
-            attackerSlotKey,
-            mergeKalliPureDamageFloat(kalliPureSecondary)
+            mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPureSecondary))
           );
+          triggerStartingWraithChainKillFlashOnAttacker(attackerSlotKey);
         } else if (dkFullSoulStrike) {
           showDarkKnightFullSoulStrikeOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
         } else if (maxellFullStrikeSecVfx) {
@@ -5593,6 +7658,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             targetKey,
             actualDamage,
             mergeKalliPureDamageFloat(kalliPureSecondary)
+          );
+        } else if (
+          attackerCard != null &&
+          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary) &&
+          actualDamage > 0
+        ) {
+          showStartingWraithTrueStrikeDamageOnTarget(
+            targetKey,
+            actualDamage,
+            mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPureSecondary))
           );
         } else {
           showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
@@ -5630,9 +7705,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (attackerCard) {
           const ah = getHealFromSkillUpdates(attackerCard, skillUpdates);
           if (ah > 0) {
-            if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+            if (
+              shouldShowGhostoneKillFullHealFeedback(
+                attackerCard,
+                facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+                ah,
+                isDestroyed
+              )
+            ) {
               showHealNumberAfterGhostoneKillFlash(attackerSlotKey, ah);
-            } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+            } else if (
+              isDestroyed &&
+              attackerCard.name === DARK_KNIGHT_ID &&
+              shouldPlayDarkKnightKillVfx(attackerCard, dkFacingSecondary)
+            ) {
               showHealNumberAfterDarkKnightKillFlash(attackerSlotKey, ah);
             } else {
               showHealNumber(attackerSlotKey, ah);
@@ -5665,10 +7751,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     // 2. 1차 공격 (기본 공격) 처리
     if (attackingSlot) {
       const [attackerPlayer, attackerSlotName] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+      let keepAttackingModeForStartingWraithChain = false;
       const attackerFieldBanner = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
       const attackerCardBanner = attackerFieldBanner[attackerSlotName];
+      if (
+        attackerCardBanner &&
+        isStartingWraithPassivesPausedByConfusion(
+          attackerCardBanner,
+          facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+        )
+      ) {
+        setPendingStartingWraithChainKill(null);
+        setPendingStartingWraithChainPlayerHp(false);
+      }
 
-      if (attackerCardBanner && isRyeomcho(attackerCardBanner)) {
+      if (
+        attackerCardBanner &&
+        isRyeomchoSelfHealBasicAttackSealed(
+          attackerCardBanner,
+          facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+        )
+      ) {
         if (player === attackerPlayer && slot === attackerSlotName && card) {
           const activeForAttack = attackerPlayer === "A" ? state!.playerA : state!.playerB;
           const atkValidation = validateAttack({
@@ -5755,6 +7858,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
 
       if (attackerCardBanner && isRanigo(attackerCardBanner)) {
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCardBanner,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          )
+        ) {
+          return;
+        }
         if (player === attackerPlayer && slot !== "spell" && card) {
           if (slot === attackerSlotName) {
             alert(BATTLE_MSG.ranigo.cannotTargetSelf);
@@ -5784,8 +7895,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
           const actualHeal = newTargetHp - card.currentHp;
 
-          const baseAtkRaw =
-            resolveFieldUnitSimulationBaseAtkRaw(attackerCardBanner, attackOptionOverride);
+          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRawWithFacing(
+            attackerCardBanner,
+            attackOptionOverride,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
           const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
           const chainEligible =
             (parsed.type === "ADDITION" || parsed.type === "MULTIPLICATION") &&
@@ -5794,16 +7908,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           let fieldHealAmountPrimary = 0;
           let fieldBuffKeyPrimary = "";
-          const skillUpdates = applyPostAttackSkills(attackerCardBanner, {
-            damageDealt: 0,
-            targetDestroyed: false,
-            applyFieldHeal: amt => {
-              fieldHealAmountPrimary = amt;
+          const skillUpdates = applyPostAttackSkills(
+            attackerCardBanner,
+            {
+              damageDealt: 0,
+              targetDestroyed: false,
+              applyFieldHeal: amt => {
+                fieldHealAmountPrimary = amt;
+              },
+              applyFieldBuff: key => {
+                fieldBuffKeyPrimary = key;
+              },
             },
-            applyFieldBuff: key => {
-              fieldBuffKeyPrimary = key;
-            },
-          });
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
 
         const tgt = `${player}-${slot}`;
 
@@ -5943,14 +8061,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           mySlotKey: `${player}-${slot}`,
         });
 
-        const startingHeraldAbsBasic = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCardBanner);
+        const startingHeraldAbsBasic = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+          attackerCardBanner,
+          facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+        );
 
         if (tauntExists && !isTargetTaunted && !startingHeraldAbsBasic) {
            alert("적 필드에 [도발] 능력을 가진 유닛이 있습니다! 도발 유닛을 먼저 공격해야 합니다.");
            return; 
         }
 
-        if (attackerCardBanner?.name === IVERSON_ID) {
+        if (
+          shouldEnforceIversonNearestEnemyTargeting(
+            attackerCardBanner,
+            getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
+          )
+        ) {
           const allowed = getIversonClosestEnemyTargetSlots(
             attackerSlotName,
             { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
@@ -5974,7 +8100,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             attackerSlotName,
             player,
             slot as "is" | "m" | "os",
-            card
+            card,
+            getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
           )
         ) {
           pushInfoFloat(`${player}-${slot}`, "올바른 대상이 아닙니다", INFO_FLOAT_MS);
@@ -5982,25 +8109,43 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
 
         const attackerField = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+        const attackerCard = attackerField[attackerSlotName];
+        const isStartingWraithChainFollowUp = isStartingWraithBasicAttackChainFollowUpPending(
+          pendingStartingWraithChainKill,
+          attackerPlayer,
+          attackerSlotName
+        );
+        const wraithChainBypassesAntiGangup = startingWraithChainFollowUpBypassesAntiGangup(
+          isStartingWraithChainFollowUp,
+          attackerCardBanner,
+          facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+        );
 
         if (
           card.hasBeenAttackedThisTurn &&
           !isTargetTaunted &&
-          !fieldGrantsFocusedFireMultihitExemption(attackerField) &&
-          !startingHeraldAbsBasic
+          !fieldGrantsFocusedFireMultihitExemption(attackerField, {
+            allyPlayer: attackerPlayer,
+            playerAField: state!.playerA.field,
+            playerBField: state!.playerB.field,
+          }) &&
+          !startingHeraldAbsBasic &&
+          !wraithChainBypassesAntiGangup
         ) {
           alert("다른 유닛이 이미 이 유닛을 공격했습니다.\n(단, [도발] 효과를 가진 유닛은 한 턴에 여러 번 공격받을 수 있습니다.)");
           setAttackingSlot(null);
           setAttackOptionOverride(null);
+          setPendingStartingWraithChainKill(null);
+          setPendingStartingWraithChainPlayerHp(false);
           return;
         }
-
-        const attackerCard = attackerField[attackerSlotName];
 
         if (attackerCard) {
           if (isAttackDisabledUnit(attackerCard)) {
             setAttackingSlot(null);
             setAttackOptionOverride(null);
+            setPendingStartingWraithChainKill(null);
+            setPendingStartingWraithChainPlayerHp(false);
             return;
           }
           const activeForUnitStrike =
@@ -6011,15 +8156,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             attacksUsedThisTurn: activeForUnitStrike.attacksThisTurn || 0,
             isSilenced: isSilenced(attackerCard, null),
             isStunned: isStunned(attackerCard),
+            bypassTurnAttackBudget: isStartingWraithChainFollowUp,
           });
           if (!unitStrikeRules.canAttack) {
             alert(unitStrikeRules.reason ?? "공격할 수 없습니다.");
             setAttackingSlot(null);
             setAttackOptionOverride(null);
+            setPendingStartingWraithChainKill(null);
+            setPendingStartingWraithChainPlayerHp(false);
             return;
           }
 
-          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(attackerCard, attackOptionOverride);
+          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRawWithFacing(
+            attackerCard,
+            attackOptionOverride,
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
           const atkRaw = baseAtkRaw.replace(/[\(\)]/g, ""); 
           const atkRawLower = atkRaw.toLowerCase();
           
@@ -6081,14 +8233,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const pakkiScaledPrimaryForMit = scalePakkiOutgoingHit(
             primaryDamage,
             attackerCard,
-            attackerField
+            attackerField,
+            {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            }
           );
-          const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(attackerCard, card);
-          const kalliPurePrimary = getKalliVsDefenseTypePureBonus(attackerCard, card);
+          const attackerFacingOppPrimary =
+            (attackerPlayer === "A" ? state!.playerB.field : state!.playerA.field)[attackerSlotName] ??
+            null;
+          const kalliVsDefenseStrike = kalliBasicAttackSkipsTargetMitigationVsDefenseType(
+            attackerCard,
+            card,
+            attackerFacingOppPrimary
+          );
+          const mitigationBypassPrimary =
+            kalliVsDefenseStrike ||
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary);
+          const kalliPurePrimary = getKalliVsDefenseTypePureBonus(
+            attackerCard,
+            card,
+            attackerFacingOppPrimary
+          );
           let afterBanjitPrimary = pakkiScaledPrimaryForMit;
           let banjitMitPrimary = 0;
           if (
-            !kalliVsDefenseStrike &&
+            !mitigationBypassPrimary &&
             (card as any).hasBanjitgori &&
             !callieBuffBanSuppressesBuffsForVictim(
               player,
@@ -6104,7 +8275,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           const victimFieldPrimary = player === "A" ? state!.playerA.field : state!.playerB.field;
 
-          const primaryDefenseResult = kalliVsDefenseStrike
+          const primaryDefenseResult = mitigationBypassPrimary
             ? { finalDamage: afterBanjitPrimary }
             : applyIncomingDefenseDamage(
                 afterBanjitPrimary,
@@ -6114,23 +8285,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 `${player}-${slot}`
               );
           const defenseMitPrimary =
-            !kalliVsDefenseStrike && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
+            !mitigationBypassPrimary && !isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
               ? Math.max(0, afterBanjitPrimary - primaryDefenseResult.finalDamage)
               : 0;
           const coreAfterDefense =
-            kalliVsDefenseStrike || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
+            mitigationBypassPrimary || isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
               ? afterBanjitPrimary
               : primaryDefenseResult.finalDamage;
           const preInvulnTotal = coreAfterDefense + kalliPurePrimary;
           let actualPrimaryDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
             ? 0
             : preInvulnTotal;
-          const barrierSplitPrimary = splitDamageThroughHpBarrier(card, actualPrimaryDamage);
+          const barrierSplitPrimary = splitDamageThroughHpBarrier(
+            card,
+            actualPrimaryDamage,
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
+              ? { bypassAbsorption: true }
+              : undefined
+          );
           const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(
             card,
             hpAfterRawPrimary,
-            barrierSplitPrimary.damageToCurrentHp
+            barrierSplitPrimary.damageToCurrentHp,
+            facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
           );
           const newHp = resolvedPrimary.finalHp;
           const hpLossPrimary = Math.max(0, card.currentHp - newHp);
@@ -6140,16 +8318,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const baekseuPatchPrimary = resolvedPrimary.patch;
           const baekseuLastStandPrimary = resolvedPrimary.lastStandTriggered;
 
-          const morningMoodDeathHeal = isDestroyed ? getMorningMoodDeathAllyHeal(card) : 0;
-          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(card, actualPrimaryDamage);
+          const morningMoodDeathHeal = isDestroyed
+            ? getMorningMoodDeathAllyHeal(
+                card,
+                facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
+              )
+            : 0;
+          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+            card,
+            actualPrimaryDamage,
+            facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
+          );
 
           const attackerFieldForPakkiCurse =
             attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
           const pakkiDebuffPrimary =
             isDestroyed &&
-            String(card?.name ?? "").trim() === PAKKI_ID &&
             attackerCard &&
-            canApplyPakkiKillDebuff(attackerFieldForPakkiCurse);
+            shouldApplyPakkiKillDebuffOnDeath(
+              card,
+              facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os"),
+              attackerFieldForPakkiCurse,
+              {
+                allyPlayer: attackerPlayer,
+                playerAField: state!.playerA.field,
+                playerBField: state!.playerB.field,
+              }
+            );
 
           const willBeEmpty = isDestroyed && 
             (slot === "is" ? true : targetPlayerState.field.is === null) &&
@@ -6158,17 +8353,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           let fieldHealAmountPrimary = 0;
           let fieldBuffKeyPrimary = "";
-          const skillUpdates = applyPostAttackSkills(attackerCard, {
-            damageDealt: actualPrimaryDamage,
-            targetDestroyed: isDestroyed,
-            targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
-            applyFieldHeal: amt => {
-              fieldHealAmountPrimary = amt;
+          const skillUpdates = applyPostAttackSkills(
+            attackerCard,
+            {
+              damageDealt: actualPrimaryDamage,
+              targetDestroyed: isDestroyed,
+              targetMaxHpWhenDestroyed: isDestroyed ? Number(card.hp) : undefined,
+              applyFieldHeal: amt => {
+                fieldHealAmountPrimary = amt;
+              },
+              applyFieldBuff: key => {
+                fieldBuffKeyPrimary = key;
+              },
             },
-            applyFieldBuff: key => {
-              fieldBuffKeyPrimary = key;
-            },
-          });
+            facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+          );
           const attackerHealFromHit = getHealFromSkillUpdates(attackerCard, skillUpdates);
 
           const primaryCombatPatches: Array<{
@@ -6239,16 +8438,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           let reflectLibutyOnAggressorResult: ReturnType<
             typeof computeLibutyReflectPureDamageOnAggressor
           > | null = null;
-          if (isLibuty(card) && hpLossPrimary > 0) {
+          if (
+            shouldApplyLibutyBasicAttackReflect(
+              card,
+              facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os"),
+              hpLossPrimary
+            )
+          ) {
             const mergedForReflect: FieldCard = {
               ...attackerCard,
               hasAttacked: true,
               ...skillUpdates,
-              ...bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed),
+              ...bumpMaxellandTenacityGaugeOnEnemyKill(
+                attackerCard,
+                isDestroyed,
+                facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+              ),
               ...(pakkiDebuffPrimary ? { hasPakiAttackHalveDebuff: true } : {}),
             };
-            reflectLibutyOnAggressorResult =
-              computeLibutyReflectPureDamageOnAggressor(mergedForReflect);
+            reflectLibutyOnAggressorResult = computeLibutyReflectPureDamageOnAggressor(
+              mergedForReflect,
+              undefined,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            );
             if (reflectLibutyOnAggressorResult && reflectLibutyOnAggressorResult.hpLoss > 0) {
               if (attackerCard.statsInstanceId) {
                 primaryCombatPatches.push({
@@ -6265,6 +8477,31 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }
           }
 
+          const defenderFieldSnapForWraithChain =
+            player === "A" ? state!.playerA.field : state!.playerB.field;
+          const attackerDestroyedByLibutyReflect =
+            reflectLibutyOnAggressorResult?.isDestroyed === true;
+          const keepWraithChainForNextEnemy = isStartingWraithBasicAttackChainKillEligible({
+            attackerCard,
+            facingOppCard: attackerFacingOppPrimary,
+            attackType,
+            secondaryHits,
+            isDestroyed,
+            attackerDestroyedByReflect: attackerDestroyedByLibutyReflect,
+            defenderFieldBeforeKill: defenderFieldSnapForWraithChain,
+            killedSlot: slot as "is" | "m" | "os",
+          });
+          const wraithSeeksPlayerAfterClear =
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary) &&
+            attackType === "NORMAL" &&
+            secondaryHits === 0 &&
+            isDestroyed &&
+            !attackerDestroyedByLibutyReflect &&
+            countOtherLivingDefenderUnits(defenderFieldSnapForWraithChain, slot as "is" | "m" | "os") ===
+              0;
+          keepAttackingModeForStartingWraithChain =
+            keepWraithChainForNextEnemy || wraithSeeksPlayerAfterClear;
+
           setState(prev => {
             if (!prev) return prev;
             
@@ -6275,18 +8512,53 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               Object.keys(baekseuPatchPrimary).length > 0
                 ? stripBaekseuHarmfulEffectsForInvuln(card)
                 : card;
+            const wraithChainSkipsGangupMark = startingWraithChainFollowUpBypassesAntiGangup(
+              isStartingWraithChainFollowUp,
+              attackerCard,
+              getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                prev.playerA.field,
+                prev.playerB.field
+              )
+            );
             const updatedTarget = {
               ...baseTargetPrimary,
-              ...elixir5StunTargetPatch(attackerCard.name, actualPrimaryDamage, isDestroyed),
+              ...elixir5StunTargetPatch(
+                attackerCard,
+                actualPrimaryDamage,
+                isDestroyed,
+                facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+              ),
               ...baekseuPatchPrimary,
               ...hpBarrierPatchFromRemaining(barrierSplitPrimary.nextBarrierRemaining),
               currentHp: newHp,
-              hasBeenAttackedThisTurn: true,
-            }; 
-            const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(attackerCard, isDestroyed);
+              ...(wraithChainSkipsGangupMark ? {} : { hasBeenAttackedThisTurn: true }),
+            };
+            const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(
+              attackerCard,
+              isDestroyed,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+            );
+            const defendFieldPrev = player === "A" ? prev.playerA.field : prev.playerB.field;
+            const wraithChainContinues = isStartingWraithBasicAttackChainKillEligible({
+              attackerCard,
+              facingOppCard: getUnitFacingOppAtSlot(
+                attackerPlayer,
+                attackerSlotName,
+                prev.playerA.field,
+                prev.playerB.field
+              ),
+              attackType,
+              secondaryHits,
+              isDestroyed,
+              attackerDestroyedByReflect: attackerDestroyedByLibutyReflect,
+              defenderFieldBeforeKill: defendFieldPrev,
+              killedSlot: slot as "is" | "m" | "os",
+            });
             let updatedAttacker: FieldCard = {
               ...attackerCard,
-              hasAttacked: true,
+              hasAttacked: wraithChainContinues || wraithSeeksPlayerAfterClear ? false : true,
               ...skillUpdates,
               ...bumpKill,
               ...(pakkiDebuffPrimary ? { hasPakiAttackHalveDebuff: true } : {}),
@@ -6297,18 +8569,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 reflectLibutyOnAggressorResult
               );
             }
-            const attackerDestroyedByLibutyReflect =
-              reflectLibutyOnAggressorResult?.isDestroyed === true;
             
             if (player === "A") newPlayerA.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
             else newPlayerB.field[slot as "is"|"m"|"os"] = isDestroyed ? null : updatedTarget;
             
             if (attackerPlayer === "A") {
               newPlayerA.field[attackerSlotName] = attackerDestroyedByLibutyReflect ? null : updatedAttacker;
-              newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+              if (!isStartingWraithChainFollowUp) {
+                newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+              }
             } else {
               newPlayerB.field[attackerSlotName] = attackerDestroyedByLibutyReflect ? null : updatedAttacker;
-              newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+              if (!isStartingWraithChainFollowUp) {
+                newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+              }
             }
 
             const activePlayerPrimary = attackerPlayer === "A" ? newPlayerA : newPlayerB;
@@ -6387,13 +8661,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (pakkiDebuffPrimary) {
             triggerCardFlash(atkKey, "pakkiDeathCurse");
           }
+          const dkFacingLibuty = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
           const dkFullSoulStrike =
             attackerCard.name === DARK_KNIGHT_ID &&
-            darkKnightSoulGaugeFull(attackerCard) &&
+            darkKnightSoulGaugeFullForCombat(attackerCard, dkFacingLibuty) &&
             actualPrimaryDamage > 0;
           const maxellFullStrikeVfx =
             attackerCard.name === MAXELLAND_ID &&
-            maxellandTenacityGaugeFull(attackerCard) &&
+            maxellandTenacityGaugeFullForCombat(attackerCard, dkFacingLibuty) &&
             actualPrimaryDamage > 0;
           const pakkiDestroyedPrimary =
             isDestroyed && String(card?.name ?? "").trim() === PAKKI_ID;
@@ -6408,25 +8683,76 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               actualPrimaryDamage,
               mergeKalliPureDamageFloat(kalliPurePrimary, dkKillExtrasPrimary)
             );
-            if (attackerCard.name === GHOSTONE_ID) {
+            if (
+              attackerCard.name === GHOSTONE_ID &&
+              shouldShowGhostoneKillVisualFeedback(
+                attackerCard,
+                facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+                true
+              )
+            ) {
               triggerGhostoneKillFlashOnAttacker(atkKey);
-            } else if (attackerCard.name === DARK_KNIGHT_ID) {
+            } else if (
+              attackerCard.name === DARK_KNIGHT_ID &&
+              shouldPlayDarkKnightKillVfx(attackerCard, dkFacingLibuty)
+            ) {
               triggerCardFlash(atkKey, "darkKnightKill");
-            } else if (attackerCard.name === MAXELLAND_ID) {
+            } else if (
+              attackerCard.name === MAXELLAND_ID &&
+              shouldPlayMaxellandKillVfx(attackerCard, dkFacingLibuty)
+            ) {
               triggerCardFlash(atkKey, "maxellandKill");
             }
-          } else if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+          } else if (
+            isDestroyed &&
+            attackerCard.name === GHOSTONE_ID &&
+            shouldShowGhostoneKillVisualFeedback(
+              attackerCard,
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+              true
+            )
+          ) {
             showGhostoneKillDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
             triggerGhostoneKillFlashOnAttacker(atkKey);
-          } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+          } else if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (
+            isDestroyed &&
+            attackerCard.name === DARK_KNIGHT_ID &&
+            shouldPlayDarkKnightKillVfx(attackerCard, dkFacingLibuty)
+          ) {
             showDarkKnightKillDamageOnTarget(
               tgt,
               actualPrimaryDamage,
               atkKey,
               mergeKalliPureDamageFloat(kalliPurePrimary, dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined)
             );
+          } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
           } else if (isDestroyed && attackerCard.name === MAXELLAND_ID) {
-            showMaxellandKillDamageOnTarget(tgt, actualPrimaryDamage, atkKey, mergeKalliPureDamageFloat(kalliPurePrimary));
+            const maxellFacingPri = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
+            if (shouldPlayMaxellandKillVfx(attackerCard, maxellFacingPri)) {
+              showMaxellandKillDamageOnTarget(
+                tgt,
+                actualPrimaryDamage,
+                atkKey,
+                mergeKalliPureDamageFloat(kalliPurePrimary),
+                attackerCard,
+                maxellFacingPri
+              );
+            } else {
+              showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            }
+          } else if (
+            isDestroyed &&
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
+          ) {
+            showStartingWraithChainKillOnTarget(
+              tgt,
+              actualPrimaryDamage,
+              mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPurePrimary))
+            );
+            triggerStartingWraithChainKillFlashOnAttacker(atkKey);
           } else if (
             attackerCard.name === PHILIP_ID &&
             attackType === "NORMAL" &&
@@ -6443,6 +8769,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             showDarkKnightFullSoulStrikeOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
           } else if (maxellFullStrikeVfx) {
             showMaxellandFullGaugeStrikeDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+          } else if (
+            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary) &&
+            attackType === "NORMAL" &&
+            actualPrimaryDamage > 0
+          ) {
+            showStartingWraithTrueStrikeDamageOnTarget(
+              tgt,
+              actualPrimaryDamage,
+              mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPurePrimary))
+            );
           } else {
             showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
           }
@@ -6476,9 +8812,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             });
           }
           if (attackerHealFromHit > 0) {
-            if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
+            if (
+              shouldShowGhostoneKillFullHealFeedback(
+                attackerCard,
+                facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+                attackerHealFromHit,
+                isDestroyed
+              )
+            ) {
               showHealNumberAfterGhostoneKillFlash(atkKey, attackerHealFromHit);
-            } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
+            } else if (
+              isDestroyed &&
+              attackerCard.name === DARK_KNIGHT_ID &&
+              shouldPlayDarkKnightKillVfx(attackerCard, dkFacingLibuty)
+            ) {
               showHealNumberAfterDarkKnightKillFlash(atkKey, attackerHealFromHit);
             } else {
               showHealNumber(atkKey, attackerHealFromHit);
@@ -6504,11 +8851,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               hitTargets: [targetId],
             });
           }
+
+          if (keepWraithChainForNextEnemy) {
+            setPendingStartingWraithChainKill({ attackerPlayer, attackerSlotName });
+            setPendingStartingWraithChainPlayerHp(false);
+          } else if (wraithSeeksPlayerAfterClear) {
+            setPendingStartingWraithChainKill(null);
+            setPendingStartingWraithChainPlayerHp(true);
+          } else {
+            setPendingStartingWraithChainKill(null);
+            setPendingStartingWraithChainPlayerHp(false);
+          }
         }
       }
       
-      setAttackingSlot(null);
       setAttackOptionOverride(null);
+      if (!keepAttackingModeForStartingWraithChain) {
+        setAttackingSlot(null);
+      }
       return;
     }
 
@@ -6534,7 +8894,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           pls.swordSlot,
           enemy,
           slotName,
-          c
+          c,
+          getUnitFacingOppAtSlot(enemy, slotName, state.playerA.field, state.playerB.field)
         )
       ) {
         continue;
@@ -6581,6 +8942,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (orietDragMode === "yes") return true;
     if (orietDragMode === "no") return false;
 
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.GONCHUNG_HIDDEN_PEEK) {
+      const caster = pendingSkill.player;
+      const opp = caster === "A" ? "B" : "A";
+      if (targetPlayer !== opp || slotName !== "spell") return false;
+      const oppField = opp === "A" ? state!.playerA.field : state!.playerB.field;
+      return spellStackHasHiddenSpell(oppField);
+    }
+
     if (!card) return false;
     
     if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
@@ -6605,14 +8974,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
           (pendingSecondaryAttack.attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field)[
             pendingSecondaryAttack.attackerSlotName
-          ]
+          ],
+          facingOppUnitAtSlot(
+            state!,
+            pendingSecondaryAttack.attackerPlayer,
+            pendingSecondaryAttack.attackerSlotName
+          )
         ) &&
         !canEnemyFieldSourceTargetMaengsugyeonPo(
           pendingSecondaryAttack.attackerPlayer,
           pendingSecondaryAttack.attackerSlotName,
           targetPlayer,
           slotName as "is" | "m" | "os",
-          card
+          card,
+          getUnitFacingOppAtSlot(
+            targetPlayer,
+            slotName as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
         )
       ) {
         return false;
@@ -6632,7 +9012,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           pls.swordSlot,
           targetPlayer,
           slotName as "is" | "m" | "os",
-          card
+          card,
+          getUnitFacingOppAtSlot(
+            targetPlayer,
+            slotName as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
         )
       ) {
         return false;
@@ -6646,11 +9032,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         attackerSlotName as "is" | "m" | "os"
       ];
 
-      if (isRyeomcho(attackerCard)) {
+      if (
+        isRyeomchoSelfHealBasicAttackSealed(
+          attackerCard,
+          getUnitFacingOppAtSlot(
+            attackerPlayer as "A" | "B",
+            attackerSlotName as "is" | "m" | "os",
+            state!.playerA.field,
+            state!.playerB.field
+          )
+        )
+      ) {
         return targetPlayer === attackerPlayer && slotName === attackerSlotName;
       }
 
       if (isRanigo(attackerCard)) {
+        if (
+          isRanigoAllyHealBasicAttackSealed(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer as "A" | "B",
+              attackerSlotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
+          return false;
+        }
         return (
           targetPlayer === attackerPlayer &&
           slotName !== "spell" &&
@@ -6676,7 +9085,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           });
         });
 
-        const startingHeraldAbsTarget = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(attackerCard);
+        const startingHeraldAbsTarget = startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
+          attackerCard,
+          facingOppUnitAtSlot(state!, attackerPlayer as "A" | "B", attackerSlotName as "is" | "m" | "os")
+        );
 
         if (tauntExists) {
           if (
@@ -6692,7 +9104,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
         }
 
-        if (attackerCard?.name === IVERSON_ID) {
+        if (
+          shouldEnforceIversonNearestEnemyTargeting(
+            attackerCard,
+            getUnitFacingOppAtSlot(
+              attackerPlayer as "A" | "B",
+              attackerSlotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          )
+        ) {
           const allowed = getIversonClosestEnemyTargetSlots(
             attackerSlotName as "is" | "m" | "os",
             { is: targetPlayerState.field.is, m: targetPlayerState.field.m, os: targetPlayerState.field.os },
@@ -6713,7 +9135,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             attackerSlotName as "is" | "m" | "os",
             targetPlayer as "A" | "B",
             slotName as "is" | "m" | "os",
-            card
+            card,
+            getUnitFacingOppAtSlot(
+              targetPlayer as "A" | "B",
+              slotName as "is" | "m" | "os",
+              state!.playerA.field,
+              state!.playerB.field
+            )
           )
         ) {
           return false;
@@ -6749,34 +9177,110 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       ? " ring-2 ring-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_28px_rgba(255,255,255,0.85),0_0_48px_rgba(255,255,255,0.45),inset_0_0_14px_rgba(255,255,255,0.12)] z-[25]"
       : "";
 
+  /** 손패 스펠 드래그 중 자기 스펠 칸 — 유닛 빈 칸과 동형 하이라이트(겹침 시 흰 외곽선 강조) */
+  const getHandDragSpellSlotPlacementPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    const stackLen = normalizeSpellStack(field).length;
+    if (stackLen > 0) {
+      return "pp-spell-slot-drag-stack-pulse cursor-crosshair";
+    }
+    if (
+      handDrag.card.name === BANG_EOMAK_SPELL_ID ||
+      handDrag.card.name === CHEOLBYEOK_SPELL_ID
+    ) {
+      return "";
+    }
+    return "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair z-20";
+  };
+
   /** 스펠 No.8 방어막 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(초록·연두 톤). 겹침 허용 후에도 표시 */
   const getHandDragBangEomakSpellSlotPulseClass = (player: "A" | "B"): string => {
     if (!handDrag || !state || winner) return "";
-    if (handDrag.player !== player) return "";
-    if (state.currentTurn !== handDrag.player) return "";
-    if (!isSpellCardRow(handDrag.card) || handDrag.card.name !== BANG_EOMAK_SPELL_ID) return "";
-    const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
-    const cost = Number(handDrag.card.cost) || 0;
-    if (tokens < cost) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    if (handDrag.card.name !== BANG_EOMAK_SPELL_ID) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    if (normalizeSpellStack(field).length > 0) return "";
     return "border-[3px] border-lime-300/95 bg-gradient-to-br from-emerald-500/30 to-lime-400/22 shadow-[0_0_26px_rgba(163,230,53,0.55),0_0_42px_rgba(52,211,153,0.35)] animate-pulse z-[18]";
   };
 
   /** 스펠 No.47 철벽 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(밝은 슬레이트·흰 톤). 겹침 허용 후에도 표시 */
   const getHandDragCheolbyeokSpellSlotPulseClass = (player: "A" | "B"): string => {
     if (!handDrag || !state || winner) return "";
-    if (handDrag.player !== player) return "";
-    if (state.currentTurn !== handDrag.player) return "";
-    if (!isSpellCardRow(handDrag.card) || handDrag.card.name !== CHEOLBYEOK_SPELL_ID) return "";
-    const tokens = player === "A" ? state.playerA.tokens : state.playerB.tokens;
-    const cost = Number(handDrag.card.cost) || 0;
-    if (tokens < cost) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    if (handDrag.card.name !== CHEOLBYEOK_SPELL_ID) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    if (normalizeSpellStack(field).length > 0) return "";
     return "border-[3px] border-slate-100/95 bg-gradient-to-br from-slate-200/35 to-slate-50/22 shadow-[0_0_26px_rgba(248,250,252,0.65),0_0_42px_rgba(148,163,184,0.4)] animate-pulse z-[18]";
+  };
+
+  const isStartingHeraldPrivilegeTargetOutlineVisible = (
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ): boolean => {
+    if (!state || !card) return false;
+
+    let attackerPlayer: "A" | "B" | null = null;
+    let attackerSlot: "is" | "m" | "os" | null = null;
+    let attackerCard: FieldCard | null = null;
+
+    if (attackingSlot) {
+      const [ap, as] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+      attackerPlayer = ap;
+      attackerSlot = as;
+      attackerCard = (ap === "A" ? state.playerA.field : state.playerB.field)[as];
+    } else if (pendingSecondaryAttack && !pendingSecondaryAttack.allyHealOnly) {
+      attackerPlayer = pendingSecondaryAttack.attackerPlayer;
+      attackerSlot = pendingSecondaryAttack.attackerSlotName;
+      attackerCard =
+        (attackerPlayer === "A" ? state.playerA.field : state.playerB.field)[attackerSlot];
+    } else {
+      return false;
+    }
+
+    if (!attackerCard || attackerCard.name !== STARTING_HERALD_ID) return false;
+    if (!isTargetable(targetPlayer, slot, card)) return false;
+
+    return isStartingHeraldExclusiveBasicAttackTarget(
+      {
+        attackerPlayer,
+        attackerSlot,
+        attackerCard,
+        targetPlayer,
+        targetSlot: slot,
+        targetCard: card,
+        playerAField: state.playerA.field,
+        playerBField: state.playerB.field,
+      },
+      facingOppUnitAtSlot(state, attackerPlayer, attackerSlot)
+    );
+  };
+
+  /** 시작의 전령 — 절대 타겟팅으로만 선택 가능한 적의 청록 윤곽(공격 대상 깜빡임과 동시) */
+  const renderStartingHeraldPrivilegeTargetOutline = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!isStartingHeraldPrivilegeTargetOutlineVisible(player, slot, card)) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[33] overflow-visible rounded-[8px] pp-starting-herald-privilege-target-outline"
+        aria-hidden
+      />
+    );
   };
 
   const getTargetableClass = (targetPlayer: "A" | "B", slotName: string, card: FieldCard | null) => {
       if (!isTargetable(targetPlayer, slotName, card)) return '';
-      
-      if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
+    
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.GONCHUNG_HIDDEN_PEEK) {
+      return "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-20";
+    }
+
+    if (pendingSkill && pendingSkill.name === PENDING_SKILL.ERISTINA_BANJITGORI) {
           return 'border-[3px] border-pink-400 bg-pink-500/20 shadow-[0_0_25px_rgba(244,114,182,0.9)] animate-pulse cursor-pointer z-20';
       }
 
@@ -6801,13 +9305,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return "border-[3px] border-sky-400 bg-sky-500/25 shadow-[0_0_26px_rgba(56,189,248,0.88)] animate-pulse cursor-crosshair z-20";
       }
 
+      if (
+        pendingStartingWraithChainKill &&
+        attackingSlot ===
+          `${pendingStartingWraithChainKill.attackerPlayer}-${pendingStartingWraithChainKill.attackerSlotName}`
+      ) {
+        return "border-[3px] border-amber-700 bg-amber-950/30 shadow-[0_0_28px_rgba(180,83,9,0.75)] animate-pulse cursor-crosshair z-20";
+      }
+
       if (attackingSlot) {
         const [ap, aslot] = attackingSlot.split("-");
         const acard = (ap === "A" ? state!.playerA.field : state!.playerB.field)[aslot as "is" | "m" | "os"];
-        if (isRyeomcho(acard)) {
+        if (
+          isRyeomchoSelfHealBasicAttackSealed(
+            acard,
+            facingOppUnitAtSlot(state!, ap as "A" | "B", aslot as "is" | "m" | "os")
+          )
+        ) {
           return 'border-[3px] border-green-400 bg-green-500/20 shadow-[0_0_25px_rgba(74,222,128,0.9)] animate-pulse cursor-pointer z-20';
         }
         if (isRanigo(acard)) {
+          if (
+            isRanigoAllyHealBasicAttackSealed(
+              acard,
+              facingOppUnitAtSlot(state!, ap as "A" | "B", aslot as "is" | "m" | "os")
+            )
+          ) {
+            return "";
+          }
           return "border-[3px] border-emerald-400 bg-emerald-500/20 shadow-[0_0_25px_rgba(52,211,153,0.85)] animate-pulse cursor-pointer z-20";
         }
       }
@@ -6848,10 +9373,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (card as any).hasBanjitgori &&
       !callieBuffBanSuppressesBuffsForVictim(player, slot, state!.playerA.field, state!.playerB.field)
     ) {
-       return `${fieldCardStyle} z-10 border-[2px] border-pink-400/90 bg-pink-950/25 shadow-[0_0_12px_rgba(236,72,153,0.35)] ${!attackingSlot ? 'cursor-pointer hover:border-pink-300' : ''}`;
+      const banjitOutlineSuppressed =
+        state &&
+        isTauntSuppressedByRyeomhwaForUnitOwner(player, state.playerA.field, state.playerB.field);
+      if (banjitOutlineSuppressed) {
+        return `${fieldCardStyle} z-10 border-[2px] border-purple-400/90 bg-purple-950/25 shadow-[0_0_12px_rgba(147,51,234,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-purple-300" : ""}`;
+      }
+      return `${fieldCardStyle} z-10 border-[2px] border-pink-400/90 bg-pink-950/25 shadow-[0_0_12px_rgba(236,72,153,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-pink-300" : ""}`;
     }
 
-    if (card?.name === MAXELLAND_ID && maxellandTenacityGaugeFull(card)) {
+    if (
+      card?.name === MAXELLAND_ID &&
+      state &&
+      maxellandTenacityGaugeFullForCombat(card, facingOppUnitAtSlot(state, player, slot))
+    ) {
       return `${fieldCardStyle} z-10 border-[2px] border-red-600/95 bg-red-950/35 shadow-[0_0_12px_rgba(220,38,38,0.65),0_0_22px_rgba(249,115,22,0.42)] ${!attackingSlot ? "cursor-pointer hover:border-orange-500/90" : ""}`;
     }
 
@@ -6873,6 +9408,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     BUFF_BAN_BADGE,
     PAKKI_ATTACK_DEBUFF_BADGE,
     "침묵",
+    "혼란",
     "기절",
     "반짓고리",
     "집중 사격",
@@ -6913,6 +9449,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       case "반짓고리":
         return "bg-pink-600 border-pink-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       case "침묵":
+      case "혼란":
         return "bg-violet-700 border-violet-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
       case "기절":
         return "bg-violet-700 border-violet-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]";
@@ -6928,8 +9465,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
   };
 
+  /** 렴화 패시브로 [도발]이 무력화될 때 뱃지 색(유지·비활성 표시) */
+  const RYEOMHWA_SUPPRESSED_TAUNT_BADGE_SURFACE =
+    "bg-purple-700 border-purple-300 shadow-[inset_0_0_0_1px_rgba(233,213,255,0.35)]";
+
   /** `방어력 +200` — 철기병 패시브(슬레이트) vs 라임 보호막(하늘색) */
-  const getStatusBadgeSurfaceClassForCard = (status: string, badgeCard: FieldCard) => {
+  const getStatusBadgeSurfaceClassForCard = (
+    status: string,
+    badgeCard: FieldCard,
+    badgeOwner?: "A" | "B"
+  ) => {
+    if (
+      status === "도발" &&
+      badgeOwner &&
+      state &&
+      isTauntSuppressedByRyeomhwaForUnitOwner(badgeOwner, state.playerA.field, state.playerB.field)
+    ) {
+      return RYEOMHWA_SUPPRESSED_TAUNT_BADGE_SURFACE;
+    }
     if (status === "방어력 +200" && badgeCard.hasLimeBubbleShieldBuff) {
       return "bg-sky-500 border-sky-100 text-slate-950 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3)]";
     }
@@ -6945,7 +9498,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     slot: "is" | "m" | "os",
     card: FieldCard | null
   ) => {
-    if (!state || !card || !oppSlotHasLivePhilip(state, player, slot)) return null;
+    if (!state || !card) return null;
+    const philipOwner = player === "A" ? "B" : "A";
+    if (
+      !fieldSlotGrantsPhilipFacingSilence(
+        philipOwner,
+        slot,
+        state.playerA.field,
+        state.playerB.field
+      )
+    ) {
+      return null;
+    }
     return (
       <div
         className="pointer-events-none absolute inset-0 z-[30] overflow-visible rounded-[8px] pp-philip-facing-ring-overlay"
@@ -6954,9 +9518,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  /** 맹수견 포 — 마주 견제 패시브: 필드에 있을 때 항상 붉은 외곽 글로우 */
-  const renderMaengsugyeonPoThreatRing = (card: FieldCard | null) => {
-    if (!card || card.name !== MAENGSUGYEON_PO_ID) return null;
+  /** 디너 패시브 — 마주보는 적 [혼란](보라 뱃지, 필립 마주 링과 동형·보라 톤) */
+  const renderDinnerFacingRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (
+      !state ||
+      !card ||
+      !isConfused(card, facingOppUnitAtSlot(state, player, slot))
+    ) {
+      return null;
+    }
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[30] overflow-visible rounded-[8px] pp-dinner-facing-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 맹수견 포 — 마주 견제 패시브: 필드에 있을 때 붉은 외곽 글로우 ([혼란] 시 비활성) */
+  const renderMaengsugyeonPoThreatRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    if (!state || !card || card.name !== MAENGSUGYEON_PO_ID) return null;
+    if (isMaengsugyeonPoFacingPassiveSuppressed(card, facingOppUnitAtSlot(state, player, slot))) {
+      return null;
+    }
     return (
       <div
         className="pointer-events-none absolute inset-0 z-[32] overflow-visible rounded-[8px] pp-maengsugyeon-po-threat-ring-overlay"
@@ -6965,7 +9557,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  /** 맹수견 포 — 마주 적: 반투명 붉은 사각형(카드 z-[10] 아래). flex 가운데 정렬로 확장 대칭. */
+  /** 맹수견 포 — 마주 적: 반투명 붉은 사각형(카드 z-[10] 아래). [혼란] 시 포·마주 적 모두 비표시. */
   const renderMaengsugyeonPoFacingEnemyRect = (
     player: "A" | "B",
     slot: "is" | "m" | "os",
@@ -6976,6 +9568,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const oppField = opp === "A" ? state.playerA.field : state.playerB.field;
     const poOnOpposite = oppField[slot];
     if (!poOnOpposite || poOnOpposite.name !== MAENGSUGYEON_PO_ID) return null;
+    if (isMaengsugyeonPoFacingPassiveSuppressed(poOnOpposite, card)) return null;
     return (
       <div
         className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center"
@@ -6986,13 +9579,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  /** [도발]/[반짓고리] 뱅크가 `getActiveStatuses` 기준으로 보일 때만 — [버프 금지] 등으로 숨기면 링·체력바도 동기 */
+  /** [반짓고리] 필드 플래그 + [버프 금지] 미적용 시 링·체력바 연출 (혼란 아군도 `hasBanjitgori` 유지 시 표시) */
   const slotShowsActiveTauntBanjitBuffVisual = (player: "A" | "B", slot: "is" | "m" | "os"): boolean => {
     if (!state) return true;
+    const card = (player === "A" ? state.playerA.field : state.playerB.field)[slot];
+    if (!(card as FieldCard & { hasBanjitgori?: boolean })?.hasBanjitgori) return false;
     return !callieBuffBanSuppressesBuffsForVictim(player, slot, state.playerA.field, state.playerB.field);
   };
 
-  /** 에리스티나 반짓고리 부여 아군 — 핑크 펄스(렴초·철기병 링보다 위, 필립보다 아래) */
+  /** 에리스티나 반짓고리 부여 아군 — 핑크 펄스(렴화 [도발] 무력화 시 보라, 렴초·철기병 링보다 위) */
   const renderBanjitgoriFieldRing = (
     player: "A" | "B",
     slot: "is" | "m" | "os",
@@ -7000,9 +9595,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   ) => {
     if (!card || !(card as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori) return null;
     if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    const banjitTauntSuppressed =
+      !!state &&
+      isTauntSuppressedByRyeomhwaForUnitOwner(player, state.playerA.field, state.playerB.field);
     return (
       <div
-        className="pointer-events-none absolute inset-0 z-[29] overflow-visible rounded-[8px] pp-banjitgori-field-ring-overlay"
+        className={`pointer-events-none absolute inset-0 z-[29] overflow-visible rounded-[8px] ${
+          banjitTauntSuppressed
+            ? "pp-ryeomhwa-suppressed-taunt-field-ring-overlay"
+            : "pp-banjitgori-field-ring-overlay"
+        }`}
         aria-hidden
       />
     );
@@ -7014,11 +9616,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     slot: "is" | "m" | "os",
     card: FieldCard | null
   ) => {
-    if (!card || !isRyeomcho(card)) return null;
-    if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    if (!state || !card || !isRyeomcho(card) || (card.currentHp ?? 0) <= 0) return null;
+    if (isRyeomchoPassivesPausedByConfusion(card, facingOppUnitAtSlot(state, player, slot))) {
+      return null;
+    }
+    const tauntSuppressed =
+      !!state &&
+      isTauntSuppressedByRyeomhwaForUnitOwner(player, state.playerA.field, state.playerB.field);
     return (
       <div
-        className="pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] pp-ryeomcho-field-ring-overlay"
+        className={`pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] ${
+          tauntSuppressed
+            ? "pp-ryeomhwa-suppressed-taunt-field-ring-overlay"
+            : "pp-ryeomcho-field-ring-overlay"
+        }`}
         aria-hidden
       />
     );
@@ -7030,11 +9641,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     slot: "is" | "m" | "os",
     card: FieldCard | null
   ) => {
-    if (!card || card.name !== CHEOLGIBYEONG_ID) return null;
-    if (!slotShowsActiveTauntBanjitBuffVisual(player, slot)) return null;
+    if (!state || !card || card.name !== CHEOLGIBYEONG_ID || (card.currentHp ?? 0) <= 0) return null;
+    if (isCheolgibyeongPassivesPausedByConfusion(card, facingOppUnitAtSlot(state, player, slot))) {
+      return null;
+    }
+    const tauntSuppressedCheol =
+      !!state &&
+      isTauntSuppressedByRyeomhwaForUnitOwner(player, state.playerA.field, state.playerB.field);
     return (
       <div
-        className="pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] pp-cheolgibyeong-field-ring-overlay"
+        className={`pointer-events-none absolute inset-0 z-[28] overflow-visible rounded-[8px] ${
+          tauntSuppressedCheol
+            ? "pp-ryeomhwa-suppressed-taunt-field-ring-overlay"
+            : "pp-cheolgibyeong-field-ring-overlay"
+        }`}
         aria-hidden
       />
     );
@@ -7048,7 +9668,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   ) => {
     if (!state || !card || card.name !== MARY_ID) return null;
     const slotKey = `${player}-${slot}`;
-    if (!maryDefenseBuffActive(card, state.playerA.field, state.playerB.field, slotKey)) return null;
+    if (
+      !maryDefenseBuffActive(
+        card,
+        state.playerA.field,
+        state.playerB.field,
+        slotKey,
+        facingOppUnitAtSlot(state, player, slot)
+      )
+    ) {
+      return null;
+    }
     return (
       <div
         className="pointer-events-none absolute inset-0 z-[27] overflow-visible rounded-[8px] pp-mary-defense-field-ring-overlay"
@@ -7095,8 +9725,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderDarkKnightSoulGaugeAboveHpAbsolute = (card: FieldCard | null, fieldSlotKey: string) => {
     if (!card || card.name !== DARK_KNIGHT_ID) return null;
     const filled = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
-    const full = darkKnightSoulGaugeFull(card);
-    const chargePulse = darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const [gaugeOwner, gaugeSlot] = fieldSlotKey.split("-") as ["A" | "B", "is" | "m" | "os"];
+    const gaugeFacing =
+      state && (gaugeSlot === "is" || gaugeSlot === "m" || gaugeSlot === "os")
+        ? facingOppUnitAtSlot(state, gaugeOwner, gaugeSlot)
+        : null;
+    const dkPassivePaused = isDarkKnightPassivesPausedByConfusion(card, gaugeFacing);
+    const full = darkKnightSoulGaugeFull(card) && !dkPassivePaused;
+    const chargePulse = dkPassivePaused ? 0 : (darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0);
     const row = (
       <div className="flex h-[10px] w-full min-w-0 gap-0.5">
         {renderDarkKnightSoulGaugeSegments(card)}
@@ -7121,8 +9757,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderDarkKnightSoulGaugeBelowHpFlow = (card: FieldCard | null, fieldSlotKey: string) => {
     if (!card || card.name !== DARK_KNIGHT_ID) return null;
     const filled = Math.max(0, Math.min(DARK_KNIGHT_GAUGE_CAP, card.darkKnightSoulGauge ?? 0));
-    const full = darkKnightSoulGaugeFull(card);
-    const chargePulse = darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0;
+    const [gaugeOwner, gaugeSlot] = fieldSlotKey.split("-") as ["A" | "B", "is" | "m" | "os"];
+    const gaugeFacing =
+      state && (gaugeSlot === "is" || gaugeSlot === "m" || gaugeSlot === "os")
+        ? facingOppUnitAtSlot(state, gaugeOwner, gaugeSlot)
+        : null;
+    const dkPassivePaused = isDarkKnightPassivesPausedByConfusion(card, gaugeFacing);
+    const full = darkKnightSoulGaugeFull(card) && !dkPassivePaused;
+    const chargePulse = dkPassivePaused ? 0 : (darkKnightGaugeChargePulseBySlot[fieldSlotKey] ?? 0);
     const row = (
       <div className="flex h-[10px] w-full min-w-0 shrink-0 gap-0.5">
         {renderDarkKnightSoulGaugeSegments(card)}
@@ -7304,8 +9946,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   /** 5칸 만축 — 에리스티나 반짓고리 링과 같은 방식(윤곽 중심, simulation-combat-flash.css) */
-  const renderDarkKnightSoulCompleteRing = (card: FieldCard | null) => {
-    if (!darkKnightSoulGaugeFull(card)) return null;
+  const renderDarkKnightSoulCompleteRing = (
+    card: FieldCard | null,
+    player: "A" | "B",
+    slot: "is" | "m" | "os"
+  ) => {
+    if (
+      !state ||
+      !card ||
+      !darkKnightSoulGaugeFullForCombat(card, facingOppUnitAtSlot(state, player, slot))
+    ) {
+      return null;
+    }
     return (
       <div
         className="pp-darkknight-soul-field-ring-overlay pointer-events-none absolute inset-0 z-[31] overflow-visible rounded-[8px]"
@@ -7335,13 +9987,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  const renderStackingGaugeFieldRings = (card: FieldCard | null) => (
-    <>
-      {renderDarkKnightSoulCompleteRing(card)}
-      {renderMaxellandTenacityCompleteRing(card)}
-      {renderMaxellandFullTenacityPerimeterGlow(card)}
-    </>
-  );
+  const renderStackingGaugeFieldRings = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null
+  ) => {
+    const maxellPassiveOn =
+      !!state &&
+      !!card &&
+      card.name === MAXELLAND_ID &&
+      !isMaxellandTenacityPassivePausedByConfusion(card, facingOppUnitAtSlot(state, player, slot));
+    return (
+      <>
+        {renderDarkKnightSoulCompleteRing(card, player, slot)}
+        {maxellPassiveOn && maxellandTenacityGaugeFull(card) ? renderMaxellandTenacityCompleteRing(card) : null}
+        {maxellPassiveOn && maxellandTenacityGaugeFull(card)
+          ? renderMaxellandFullTenacityPerimeterGlow(card)
+          : null}
+      </>
+    );
+  };
 
   const renderStunSwirlOverlay = (card: FieldCard | null, roundedClass: string, slotKey: string) => {
     if (!card || !isStunned(card)) return null;
@@ -7403,12 +10068,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   /** 백스 패시브 발동 후 — 회색 윤곽 + 바깥 정적 글로우; [무적] 중에는 외곽 글로우만 느리게 명멸. 철벽 오라 시 전 아군에 동일 링. */
-  const renderBaekseuInvulnRing = (card: FieldCard | null, roundedClass: string, owningPlayer: "A" | "B") => {
+  const renderBaekseuInvulnRing = (
+    card: FieldCard | null,
+    roundedClass: string,
+    owningPlayer: "A" | "B",
+    slot: "is" | "m" | "os"
+  ) => {
     if (!state) return null;
     if (!card || (card.currentHp ?? 0) <= 0) return null;
     const owningField = owningPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const oppField = owningPlayer === "A" ? state.playerB.field : state.playerA.field;
     const cheolAura = getActiveCheolbyeokInvulnTicksFromField(owningField) > 0;
-    const showRing = isBaekseuLastStandExecuteAuraActiveOnUnit(card) || cheolAura;
+    const showRing =
+      isBaekseuLastStandExecuteAuraActiveOnUnit(card, oppField[slot] ?? null) || cheolAura;
     if (!showRing) return null;
     const invulnGlow = isInvulnerableFromBaekseuOrCheolbyeok(card, owningField)
       ? " pp-baekseu-invuln-field-ring-overlay--invulnerable"
@@ -7474,11 +10146,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (status === "침묵" && isEondeokSilenceActive(card)) {
         return "[침묵]";
       }
+      if (status === "혼란") {
+        return "[혼란]";
+      }
       if (status === YORIN_STATUS_BADGE && card.name === DARK_KNIGHT_ID) {
-        return `역린: 공격력 +${getDarkKnightYorinAtkBonus(card)}`;
+        return `역린: 공격력 +${getDarkKnightYorinAtkBonus(card, oppCard)}`;
       }
       if (isMaxellandTenacityStatusBadge(status) && card.name === MAXELLAND_ID) {
-        return `투지: 공격력 +${getMaxellandTenacityAtkBonus(card)}`;
+        return `투지: 공격력 +${getMaxellandTenacityAtkBonus(card, oppCard)}`;
       }
       return status;
     };
@@ -7503,7 +10178,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 ? "bg-sky-400 border-sky-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-sky-950"
                 : status === BANG_EOMAK_DEFENSE_BADGE
                   ? "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950"
-                  : getStatusBadgeSurfaceClassForCard(status, card)
+                  : getStatusBadgeSurfaceClassForCard(status, card, player)
             }`}
             role="listitem"
             aria-label={statusTooltip(status)}
@@ -7564,6 +10239,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
+  const gonchungSpellSlotDisplayCard = (
+    player: "A" | "B",
+    field: PlayerState["field"],
+  ): FieldCard | null => {
+    const top = getTopSpellFromField(field);
+    if (!top) return null;
+    if (spellUsageHiddenRevealCards?.[player]) {
+      return spellUsageHiddenRevealCards[player]!;
+    }
+    if (spellUsageTeslaFlipPlayer === player && spellUsageTeslaFieldCard) {
+      return spellUsageTeslaFieldCard;
+    }
+    return top;
+  };
+
+  const renderGonchungSpellStackFace = (player: "A" | "B", field: PlayerState["field"]) => {
+    const display = gonchungSpellSlotDisplayCard(player, field);
+    if (!display) return null;
+    const showFront = isGonchungHiddenPeekShowingFront(player, display);
+    const suppressed = !!state &&
+      areHiddenSpellsOnFieldSuppressedByRyeomhwa(player, state.playerA.field, state.playerB.field);
+    const isHidden = isHiddenSpellCard(display);
+    const ryeomhwaSuppressedOutlineGlow = !showFront && isHidden && suppressed;
+    return (
+      <GonchungSpellStackTopFace
+        player={player}
+        spell={display}
+        opponentCardFlipped={player === "B" ? state!.settings.isOpponentCardFlipped : false}
+        revealGlow={false}
+        showFront={showFront}
+        teslaCounterOutlineGlow={
+          showFront && (spellUsageTeslaFlipPlayer === player || !!spellUsageHiddenRevealCards?.[player])
+        }
+        ryeomhwaSuppressedOutlineGlow={ryeomhwaSuppressedOutlineGlow}
+      />
+    );
+  };
+
   const renderActionMenu = (player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
     if (!card || selectedSlot !== `${player}-${slot}`) return null;
     
@@ -7588,12 +10301,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const isSilenced = activeStatuses.includes("침묵");
     const eondeokSilent = isEondeokSilenceActive(card);
     const stunned = isStunned(card);
+    const confused = activeStatuses.includes(DINNER_OPP_CONFUSION_STATUS);
+    const blockActiveSkillUse = (): boolean => {
+      if (stunned) {
+        alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
+        return true;
+      }
+      if (confused) {
+        alert("이 유닛은 현재 [혼란] 상태이므로 능력을 사용할 수 없습니다!");
+        return true;
+      }
+      return false;
+    };
 
     const isAttackDisabled = isAttackDisabledUnit(card);
+    const ranigoHealBasicSealed = isRanigoAllyHealBasicAttackSealed(card, oppCard || null);
+    const showBasicAttackButton = !isAttackDisabled && !ranigoHealBasicSealed;
     const summonLocked = card.summonedTurn === `${state?.turnCount}-${state?.currentTurn}`;
     const iversonLocked = isIversonAttackLocked(card);
     const canAttack =
       !isAttackDisabled &&
+      !ranigoHealBasicSealed &&
       !card.hasAttacked &&
       isMyTurn &&
       !isSilenced &&
@@ -7602,11 +10330,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       !iversonLocked;
 
     return (
-      <div 
+      <div
         className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 z-30 backdrop-blur-[2px] animate-[fadeIn_0.15s_ease-out]" 
         onClick={(e) => { e.stopPropagation(); setSelectedSlot(null); }}
       >
-        {slot !== "spell" && !isAttackDisabled && (
+        {slot !== "spell" && showBasicAttackButton && (
           <button 
             onClick={(e) => { 
               e.stopPropagation(); 
@@ -7628,7 +10356,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 return;
               }
 
-              const atkStr = resolveFieldUnitSimulationBaseAtkRaw(card, null).trim();
+              const atkStr = resolveFieldUnitSimulationBaseAtkRawWithFacing(
+                card,
+                null,
+                oppCard || null
+              ).trim();
 
               if (isLibuty(card)) {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -7682,52 +10414,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         )}
         
         {/* 모모 스킬 버튼 */}
-        {slot !== "spell" && card.name === UNIT.MOMO && (
+        {slot !== "spell" && card.name === UNIT.MOMO && (() => {
+          const momoLastUsed = (card as FieldCard).skillLastUsedGlobalTurn ?? -999;
+          const momoOnCooldown = (state?.globalTurnCount || 1) - momoLastUsed < 4;
+          const momoSkillDisabled = !isMyTurn || stunned || confused || momoOnCooldown;
+          return (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
-              if (isStunned(card)) {
-                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
-                return;
-              }
-              const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
-              const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
-              const isCooldown = turnsPassed < 4;
-              if (isCooldown) return;
+              if (momoSkillDisabled) return;
+              if (blockActiveSkillUse()) return;
               setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: PENDING_SKILL.MOMO_EAT });
               setSelectedSlot(null);
             }}
-            disabled={!isMyTurn || isStunned(card) || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
+            disabled={momoSkillDisabled}
+            aria-disabled={momoSkillDisabled}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
-              !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none' :
-              isStunned(card) ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
-              ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-amber-600 border-amber-900 cursor-not-allowed opacity-80' : 
+              !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none' :
+              stunned ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none' :
+              momoOnCooldown ? 'bg-slate-800 text-amber-600 border-amber-900 cursor-not-allowed opacity-80 pointer-events-none' :
+              confused ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none' :
               'bg-amber-600 hover:bg-amber-500 text-white border-white/20 shadow-[0_0_15px_rgba(217,119,6,0.6)] active:scale-95'
             }`}
           >
             {(() => {
                if (!isMyTurn) return '상대 턴';
-               if (isStunned(card)) return '기절 (스킬불가)';
-               const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
-               const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
-               if (turnsPassed < 4) {
-                   const remainingTurns = Math.ceil((4 - turnsPassed) / 2);
+               if (stunned) return '기절 (스킬불가)';
+               if (momoOnCooldown) {
+                   const remainingTurns = Math.ceil((4 - ((state?.globalTurnCount || 1) - momoLastUsed)) / 2);
                    return `${remainingTurns}*턴 뒤 사용`;
                }
+               if (confused) return '혼란 (능력불가)';
                return '스킬: 먹보';
             })()}
           </button>
-        )}
+          );
+        })()}
 
         {/* 에리스티나 스킬 버튼 */}
         {slot !== "spell" && card.name === UNIT.ERISTINA && (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (isStunned(card)) {
-                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
-                return;
-              }
+              if (blockActiveSkillUse()) return;
               const isSkillActive = (card as any).isSkillActive;
               if (isSkillActive) return;
 
@@ -7739,25 +10469,38 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               setPendingSkill({ player, slot: slot as "is"|"m"|"os", name: PENDING_SKILL.ERISTINA_BANJITGORI });
               setSelectedSlot(null);
             }}
-            disabled={!isMyTurn || isStunned(card) || (card as any).isSkillActive || ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4)}
+            disabled={(() => {
+              const lastUsed = (card as any).skillLastUsedGlobalTurn || -999;
+              const onCooldown = (state?.globalTurnCount || 1) - lastUsed < 4;
+              return (
+                !isMyTurn ||
+                isStunned(card) ||
+                confused ||
+                !!(card as any).isSkillActive ||
+                onCooldown
+              );
+            })()}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none' :
               isStunned(card) ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
+              ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-pink-600 border-pink-900 cursor-not-allowed opacity-80' :
+              confused ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
               (card as any).isSkillActive ? 'bg-pink-900 text-pink-400 border-pink-700 cursor-not-allowed opacity-80 shadow-none' :
-              ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-pink-600 border-pink-900 cursor-not-allowed opacity-80' : 
               'bg-pink-600 hover:bg-pink-500 text-white border-white/20 shadow-[0_0_15px_rgba(219,39,119,0.6)] active:scale-95'
             }`}
           >
             {(() => {
                if (!isMyTurn) return '상대 턴';
                if (isStunned(card)) return '기절 (스킬불가)';
-               if ((card as any).isSkillActive) return '스킬 유지 중';
                const lastUsedGlobalTurn = (card as any).skillLastUsedGlobalTurn || -999;
                const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
                if (turnsPassed < 4) {
                    const remainingTurns = Math.ceil((4 - turnsPassed) / 2);
                    return `${remainingTurns}*턴 뒤 사용`;
                }
+               if (confused) return '혼란 (능력불가)';
+               if (isSilenced) return '침묵 (능력불가)';
+               if ((card as any).isSkillActive) return '스킬 유지 중';
                return '마법의 반짓고리';
             })()}
           </button>
@@ -7768,10 +10511,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (isStunned(card)) {
-                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
-                return;
-              }
+              if (blockActiveSkillUse()) return;
               const isSkillActive = (card as FieldCard).isSkillActive;
               if (isSkillActive) return;
 
@@ -7783,27 +10523,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               setPendingSkill({ player, slot: slot as "is" | "m" | "os", name: PENDING_SKILL.LIME_BUBBLE_SHIELD });
               setSelectedSlot(null);
             }}
-            disabled={
-              !isMyTurn ||
-              isStunned(card) ||
-              !!(card as FieldCard).isSkillActive ||
-              ((state?.globalTurnCount || 1) - ((card as FieldCard).skillLastUsedGlobalTurn ?? -999) < 4)
-            }
+            disabled={(() => {
+              const lastUsed = (card as FieldCard).skillLastUsedGlobalTurn ?? -999;
+              const onCooldown = (state?.globalTurnCount || 1) - lastUsed < 4;
+              return (
+                !isMyTurn ||
+                isStunned(card) ||
+                confused ||
+                !!(card as FieldCard).isSkillActive ||
+                onCooldown
+              );
+            })()}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn
                 ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
                 : isStunned(card)
                   ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
-                  : (card as FieldCard).isSkillActive
-                    ? "bg-sky-950 text-sky-300 border-sky-700 cursor-not-allowed opacity-80 shadow-none"
-                    : (state?.globalTurnCount || 1) - ((card as FieldCard).skillLastUsedGlobalTurn ?? -999) < 4
-                      ? "bg-slate-800 text-sky-700 border-sky-900 cursor-not-allowed opacity-80"
-                      : "bg-sky-500 hover:bg-sky-400 text-white border-sky-100/30 shadow-[0_0_15px_rgba(56,189,248,0.55)] active:scale-95"
+                  : (state?.globalTurnCount || 1) - ((card as FieldCard).skillLastUsedGlobalTurn ?? -999) < 4
+                    ? "bg-slate-800 text-sky-700 border-sky-900 cursor-not-allowed opacity-80"
+                    : confused
+                      ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
+                      : (card as FieldCard).isSkillActive
+                        ? "bg-sky-950 text-sky-300 border-sky-700 cursor-not-allowed opacity-80 shadow-none"
+                        : "bg-sky-500 hover:bg-sky-400 text-white border-sky-100/30 shadow-[0_0_15px_rgba(56,189,248,0.55)] active:scale-95"
             }`}
           >
             {(() => {
               if (!isMyTurn) return "상대 턴";
               if (isStunned(card)) return "기절 (스킬불가)";
+              if (confused) return "혼란 (능력불가)";
               if ((card as FieldCard).isSkillActive) return "스킬 유지 중";
               const lastUsedGlobalTurn = (card as FieldCard).skillLastUsedGlobalTurn ?? -999;
               const turnsPassed = (state?.globalTurnCount || 1) - lastUsedGlobalTurn;
@@ -7821,10 +10569,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (isStunned(card)) {
-                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
-                return;
-              }
+              if (blockActiveSkillUse()) return;
+              if (confused) return;
               if ((card as FieldCard).danhaMagicHookConsumed) return;
 
               const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
@@ -7845,6 +10591,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             disabled={
               !isMyTurn ||
               isStunned(card) ||
+              confused ||
               !!(card as FieldCard).danhaMagicHookConsumed ||
               (() => {
                 const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
@@ -7855,10 +10602,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn
-                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
                 : isStunned(card)
-                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
-                  : (card as FieldCard).danhaMagicHookConsumed
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                  : confused
+                    ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                    : (card as FieldCard).danhaMagicHookConsumed
                     ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
                     : (() => {
                         const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
@@ -7874,6 +10623,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {(() => {
               if (!isMyTurn) return "상대 턴";
               if (isStunned(card)) return "기절 (스킬불가)";
+              if (confused) return "혼란 (능력불가)";
               if ((card as FieldCard).danhaMagicHookConsumed) return "사용 완료";
               const allyHand = player === "A" ? state?.playerA.hand : state?.playerB.hand;
               const oppHand = player === "A" ? state?.playerB.hand : state?.playerA.hand;
@@ -7885,61 +10635,99 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         )}
 
         {/* 슈퍼 그린킹 스킬 버튼 — 주문 파괴자(일회성) */}
-        {slot !== "spell" && card.name === UNIT.SUPER_GREEN_KING && (
+        {slot !== "spell" && card.name === UNIT.SUPER_GREEN_KING && (() => {
+          const oppSpellField = player === "A" ? state?.playerB.field : state?.playerA.field;
+          const noOppSpells = !oppSpellField || normalizeSpellStack(oppSpellField).length === 0;
+          const spellBreakerConsumed = !!(card as FieldCard).superGreenKingSpellBreakerConsumed;
+          const sgtkSkillDisabled =
+            !isMyTurn || stunned || confused || spellBreakerConsumed || noOppSpells;
+          return (
           <button
+            type="button"
             onClick={e => {
               e.stopPropagation();
-              if (isStunned(card)) {
-                alert("이 유닛은 현재 [기절] 상태이므로 스킬을 사용할 수 없습니다!");
-                return;
-              }
-              if ((card as FieldCard).superGreenKingSpellBreakerConsumed) return;
-
-              const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
-              if (!opp || normalizeSpellStack(opp).length === 0) {
-                alert("상대 스펠 칸에 제거할 마법이 없습니다.");
-                return;
-              }
+              if (sgtkSkillDisabled) return;
+              if (blockActiveSkillUse()) return;
 
               setPendingSkill({ player, slot: slot as "is" | "m" | "os", name: PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER });
               setSelectedSlot(null);
             }}
-            disabled={
-              !isMyTurn ||
-              isStunned(card) ||
-              !!(card as FieldCard).superGreenKingSpellBreakerConsumed ||
-              (() => {
-                const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
-                if (!opp) return true;
-                return normalizeSpellStack(opp).length === 0;
-              })()
-            }
+            disabled={sgtkSkillDisabled}
+            aria-disabled={sgtkSkillDisabled}
             className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
               !isMyTurn
-                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
-                : isStunned(card)
-                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none"
-                  : (card as FieldCard).superGreenKingSpellBreakerConsumed
-                    ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
-                    : (() => {
-                        const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
-                        if (!opp || normalizeSpellStack(opp).length === 0) {
-                          return "bg-slate-800 text-emerald-900 border-emerald-950 cursor-not-allowed opacity-80 shadow-none";
-                        }
-                        return "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-200/40 shadow-[0_0_15px_rgba(52,211,153,0.55)] active:scale-95";
-                      })()
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                : stunned
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                  : confused
+                    ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                    : spellBreakerConsumed
+                      ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                      : noOppSpells
+                        ? "bg-slate-800 text-emerald-900 border-emerald-950 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                        : "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-200/40 shadow-[0_0_15px_rgba(52,211,153,0.55)] active:scale-95"
             }`}
           >
             {(() => {
               if (!isMyTurn) return "상대 턴";
-              if (isStunned(card)) return "기절 (스킬불가)";
-              if ((card as FieldCard).superGreenKingSpellBreakerConsumed) return "사용 완료";
-              const opp = player === "A" ? state?.playerB.field : state?.playerA.field;
-              if (opp && normalizeSpellStack(opp).length === 0) return "상대 스펠 없음";
+              if (stunned) return "기절 (스킬불가)";
+              if (confused) return "혼란 (능력불가)";
+              if (spellBreakerConsumed) return "사용 완료";
+              if (noOppSpells) return "상대 스펠 없음";
               return "주문 파괴자";
             })()}
           </button>
-        )}
+          );
+        })()}
+
+        {slot !== "spell" && card.name === UNIT.GONCHUNG_JEONMOGA && (() => {
+          const oppFieldForPeek = player === "A" ? state?.playerB.field : state?.playerA.field;
+          const noHiddenSpells = !oppFieldForPeek || !spellStackHasHiddenSpell(oppFieldForPeek);
+          const peekConsumed = !!(card as FieldCard).gonchungHiddenPeekConsumed;
+          const gonchungSkillDisabled =
+            !isMyTurn || stunned || confused || peekConsumed || noHiddenSpells;
+          return (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              if (gonchungSkillDisabled) return;
+              if (blockActiveSkillUse()) return;
+
+              setPendingSkill({
+                player,
+                slot: slot as "is" | "m" | "os",
+                name: PENDING_SKILL.GONCHUNG_HIDDEN_PEEK,
+              });
+              setSelectedSlot(null);
+            }}
+            disabled={gonchungSkillDisabled}
+            aria-disabled={gonchungSkillDisabled}
+            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+              !isMyTurn
+                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                : stunned
+                  ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                  : confused
+                    ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                    : peekConsumed
+                      ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                      : noHiddenSpells
+                        ? "bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                        : "bg-lime-600 hover:bg-lime-500 text-white border-lime-200/40 shadow-[0_0_15px_rgba(132,204,22,0.55)] active:scale-95"
+            }`}
+          >
+            {(() => {
+              if (!isMyTurn) return "상대 턴";
+              if (stunned) return "기절 (스킬불가)";
+              if (confused) return "혼란 (능력불가)";
+              if (peekConsumed) return "사용 완료";
+              if (noHiddenSpells) return "히든 스펠 없음";
+              return GONCHUNG_HIDDEN_PEEK_SKILL_LABEL;
+            })()}
+          </button>
+          );
+        })()}
 
         <button 
           onClick={(e) => { 
@@ -8058,9 +10846,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       </>
     );
 
+    const baekseuExecuteAuraOwner = isPlayerA ? "B" : "A";
     const showBaekseuExecuteHpDecor =
       !!state &&
-      fieldHasBaekseuLastStandExecuteAura(isPlayerA ? state.playerB.field : state.playerA.field);
+      fieldHasBaekseuLastStandExecuteAura(
+        isPlayerA ? state.playerB.field : state.playerA.field,
+        baekseuExecuteAuraOwner,
+        state
+          ? { playerAField: state.playerA.field, playerBField: state.playerB.field }
+          : undefined
+      );
     const warnLowHpForExecute = showBaekseuExecuteHpDecor && realHpPctForTint <= 30;
     const trackWarnClass = warnLowHpForExecute ? " pp-baekseu-exec-hpbar-track--warn" : "";
     
@@ -8154,7 +10949,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     activePlayerState?.hasDrawnThisTurn ||
     activePlayerState?.hand.length >= 6 ||
     !!state.simpanPeekReveal ||
-    !!state.simpanHandChoice;
+    !!state.simpanHandChoice ||
+    !!spellUsageReveal ||
+    !!spellUsageFly ||
+    !!oneNightWagerModal;
   const isDrawHighlight =
     state.currentTurn &&
     !isInitializing &&
@@ -8162,7 +10960,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     activePlayerState?.hand.length < 6 &&
     state.deckCards.length > 0 &&
     !state.simpanPeekReveal &&
-    !state.simpanHandChoice;
+    !state.simpanHandChoice &&
+    !spellUsageReveal &&
+    !spellUsageFly &&
+    !oneNightWagerModal;
 
   const isBFieldEmpty = !state.playerB.field.is && !state.playerB.field.m && !state.playerB.field.os;
   const isAFieldEmpty = !state.playerA.field.is && !state.playerA.field.m && !state.playerA.field.os;
@@ -8175,10 +10976,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (aslot !== "is" && aslot !== "m" && aslot !== "os") return null;
     return (ap === "A" ? state.playerA.field : state.playerB.field)[aslot] ?? null;
   })();
+  const strikeAttackerFacingForPlayerHp =
+    attackingSlot && strikeAttackerCardForPlayerHp
+      ? facingOppUnitAtSlot(
+          state,
+          attackingSlot.split("-")[0] as "A" | "B",
+          attackingSlot.split("-")[1] as "is" | "m" | "os"
+        )
+      : null;
+  const wraithPlayerHpChainStrikeActive =
+    !!pendingStartingWraithChainPlayerHp &&
+    !!strikeAttackerCardForPlayerHp &&
+    isStartingWraithTrueStrikeBasicAttacker(
+      strikeAttackerCardForPlayerHp,
+      strikeAttackerFacingForPlayerHp
+    );
   const canDirectAttackOpponentPlayerHp =
     strikeAttackerCardForPlayerHp != null &&
-    !isRyeomcho(strikeAttackerCardForPlayerHp) &&
-    !isRanigo(strikeAttackerCardForPlayerHp);
+    (wraithPlayerHpChainStrikeActive ||
+      (!isRyeomcho(strikeAttackerCardForPlayerHp) &&
+        !(
+          isRanigo(strikeAttackerCardForPlayerHp) &&
+          isRanigoAllyHealBasicAttackSealed(
+            strikeAttackerCardForPlayerHp,
+            strikeAttackerFacingForPlayerHp
+          )
+        )));
 
   const canLegendarySwordHitPlayerB =
     !!pendingLegendarySwordStrike &&
@@ -8207,7 +11030,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   return (
     <div 
       className={`w-full h-screen overflow-auto ${theme.bg} ${theme.text} flex items-center justify-center p-4 relative`}
-      onClick={() => { setSelectedSlot(null); setAttackingSlot(null); setPendingSecondaryAttack(null); setAttackOptionOverride(null); setPendingSkill(null); setPendingLibutyAllEnemiesAttack(null); }} 
+      onClick={() => {
+        setSelectedSlot(null);
+        setAttackingSlot(null);
+        setPendingSecondaryAttack(null);
+        setPendingStartingWraithChainKill(null);
+        setPendingStartingWraithChainPlayerHp(false);
+        setAttackOptionOverride(null);
+        setPendingSkill(null);
+        setPendingLibutyAllEnemiesAttack(null);
+      }} 
     >
       {state?.simpanPeekReveal &&
       state.simpanPeekReveal.peekKind !== "opening" &&
@@ -8227,7 +11059,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           aria-hidden
           className={
             simpanPeekFly.isOpening
-              ? "fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border border-slate-600/55 bg-black/85 shadow-md"
+              ? "fixed z-[90] pointer-events-none overflow-hidden rounded-[10px] border border-slate-600/55 bg-black/85 shadow-md"
               : "fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)] pp-simpan-pending-glow"
           }
           style={{
@@ -8262,6 +11094,84 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           )}
         </div>
       ) : null}
+      {spellUsageFly ? (
+        <div
+          aria-hidden
+          className="fixed z-[126] pointer-events-none"
+          style={{
+            left: 0,
+            top: 0,
+            overflow: "visible",
+            width: (() => {
+              const isSlot = spellUsageFly.flyTarget === "spellSlot";
+              const ph = spellUsageFly.phase;
+              return isSlot ? spellUsageFly.from.w : ph === 1 ? spellUsageFly.to.w : spellUsageFly.from.w;
+            })(),
+            height: (() => {
+              const isSlot = spellUsageFly.flyTarget === "spellSlot";
+              const ph = spellUsageFly.phase;
+              return isSlot ? spellUsageFly.from.h : ph === 1 ? spellUsageFly.to.h : spellUsageFly.from.h;
+            })(),
+            transform: `translate3d(${spellUsageFly.phase === 1 ? spellUsageFly.to.x : spellUsageFly.from.x}px, ${spellUsageFly.phase === 1 ? spellUsageFly.to.y : spellUsageFly.from.y}px, 0)`,
+            transition:
+              spellUsageFly.phase === 1
+                ? (() => {
+                    const ms = spellUsageFly.flyMs ?? SPELL_USAGE_HAND_FLY_MS;
+                    const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+                    const isSlot = spellUsageFly.flyTarget === "spellSlot";
+                    return isSlot
+                      ? `transform ${ms}ms ${ease}`
+                      : `transform ${ms}ms ${ease}, width ${ms}ms ${ease}, height ${ms}ms ${ease}`;
+                  })()
+                : "none",
+            willChange:
+              spellUsageFly.flyTarget === "spellSlot"
+                ? "transform"
+                : "transform, width, height",
+          }}
+        >
+          {(() => {
+            const ms = spellUsageFly.flyMs ?? SPELL_USAGE_HAND_FLY_MS;
+            const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+            const isSpellSlotFly = spellUsageFly.flyTarget === "spellSlot";
+            const rotateEndDeg = spellUsageFly.targetPlayer === "A" ? -90 : 90;
+            const rotateDelayMs = isSpellSlotFly ? Math.round(ms * 0.52) : 0;
+            const rotateDurMs = isSpellSlotFly ? Math.max(120, ms - rotateDelayMs) : 0;
+            const innerTransform =
+              spellUsageFly.phase === 1 && isSpellSlotFly
+                ? `rotate(${rotateEndDeg}deg)`
+                : "rotate(0deg)";
+            return (
+              <div
+                className="relative box-border h-full w-full overflow-hidden rounded-[10px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)] pp-simpan-pending-glow"
+                style={{
+                  transform: innerTransform,
+                  transformOrigin: "center center",
+                  transition:
+                    spellUsageFly.phase === 1 && isSpellSlotFly
+                      ? `transform ${rotateDurMs}ms ${ease} ${rotateDelayMs}ms`
+                      : "none",
+                  willChange: "transform",
+                }}
+              >
+                {spellUsageFly.centerShowsCardBack ? (
+                  <HiddenSpellCardBackFace />
+                ) : spellUsageFly.previewCard.image_url ? (
+                  <img
+                    src={spellUsageFly.previewCard.image_url}
+                    alt={spellUsageFly.previewCard.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100">
+                    {spellUsageFly.previewCard.name}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      ) : null}
       {handDrag && (
         <div
           aria-hidden
@@ -8288,6 +11198,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           )}
         </div>
       )}
+
+      {oneNightWagerModal ? (
+        <OneNightWagerModal
+          costsA={oneNightWagerModal.costsA}
+          costsB={oneNightWagerModal.costsB}
+          glowPlayer={oneNightWagerModal.glowPlayer}
+        />
+      ) : null}
 
       {winner && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden">
@@ -8912,7 +11830,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               ? `[${pendingSkill.name}] 스킬 발동 대기 중! 상대 패에서 빼앗을 카드를 선택하세요.`
               : pendingSkill.name === PENDING_SKILL.SUPER_GREEN_KING_SPELL_BREAKER
                 ? `[${pendingSkill.name}] 스킬 발동 대기 중! 상대 스펠 칸에서 제거할 마법을 선택하세요.`
-                : `[${pendingSkill.name}] 스킬 발동 대기 중! 패에서 버릴 카드를 선택하세요.`}
+                : pendingSkill.name === PENDING_SKILL.GONCHUNG_HIDDEN_PEEK
+                  ? `[${GONCHUNG_HIDDEN_PEEK_SKILL_LABEL}] 스킬 발동 대기 중! 상대 스펠 칸의 맨 위 히든 스펠을 선택하세요. (겹침 시 셔플 버튼으로 순서 변경 가능)`
+                  : `[${pendingSkill.name}] 스킬 발동 대기 중! 패에서 버릴 카드를 선택하세요.`}
         </div>
       )}
 
@@ -8975,6 +11895,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       )}
 
       <div className={`relative w-full max-w-[1700px] min-w-[1300px] min-h-[750px] aspect-video flex flex-row gap-6 p-6 rounded-3xl border-2 ${theme.border} shadow-[0_0_50px_rgba(0,0,0,0.6)] bg-gradient-to-b from-[#0a1628] to-[#050a14] overflow-hidden`}>
+        {isInitializing && (
+          <div
+            className="absolute inset-x-0 bottom-6 z-[56] flex justify-center pointer-events-none"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                skipOpeningInitialization();
+              }}
+              className="pointer-events-auto px-5 py-2.5 rounded-xl border-2 border-amber-400/85 bg-amber-950/92 text-amber-100 font-black text-xs tracking-wider shadow-[0_0_20px_rgba(251,191,36,0.25)] hover:bg-amber-900/95 hover:border-amber-300 active:scale-[0.98] transition-all"
+            >
+              시작 연출 스킵 (테스트)
+            </button>
+          </div>
+        )}
         {coinTossDisplay && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl animate-[fadeIn_0.3s_ease-out]">
             <div className="flex flex-col items-center">
@@ -9061,7 +11998,55 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         {/* ===================== 2. 중앙 영역 (메인 필드) ===================== */}
         <div className="shrink-0 flex flex-col items-center justify-center relative h-full pl-2 lg:pl-6">
           <div className="border-2 border-amber-600/30 bg-black/50 rounded-[2.5rem] px-6 py-6 flex flex-col items-center justify-center relative shadow-[inset_0_0_80px_rgba(0,0,0,0.7)]">
-            {simpanCenterDisplay && !simpanPeekFly ? (
+            {spellUsageReveal && !spellUsageFly ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 top-[48%] z-[121] flex -translate-y-1/2 flex-col items-center justify-center gap-2 overflow-visible px-4"
+                aria-live="polite"
+              >
+                <div className="relative flex min-h-[min(52vw,16rem)] min-w-[min(92vw,28rem)] items-center justify-center overflow-visible">
+                  <div
+                    aria-hidden
+                    key={`su-h1-${spellUsageRevealTick}`}
+                    className={spellUsageCasterHaloLayerClass(spellUsageReveal.casterPlayer, 1)}
+                  />
+                  <div
+                    aria-hidden
+                    key={`su-h2-${spellUsageRevealTick}`}
+                    className={spellUsageCasterHaloLayerClass(spellUsageReveal.casterPlayer, 2)}
+                  />
+                  <div
+                    ref={spellUsageCardMeasureRef}
+                    className={`pp-simpan-pending-glow relative z-[2] w-[92px] md:w-[105px] lg:w-[118px] aspect-[1/1.58] overflow-visible rounded-[10px] border-2 bg-black/85 ${spellUsageCasterCardShellClass(spellUsageReveal.casterPlayer)}`}
+                  >
+                  <div
+                    ref={spellUsageCenterFlashRef}
+                    className="relative h-full w-full overflow-hidden rounded-[8px]"
+                  >
+                    {spellUsageReveal.centerShowsCardBack ? (
+                      <HiddenSpellCardBackFace />
+                    ) : spellUsageReveal.previewCard.image_url ? (
+                      <img
+                        src={spellUsageReveal.previewCard.image_url}
+                        alt={spellUsageReveal.previewCard.name}
+                        className={`h-full w-full object-cover ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""}`}
+                      />
+                    ) : (
+                      <div
+                        className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold ${spellUsageReveal.casterPlayer === "A" ? "text-sky-100" : "text-rose-100"} ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""}`}
+                      >
+                        {spellUsageReveal.previewCard.name}
+                      </div>
+                    )}
+                    {renderFlashOverlay(SPELL_USAGE_CENTER_KEY, "rounded-[8px]")}
+                  </div>
+                  <div className={fieldSlotCombatPopupOverlayClass}>
+                    {renderCombatPopups(SPELL_USAGE_CENTER_KEY)}
+                  </div>
+                </div>
+                </div>
+              </div>
+            ) : null}
+            {simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
               <div
                 className="pointer-events-none absolute inset-x-0 top-[48%] z-[120] flex -translate-y-1/2 flex-col items-center justify-center gap-2 px-4"
                 aria-live="polite"
@@ -9130,13 +12115,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("B", "is", state.playerB.field.is)}
                      {renderBanjitgoriFieldRing("B", "is", state.playerB.field.is)}
                      {renderPhilipFacingRing("B", "is", state.playerB.field.is)}
-                     {renderMaengsugyeonPoThreatRing(state.playerB.field.is)}
+                     {renderDinnerFacingRing("B", "is", state.playerB.field.is)}
+                     {renderMaengsugyeonPoThreatRing("B", "is", state.playerB.field.is)}
+                     {renderStartingHeraldPrivilegeTargetOutline("B", "is", state.playerB.field.is)}
                      {renderEondeokSilenceOutline(state.playerB.field.is, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerB.field.is)}
+                     {renderStackingGaugeFieldRings("B", "is", state.playerB.field.is)}
                      {renderStunSwirlOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
                      {renderLegendarySwordChargeAura("B", "is", state.playerB.field.is, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.is, "rounded-[8px]", "B-is")}
-                     {renderBaekseuInvulnRing(state.playerB.field.is, "rounded-[8px]", "B")}
+                     {renderBaekseuInvulnRing(state.playerB.field.is, "rounded-[8px]", "B", "is")}
                    </div>
                    </div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-is")}</div>
@@ -9172,13 +12159,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("B", "m", state.playerB.field.m)}
                      {renderBanjitgoriFieldRing("B", "m", state.playerB.field.m)}
                      {renderPhilipFacingRing("B", "m", state.playerB.field.m)}
-                     {renderMaengsugyeonPoThreatRing(state.playerB.field.m)}
+                     {renderDinnerFacingRing("B", "m", state.playerB.field.m)}
+                     {renderMaengsugyeonPoThreatRing("B", "m", state.playerB.field.m)}
+                     {renderStartingHeraldPrivilegeTargetOutline("B", "m", state.playerB.field.m)}
                      {renderEondeokSilenceOutline(state.playerB.field.m, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerB.field.m)}
+                     {renderStackingGaugeFieldRings("B", "m", state.playerB.field.m)}
                      {renderStunSwirlOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
                      {renderLegendarySwordChargeAura("B", "m", state.playerB.field.m, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.m, "rounded-[8px]", "B-m")}
-                     {renderBaekseuInvulnRing(state.playerB.field.m, "rounded-[8px]", "B")}
+                     {renderBaekseuInvulnRing(state.playerB.field.m, "rounded-[8px]", "B", "m")}
                    </div>
                    </div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-m")}</div>
@@ -9214,13 +12203,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("B", "os", state.playerB.field.os)}
                      {renderBanjitgoriFieldRing("B", "os", state.playerB.field.os)}
                      {renderPhilipFacingRing("B", "os", state.playerB.field.os)}
-                     {renderMaengsugyeonPoThreatRing(state.playerB.field.os)}
+                     {renderDinnerFacingRing("B", "os", state.playerB.field.os)}
+                     {renderMaengsugyeonPoThreatRing("B", "os", state.playerB.field.os)}
+                     {renderStartingHeraldPrivilegeTargetOutline("B", "os", state.playerB.field.os)}
                      {renderEondeokSilenceOutline(state.playerB.field.os, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerB.field.os)}
+                     {renderStackingGaugeFieldRings("B", "os", state.playerB.field.os)}
                      {renderStunSwirlOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
                      {renderLegendarySwordChargeAura("B", "os", state.playerB.field.os, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerB.field.os, "rounded-[8px]", "B-os")}
-                     {renderBaekseuInvulnRing(state.playerB.field.os, "rounded-[8px]", "B")}
+                     {renderBaekseuInvulnRing(state.playerB.field.os, "rounded-[8px]", "B", "os")}
                   </div>
                    </div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-os")}</div>
@@ -9230,7 +12221,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <div className="flex justify-start w-full mt-2">
                 <div className="flex flex-row items-center gap-1">
                   <div
-                    className={`${spellCardStyle} overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="B"
                     data-field-slot="spell"
@@ -9239,19 +12230,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     }
                   >
                     {renderFlashOverlay("B-spell", "rounded-[8px]")}
-                    {getTopSpellFromField(state.playerB.field) ? (
-                      getTopSpellFromField(state.playerB.field)!.image_url ? (
-                        <img
-                          src={getTopSpellFromField(state.playerB.field)!.image_url!}
-                          alt="Spell"
-                          className="h-full w-full object-contain rotate-90 scale-[1.58]"
-                        />
-                      ) : (
-                        <span className="p-2 text-center text-xs font-bold leading-tight text-purple-200">
-                          {getTopSpellFromField(state.playerB.field)!.name}
-                        </span>
-                      )
-                    ) : null}
+                    {renderGonchungSpellStackFace("B", state.playerB.field)}
                     {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
                   </div>
@@ -9287,7 +12266,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     </button>
                   ) : null}
                   <div
-                    className={`${spellCardStyle} overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="A"
                     data-field-slot="spell"
@@ -9296,19 +12275,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     }
                   >
                     {renderFlashOverlay("A-spell", "rounded-[8px]")}
-                    {getTopSpellFromField(state.playerA.field) ? (
-                      getTopSpellFromField(state.playerA.field)!.image_url ? (
-                        <img
-                          src={getTopSpellFromField(state.playerA.field)!.image_url!}
-                          alt="Spell"
-                          className="h-full w-full object-contain -rotate-90 scale-[1.58]"
-                        />
-                      ) : (
-                        <span className="p-2 text-center text-xs font-bold leading-tight text-purple-200">
-                          {getTopSpellFromField(state.playerA.field)!.name}
-                        </span>
-                      )
-                    ) : null}
+                    {renderGonchungSpellStackFace("A", state.playerA.field)}
                     {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
                   </div>
@@ -9338,13 +12305,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("A", "is", state.playerA.field.is)}
                      {renderBanjitgoriFieldRing("A", "is", state.playerA.field.is)}
                      {renderPhilipFacingRing("A", "is", state.playerA.field.is)}
-                     {renderMaengsugyeonPoThreatRing(state.playerA.field.is)}
+                     {renderDinnerFacingRing("A", "is", state.playerA.field.is)}
+                     {renderMaengsugyeonPoThreatRing("A", "is", state.playerA.field.is)}
+                     {renderStartingHeraldPrivilegeTargetOutline("A", "is", state.playerA.field.is)}
                      {renderEondeokSilenceOutline(state.playerA.field.is, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerA.field.is)}
+                     {renderStackingGaugeFieldRings("A", "is", state.playerA.field.is)}
                      {renderStunSwirlOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
                      {renderLegendarySwordChargeAura("A", "is", state.playerA.field.is, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.is, "rounded-[8px]", "A-is")}
-                     {renderBaekseuInvulnRing(state.playerA.field.is, "rounded-[8px]", "A")}
+                     {renderBaekseuInvulnRing(state.playerA.field.is, "rounded-[8px]", "A", "is")}
                    </div>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
@@ -9380,13 +12349,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("A", "m", state.playerA.field.m)}
                      {renderBanjitgoriFieldRing("A", "m", state.playerA.field.m)}
                      {renderPhilipFacingRing("A", "m", state.playerA.field.m)}
-                     {renderMaengsugyeonPoThreatRing(state.playerA.field.m)}
+                     {renderDinnerFacingRing("A", "m", state.playerA.field.m)}
+                     {renderMaengsugyeonPoThreatRing("A", "m", state.playerA.field.m)}
+                     {renderStartingHeraldPrivilegeTargetOutline("A", "m", state.playerA.field.m)}
                      {renderEondeokSilenceOutline(state.playerA.field.m, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerA.field.m)}
+                     {renderStackingGaugeFieldRings("A", "m", state.playerA.field.m)}
                      {renderStunSwirlOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
                      {renderLegendarySwordChargeAura("A", "m", state.playerA.field.m, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.m, "rounded-[8px]", "A-m")}
-                     {renderBaekseuInvulnRing(state.playerA.field.m, "rounded-[8px]", "A")}
+                     {renderBaekseuInvulnRing(state.playerA.field.m, "rounded-[8px]", "A", "m")}
                    </div>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
@@ -9422,13 +12393,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaryDefenseFieldRing("A", "os", state.playerA.field.os)}
                      {renderBanjitgoriFieldRing("A", "os", state.playerA.field.os)}
                      {renderPhilipFacingRing("A", "os", state.playerA.field.os)}
-                     {renderMaengsugyeonPoThreatRing(state.playerA.field.os)}
+                     {renderDinnerFacingRing("A", "os", state.playerA.field.os)}
+                     {renderMaengsugyeonPoThreatRing("A", "os", state.playerA.field.os)}
+                     {renderStartingHeraldPrivilegeTargetOutline("A", "os", state.playerA.field.os)}
                      {renderEondeokSilenceOutline(state.playerA.field.os, "rounded-[8px]")}
-                     {renderStackingGaugeFieldRings(state.playerA.field.os)}
+                     {renderStackingGaugeFieldRings("A", "os", state.playerA.field.os)}
                      {renderStunSwirlOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
                      {renderLegendarySwordChargeAura("A", "os", state.playerA.field.os, "rounded-[8px]")}
                      {renderIversonWaitAuraOverlay(state.playerA.field.os, "rounded-[8px]", "A-os")}
-                     {renderBaekseuInvulnRing(state.playerA.field.os, "rounded-[8px]", "A")}
+                     {renderBaekseuInvulnRing(state.playerA.field.os, "rounded-[8px]", "A", "os")}
                    </div>
                    </div>
                    {renderHpRowWithOptionalDKGauge(

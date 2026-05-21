@@ -1,5 +1,12 @@
 import type { FieldCard } from "../../../types/game";
 import { UNIT } from "../unitIds";
+import { hasConfusionStatus } from "./dinner";
+import {
+  GEOMEUN_HWANGJE_BASE_ATK,
+  GEOMEUN_HWANGJE_ID,
+  isGeomeunHwangjePassivesPausedByConfusion,
+  resolveFieldUnitSimulationBaseAtkRaw,
+} from "./geomeunHwangje";
 
 export const RANIGO_ID = UNIT.RANIGO;
 
@@ -8,6 +15,31 @@ export const RANIGO_ALLY_BASIC_HEAL_AMOUNT = 500 as const;
 
 export function isRanigo(card: FieldCard | null | undefined): boolean {
   return card != null && card.name === RANIGO_ID;
+}
+
+/** [혼란] 시 라니고 고유 기본 공격(아군 회복) 봉인 — 공격력 0·기본 공격 버튼 미표시 */
+export function isRanigoAllyHealBasicAttackSealed(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || !isRanigo(card)) return false;
+  return hasConfusionStatus(card, facingOppCard);
+}
+
+/** 시뮬 공격 파싱용 — 혼란 라니고는 `"0"` */
+export function resolveFieldUnitSimulationBaseAtkRawWithFacing(
+  card: FieldCard | null | undefined,
+  attackOptionOverride: string | null,
+  facingOppCard: FieldCard | null
+): string {
+  if (isRanigoAllyHealBasicAttackSealed(card, facingOppCard)) return "0";
+  if (
+    card?.name === GEOMEUN_HWANGJE_ID &&
+    isGeomeunHwangjePassivesPausedByConfusion(card, facingOppCard)
+  ) {
+    return String(GEOMEUN_HWANGJE_BASE_ATK);
+  }
+  return resolveFieldUnitSimulationBaseAtkRaw(card, attackOptionOverride);
 }
 
 export const ranigoBattleMessages = {

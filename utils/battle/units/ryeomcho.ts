@@ -1,10 +1,31 @@
 import type { FieldCard } from "../../../types/game";
 import type { PassiveStatusFn } from "../effectTypes";
+import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 
 export const RYEOMCHO_ID = UNIT.RYEOMCHO;
 
-export const getRyeomchoPassiveStatuses: PassiveStatusFn = () => ["도발"];
+/** [혼란] 시 [도발]·자가 회복 기본 공격 일시 봉인 */
+export function isRyeomchoPassivesPausedByConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!isRyeomcho(card) || (card!.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(card!, facingOppCard);
+}
+
+/** 혼란 아닐 때만 자기 자신 타격 회복 모드(적·플레이어 HP 공격 불가) */
+export function isRyeomchoSelfHealBasicAttackSealed(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  return isRyeomcho(card) && !isRyeomchoPassivesPausedByConfusion(card, facingOppCard);
+}
+
+export const getRyeomchoPassiveStatuses: PassiveStatusFn = (myCard, oppCard) => {
+  if (isRyeomchoPassivesPausedByConfusion(myCard, oppCard)) return [];
+  return ["도발"];
+};
 
 export function isRyeomcho(card: FieldCard | null | undefined): boolean {
   return card != null && card.name === UNIT.RYEOMCHO;

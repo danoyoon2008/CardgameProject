@@ -1,4 +1,5 @@
 import type { CardRow } from "../../../types/game";
+import { isOneNightWagerSpellCard } from "./oneNightWager";
 import { isSuperTeslaSpellCard } from "./superTesla";
 
 /**
@@ -8,6 +9,7 @@ import { isSuperTeslaSpellCard } from "./superTesla";
 export function isHiddenSpellCard(row: CardRow | null | undefined): boolean {
   if (!row) return false;
   if (isSuperTeslaSpellCard(row)) return true;
+  if (isOneNightWagerSpellCard(row)) return true;
   const t = String(row.type ?? "").toLowerCase();
   const c = String(row.category ?? "").toLowerCase();
   const n = String(row.name ?? "");

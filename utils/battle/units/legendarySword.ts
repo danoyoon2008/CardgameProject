@@ -2,6 +2,7 @@
  * No.16 「전설의 검」— 필드 패시브(충전 틱·연격 2회 고정 피해·is–m–os 간격 판정).
  */
 import type { FieldCard } from "../../../types/game";
+import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 
 /** 1×턴 = 양측 턴 종료 합산 2회 */
@@ -52,8 +53,31 @@ export function legendarySwordSecondHitBaseFromFirstTarget(
   return legendarySwordSecondHitDamage(seg, secondEnemySlot);
 }
 
-export function applyEndTurnLegendarySwordArmingTick(card: FieldCard): FieldCard {
+export function getLegendarySwordFacingOppAtSlot(
+  ownerPlayer: "A" | "B",
+  slot: "is" | "m" | "os",
+  playerAField: FieldSlice,
+  playerBField: FieldSlice
+): FieldCard | null {
+  const oppField = ownerPlayer === "A" ? playerBField : playerAField;
+  return oppField[slot] ?? null;
+}
+
+/** [혼란] 시 충전·연격 개시 대기(패시브 전체 일시 정지) */
+export function isLegendarySwordAbilityPausedByConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || card.name !== UNIT.LEGENDARY_SWORD) return false;
+  return hasConfusionStatus(card, facingOppCard);
+}
+
+export function applyEndTurnLegendarySwordArmingTick(
+  card: FieldCard,
+  facingOppCard: FieldCard | null = null
+): FieldCard {
   if (card.name !== UNIT.LEGENDARY_SWORD) return card;
+  if (isLegendarySwordAbilityPausedByConfusion(card, facingOppCard)) return card;
   const t = card.legendarySwordArmingEndTurnTicksRemaining;
   if (typeof t !== "number" || t <= 0) return card;
   const next = t - 1;
@@ -90,6 +114,17 @@ export function isLegendarySwordArmed(card: FieldCard | null | undefined): boole
   return !!card && card.name === UNIT.LEGENDARY_SWORD && !!card.legendarySwordArmed;
 }
 
+/** [혼란] 해제 등으로 연격을 즉시 개시할 때 충전 틱을 건너뛰고 무장 완료 */
+export function forceCompleteLegendarySwordArming(card: FieldCard): FieldCard {
+  if (card.name !== UNIT.LEGENDARY_SWORD) return card;
+  return {
+    ...card,
+    legendarySwordArmingEndTurnTicksRemaining: 0,
+    legendarySwordArmed: true,
+    legendarySwordChargeFastBlink: false,
+  };
+}
+
 export function stripLegendarySwordForRewind(card: FieldCard): FieldCard {
   const {
     legendarySwordArmingEndTurnTicksRemaining: _a,
@@ -103,25 +138,37 @@ export function stripLegendarySwordForRewind(card: FieldCard): FieldCard {
 /** 필드 소유자 턴 종료 시 충전 중 전설의 검 후광 가속 */
 export function applyEndTurnLegendarySwordArmingTickToFieldUnit(
   u: FieldCard,
-  fieldOwnerEndedTurn: boolean
+  fieldOwnerEndedTurn: boolean,
+  facingOppCard: FieldCard | null = null
 ): FieldCard {
   if (u.name !== UNIT.LEGENDARY_SWORD) return u;
+  if (isLegendarySwordAbilityPausedByConfusion(u, facingOppCard)) return u;
   let next = u;
   if (fieldOwnerEndedTurn && isLegendarySwordCharging(next)) {
     next = { ...next, legendarySwordChargeFastBlink: true };
   }
-  return applyEndTurnLegendarySwordArmingTick(next);
+  return applyEndTurnLegendarySwordArmingTick(next, facingOppCard);
 }
 
 export function applyEndTurnLegendarySwordArmingTickForFieldOwner(
   field: { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null },
   fieldOwner: "A" | "B",
-  endingTurnPlayer: "A" | "B"
+  endingTurnPlayer: "A" | "B",
+  playerAField: FieldSlice,
+  playerBField: FieldSlice
 ): { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null } {
   const ownerEnded = fieldOwner === endingTurnPlayer;
+  const tickSlot = (u: FieldCard | null, slot: "is" | "m" | "os") =>
+    u
+      ? applyEndTurnLegendarySwordArmingTickToFieldUnit(
+          u,
+          ownerEnded,
+          getLegendarySwordFacingOppAtSlot(fieldOwner, slot, playerAField, playerBField)
+        )
+      : null;
   return {
-    is: field.is ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.is, ownerEnded) : null,
-    m: field.m ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.m, ownerEnded) : null,
-    os: field.os ? applyEndTurnLegendarySwordArmingTickToFieldUnit(field.os, ownerEnded) : null,
+    is: tickSlot(field.is, "is"),
+    m: tickSlot(field.m, "m"),
+    os: tickSlot(field.os, "os"),
   };
 }

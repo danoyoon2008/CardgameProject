@@ -1,6 +1,7 @@
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { getActiveStatuses, isTaunting } from "../../cardskills";
 import { UNIT } from "../unitIds";
+import { hasConfusionStatus } from "./dinner";
 
 export const IVERSON_ID = UNIT.IVERSON;
 
@@ -88,6 +89,46 @@ export function iversonLiberationLabel(card: FieldCard | null | undefined): stri
 
 export function isIversonAttackLocked(card: FieldCard | null | undefined): boolean {
   return !!card && card.name === IVERSON_ID && (card.iversonSummonWaitEndTurnTicksRemaining ?? 0) > 0;
+}
+
+/** [혼란] 시 「가장 가까운 적 우선」 타겟 제한 일시 해제 */
+export function isIversonNearestEnemyTargetingPausedByConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || card.name !== IVERSON_ID || (card.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(card, facingOppCard);
+}
+
+/** 기본 공격 시 가장 가까운 적만 허용하는지 */
+export function shouldEnforceIversonNearestEnemyTargeting(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || card.name !== IVERSON_ID) return false;
+  if (isIversonNearestEnemyTargetingPausedByConfusion(card, facingOppCard)) return false;
+  return true;
+}
+
+/** [혼란] 부여 시 소환 대기 틱을 즉시 제거(해방) */
+export function forceCompleteIversonSummonWait(card: FieldCard): FieldCard {
+  if (card.name !== IVERSON_ID) return card;
+  if ((card.iversonSummonWaitEndTurnTicksRemaining ?? 0) <= 0) return card;
+  const { iversonSummonWaitEndTurnTicksRemaining: _i, ...rest } = card;
+  return rest as FieldCard;
+}
+
+/** 대기 중 [혼란]이 되면 즉시 해방해야 하는지 */
+export function shouldLiberateIversonWaitOnConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  return (
+    !!card &&
+    card.name === IVERSON_ID &&
+    isIversonAttackLocked(card) &&
+    hasConfusionStatus(card, facingOppCard)
+  );
 }
 
 /** 턴 넘기기 1회마다 — 대기 틱 1 감소, 0이 되면 속성 제거(공격 가능 상태) */

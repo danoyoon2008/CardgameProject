@@ -12,7 +12,11 @@ import {
 } from "./battle/units/registry";
 import { fieldHasLivingFocusedFireAura } from "./battle/units/diago";
 import { fieldSpellStackGrantsFocusedFire } from "./battle/spellStack";
-import { DARK_KNIGHT_ID, YORIN_STATUS_BADGE } from "./battle/units/darkKnight";
+import {
+  DARK_KNIGHT_ID,
+  YORIN_STATUS_BADGE,
+  isDarkKnightPassivesPausedByConfusion,
+} from "./battle/units/darkKnight";
 import { getMaxellandTenacityStatusBadge } from "./battle/units/maxelland";
 import {
   DEBUFF_IMMUNITY_BADGE,
@@ -22,6 +26,11 @@ import { PYRED_ATTACK_AURA_BADGE, getPyredAttackAuraStatuses } from "./battle/un
 import { getMorningMoodAttackAuraStatuses } from "./battle/units/morningMood";
 import { fieldHasLivingStartingTree, getStartingTreeAttackAuraStatuses } from "./battle/units/startingTree";
 import { getStatusNamesFromPhilipMatchup } from "./battle/units/philip";
+import {
+  getActiveConfusionStatusNames,
+  hasConfusionStatus,
+  isConfused,
+} from "./battle/units/dinner";
 import { getEondeokSilenceStatusesForCard } from "./battle/spells/eondeok";
 import { getBangEomakAllyDefenseStatuses } from "./battle/spells/bangeomak";
 import { getEffectSemanticKind } from "./battle/effectSemantics";
@@ -36,6 +45,7 @@ import {
   isHarmfulEffectLabelBlockedByBaekseuInvuln,
 } from "./battle/units/baekseu";
 import { isInvulnerableFromBaekseuOrCheolbyeok } from "./battle/spells/cheolbyeok";
+import { isTauntSuppressedByRyeomhwaForUnitOwner } from "./battle/units/ryeomhwa";
 
 export { isStunned };
 
@@ -60,6 +70,38 @@ export const getActiveStatuses = (
 ): string[] => {
   if (!myCard) return [];
 
+  if (hasConfusionStatus(myCard, oppCard)) {
+    const confusedStatuses = [...getActiveConfusionStatusNames(oppCard)];
+    let callieBuffBanOnVictim = false;
+    if (battleCtx?.mySlotKey) {
+      const segs = battleCtx.mySlotKey.split("-");
+      if (segs.length === 2) {
+        const pl = segs[0] as "A" | "B";
+        const sl = segs[1] as "is" | "m" | "os" | "spell";
+        if (sl === "is" || sl === "os") {
+          callieBuffBanOnVictim = callieBuffBanSuppressesBuffsForVictim(
+            pl,
+            sl,
+            battleCtx.playerAField,
+            battleCtx.playerBField
+          );
+        }
+      }
+    }
+    if (myCard.hasBanjitgori && !callieBuffBanOnVictim && !confusedStatuses.includes("반짓고리")) {
+      confusedStatuses.push("반짓고리");
+    }
+    /* 라임 방울 보호막: 수혜자 [혼란]이어도 시전자 링크 유지 시 뱃지·방어 유지(반짓고리와 동일) */
+    if (
+      myCard.hasLimeBubbleShieldBuff &&
+      !callieBuffBanOnVictim &&
+      !confusedStatuses.includes(LIME_BUBBLE_DEFENSE_BADGE)
+    ) {
+      confusedStatuses.push(LIME_BUBBLE_DEFENSE_BADGE);
+    }
+    return confusedStatuses;
+  }
+
   let statuses: string[] = [];
 
   const myFieldSafe: SimulationPlayerField = myField ?? { is: null, m: null, os: null, spellStack: [] };
@@ -74,7 +116,15 @@ export const getActiveStatuses = (
   }
 
   if (myCard.name === MARY_ID && battleCtx) {
-    if (maryDefenseBuffActive(myCard, battleCtx.playerAField, battleCtx.playerBField, battleCtx.mySlotKey)) {
+    if (
+      maryDefenseBuffActive(
+        myCard,
+        battleCtx.playerAField,
+        battleCtx.playerBField,
+        battleCtx.mySlotKey,
+        oppCard
+      )
+    ) {
       statuses.push(MARY_DEFENSE_BUFF_BADGE);
     }
   }
@@ -87,7 +137,7 @@ export const getActiveStatuses = (
     statuses.push(STUN_STATUS);
   }
 
-  statuses.push(...getStatusNamesFromPhilipMatchup(oppCard));
+  statuses.push(...getStatusNamesFromPhilipMatchup(oppCard, myCard));
 
   const eondeokSilence = getEondeokSilenceStatusesForCard(myCard);
   if (eondeokSilence.length > 0 && !statuses.includes("침묵")) {
@@ -97,6 +147,19 @@ export const getActiveStatuses = (
   if (myCard.hasBanjitgori) {
     statuses.push("반짓고리");
     /* 도발은 반짓고리 규칙에 포함되나 UI에 별도 뱃지로 중복 표시하지 않음 */
+    if (battleCtx?.mySlotKey) {
+      const pl = battleCtx.mySlotKey.split("-")[0] as "A" | "B";
+      if (
+        isTauntSuppressedByRyeomhwaForUnitOwner(
+          pl,
+          battleCtx.playerAField,
+          battleCtx.playerBField
+        ) &&
+        !statuses.includes("도발")
+      ) {
+        statuses.push("도발");
+      }
+    }
   }
 
   if (myCard.hasLimeBubbleShieldBuff && !statuses.includes(LIME_BUBBLE_DEFENSE_BADGE)) {
@@ -104,8 +167,16 @@ export const getActiveStatuses = (
   }
 
   /* 다이아고·검은 황제 필드 체류 또는 No.12 집중 사격 스펠(겹침 포함): 같은 진영 전원에게 [집중 사격] 1뱃지 */
+  const focusedFireAuraCtx =
+    battleCtx?.mySlotKey != null
+      ? {
+          allyPlayer: battleCtx.mySlotKey.split("-")[0] as "A" | "B",
+          playerAField: battleCtx.playerAField,
+          playerBField: battleCtx.playerBField,
+        }
+      : undefined;
   if (
-    fieldHasLivingFocusedFireAura(myFieldSafe) ||
+    fieldHasLivingFocusedFireAura(myFieldSafe, focusedFireAuraCtx) ||
     fieldSpellStackGrantsFocusedFire(myFieldSafe)
   ) {
     if (!statuses.includes("집중 사격")) {
@@ -113,27 +184,48 @@ export const getActiveStatuses = (
     }
   }
 
-  /* 다크나이트 [역린]: 소울 게이지당 기본 공격력 +100 — 뱃지는 충전 칸이 있을 때만 */
-  if (myCard.name === DARK_KNIGHT_ID && (myCard.darkKnightSoulGauge ?? 0) > 0) {
+  /* 다크나이트 [역린]: 소울 게이지당 기본 공격력 +100 — [혼란] 시 뱃지·보너스 일시 봉인 */
+  if (
+    myCard.name === DARK_KNIGHT_ID &&
+    (myCard.darkKnightSoulGauge ?? 0) > 0 &&
+    !isDarkKnightPassivesPausedByConfusion(myCard, oppCard)
+  ) {
     statuses.push(YORIN_STATUS_BADGE);
   }
 
-  const maxellandBadge = getMaxellandTenacityStatusBadge(myCard);
+  const maxellandBadge = getMaxellandTenacityStatusBadge(myCard, oppCard);
   if (maxellandBadge) {
     statuses.push(maxellandBadge);
   }
 
   /* 아이언 키위 필드 체류: 같은 진영 전원 디버프 면역 표시(+ 디버프 라벨 제거). myField 필요 */
+  const ironKiwiImmunityCtx =
+    battleCtx?.mySlotKey != null
+      ? {
+          allyPlayer: battleCtx.mySlotKey.split("-")[0] as "A" | "B",
+          playerAField: battleCtx.playerAField,
+          playerBField: battleCtx.playerBField,
+        }
+      : undefined;
   const hasDebuffImmunityAura =
-    fieldHasLivingIronKiwi(myFieldSafe) || fieldHasLivingStartingTree(myFieldSafe);
+    fieldHasLivingIronKiwi(myFieldSafe, ironKiwiImmunityCtx) ||
+    fieldHasLivingStartingTree(myFieldSafe, ironKiwiImmunityCtx);
   if (hasDebuffImmunityAura) {
     statuses.push(DEBUFF_IMMUNITY_BADGE);
   }
 
   /* 공격력 +300 오라(동일 표기라도 부여 주체별로 개별 뱃지 표시) */
-  statuses.push(...getPyredAttackAuraStatuses(myCard, myFieldSafe));
-  statuses.push(...getMorningMoodAttackAuraStatuses(myCard, myFieldSafe));
-  statuses.push(...getStartingTreeAttackAuraStatuses(myCard, myFieldSafe));
+  const pyredAuraCtx =
+    battleCtx?.mySlotKey != null
+      ? {
+          allyPlayer: battleCtx.mySlotKey.split("-")[0] as "A" | "B",
+          playerAField: battleCtx.playerAField,
+          playerBField: battleCtx.playerBField,
+        }
+      : undefined;
+  statuses.push(...getPyredAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
+  statuses.push(...getMorningMoodAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
+  statuses.push(...getStartingTreeAttackAuraStatuses(myCard, myFieldSafe, ironKiwiImmunityCtx));
 
   /* 캘리: 상대 is/os 유닛 — [버프 금지](버프 뱃지·효과 제거). [디버프 면역] 오라가 있으면 캘리 효과 전부 무시. */
   if (battleCtx?.mySlotKey) {
@@ -174,10 +266,13 @@ export const getActiveStatuses = (
 
 export const applyPostAttackSkills = (
   attackerCard: FieldCard,
-  ctx: AttackContext
+  ctx: AttackContext,
+  facingOppCard?: FieldCard | null
 ): Partial<FieldCard> => {
+  const facing = facingOppCard ?? ctx.facingOppCard ?? null;
+  if (hasConfusionStatus(attackerCard, facing)) return {};
   const fn = postAttackRegistry[attackerCard.name];
-  if (fn) return fn(attackerCard, ctx);
+  if (fn) return fn(attackerCard, { ...ctx, facingOppCard: facing });
   return {};
 };
 
@@ -186,7 +281,9 @@ export const applyDamageMods = (
   rawDamage: number,
   isSecondaryHit: boolean = false,
   /** 있으면 철벽 아군 [무적] 오라까지 반영 */
-  targetOwnerField?: SimulationPlayerField
+  targetOwnerField?: SimulationPlayerField,
+  /** 마주보는 상대 슬롯 유닛 — 디너 [혼란] 봉인 판정용 */
+  facingOppCard?: FieldCard | null
 ): number => {
   if (targetOwnerField ? isInvulnerableFromBaekseuOrCheolbyeok(targetCard, targetOwnerField) : isBaekseuInvulnerable(targetCard)) {
     return 0;
@@ -198,9 +295,11 @@ export const applyDamageMods = (
     damage = Math.floor((damage * 0.75) / 50) * 50;
   }
 
-  const modFn = damageModRegistry[targetCard.name];
-  if (modFn) {
-    damage = modFn(targetCard, { rawDamage: damage, isSecondaryHit });
+  if (!isConfused(targetCard, facingOppCard ?? null)) {
+    const modFn = damageModRegistry[targetCard.name];
+    if (modFn) {
+      damage = modFn(targetCard, { rawDamage: damage, isSecondaryHit });
+    }
   }
 
   return Math.max(1, damage);
@@ -212,11 +311,25 @@ export const applyOnSummon = (card: FieldCard): Partial<FieldCard> => {
   return {};
 };
 
-export const hasTauntUnit = (field: SimulationPlayerField): boolean => {
+export const hasTauntUnit = (
+  fieldOwner: "A" | "B",
+  fieldA: SimulationPlayerField,
+  fieldB: SimulationPlayerField
+): boolean => {
+  if (isTauntSuppressedByRyeomhwaForUnitOwner(fieldOwner, fieldA, fieldB)) return false;
+  const field = fieldOwner === "A" ? fieldA : fieldB;
   for (const slot of ["is", "m", "os"] as const) {
     const card = field[slot];
     if (!card) continue;
-    if (getActiveStatuses(card, null).includes("도발") || !!card.hasBanjitgori) return true;
+    if (
+      isTaunting(card, null, field, {
+        playerAField: fieldA,
+        playerBField: fieldB,
+        mySlotKey: `${fieldOwner}-${slot}`,
+      })
+    ) {
+      return true;
+    }
   }
   return false;
 };
@@ -235,6 +348,9 @@ export const isTaunting = (
       const sl = segs[1] as "is" | "m" | "os";
       const oppField = pl === "A" ? battleCtx.playerBField : battleCtx.playerAField;
       const oCard = oppField[sl] ?? null;
+      if (isTauntSuppressedByRyeomhwaForUnitOwner(pl, battleCtx.playerAField, battleCtx.playerBField)) {
+        return false;
+      }
       const myFieldUse = pl === "A" ? battleCtx.playerAField : battleCtx.playerBField;
       if (getActiveStatuses(card, oCard, myFieldUse, battleCtx).includes("도발")) return true;
       if (
@@ -243,9 +359,11 @@ export const isTaunting = (
       ) {
         return true;
       }
+      if (isConfused(card, oCard)) return false;
       return false;
     }
   }
+  if (isConfused(card, oppCard)) return false;
   return getActiveStatuses(card, oppCard, myField).includes("도발") || !!card.hasBanjitgori;
 };
 
@@ -253,3 +371,9 @@ export const isSilenced = (card: FieldCard | null, oppCard: FieldCard | null = n
   if (!card) return false;
   return getActiveStatuses(card, oppCard).includes("침묵");
 };
+
+export {
+  DINNER_OPP_CONFUSION_STATUS,
+  hasConfusionStatus,
+  isConfused,
+} from "./battle/units/dinner";

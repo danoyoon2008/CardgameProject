@@ -1,8 +1,12 @@
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "../attackModifier";
 import { UNIT } from "../unitIds";
+import { hasConfusionStatus } from "./dinner";
 
 export const GEOMEUN_HWANGJE_ID = UNIT.GEOMEUN_HWANGJE;
+
+/** 혼란·비혼란 공통 기본 타격 공격력 */
+export const GEOMEUN_HWANGJE_BASE_ATK = 600;
 
 /**
  * DB에 `600+…`, `600 (연쇄)` 등이 있어도 **단일 기본 타격**으로만 파싱·표기.
@@ -30,6 +34,15 @@ export function resolveFieldUnitSimulationBaseAtkRaw(
   return raw;
 }
 
+/** [혼란] 시 적 수 감지·[집중 사격] 오라 패시브 일시 봉인 */
+export function isGeomeunHwangjePassivesPausedByConfusion(
+  card: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!card || card.name !== GEOMEUN_HWANGJE_ID || (card.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(card, facingOppCard);
+}
+
 /** 적 필드(is/m/os)에 살아 있는 유닛 수(체력 0 초과만) */
 export function countLivingEnemyUnitsOnField(
   field: SimulationPlayerField | Partial<Record<string, FieldCard | null>> | undefined | null
@@ -49,9 +62,13 @@ export function applyGeomeunHwangjeAttackDamage(
   defenderField: SimulationPlayerField | Partial<Record<string, FieldCard | null>> | undefined | null,
   primaryDamage: number,
   secondaryDamage: number,
-  options?: AttackModifierOptions
+  options?: AttackModifierOptions,
+  facingOppCard: FieldCard | null = null
 ): { primaryDamage: number; secondaryDamage: number } {
   if (attackerCard.name !== GEOMEUN_HWANGJE_ID) {
+    return { primaryDamage, secondaryDamage };
+  }
+  if (isGeomeunHwangjePassivesPausedByConfusion(attackerCard, facingOppCard)) {
     return { primaryDamage, secondaryDamage };
   }
   const bonus = 200 * countLivingEnemyUnitsOnField(defenderField);

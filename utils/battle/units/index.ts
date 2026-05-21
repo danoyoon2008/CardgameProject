@@ -10,6 +10,7 @@
  * 3. `registry.ts`에 패시브·postAttack·damageMod·onSummon 중 해당 항목 등록
  * 4. 액티브 pending 키는 해당 유닛 파일의 `*_ACTIVE.pendingSkillKey` 등으로 정의
  */
+export * from "./dinner";
 export * from "./cheolgibyeong";
 export * from "./pyred";
 export * from "./morningMood";
@@ -22,6 +23,7 @@ export * from "./geomeunHwangje";
 export * from "./diagoHitFlame";
 export * from "./geunyangMoja";
 export * from "./ghoston";
+export * from "./ghostonKillHeal";
 export * from "./ryeomcho";
 export * from "./philip";
 export * from "./momo";
@@ -30,6 +32,7 @@ export * from "./maxelland";
 export * from "./eristina";
 export * from "./eristinaHitLine";
 export * from "./lime";
+export * from "./simpan";
 export * from "./ironKiwi";
 export * from "./mary";
 export * from "./pakki";
@@ -45,6 +48,7 @@ export * from "./kalli";
 export * from "./libuty";
 export * from "./baekseu";
 export * from "./ronu";
+export * from "./ryeomhwa";
 export * from "./legendarySword";
 export * from "./legendarySwordStrikeResolve";
 export { passiveStatusRegistry, postAttackRegistry, damageModRegistry, onSummonRegistry } from "./registry";

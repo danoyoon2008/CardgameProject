@@ -10,7 +10,8 @@ import {
 } from "./cheolgibyeong";
 import { RYEOMCHO_ID, getRyeomchoPassiveStatuses } from "./ryeomcho";
 import { GEUNYANG_MOJA_ID, postAttackGeunyangMoja } from "./geunyangMoja";
-import { GHOSTONE_ID, postAttackGhostone } from "./ghoston";
+import { GHOSTONE_ID } from "./ghoston";
+import { postAttackGhostone } from "./ghostonKillHeal";
 import { DIAGO_ID, postAttackDiago } from "./diago";
 import { DARK_KNIGHT_ID, postAttackDarkKnight } from "./darkKnight";
 

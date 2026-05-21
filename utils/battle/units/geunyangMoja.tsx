@@ -10,14 +10,29 @@
 import { useCallback, useRef, useState } from "react";
 import type { FieldCard } from "../../../types/game";
 import type { AttackContext, PostAttackFn } from "../effectTypes";
+import { isEondeokSilenceActive } from "../spells/eondeok";
 import { floorToNearest50Unit } from "../attackModifier";
 import { UNIT } from "../unitIds";
+import { getStatusNamesFromPhilipMatchup } from "./philip";
 import "./geunyangMoja.hit-flame.css";
 
 export const GEUNYANG_MOJA_ID = UNIT.GEUNYANG_MOJA;
 
+/** [침묵] 시 기본 공격 체력 회복(흡혈)만 봉인 — 공격·화염 이펙트는 유지 */
+export function isGeunyangMojaBasicAttackHealPausedBySilence(
+  card: FieldCard | null,
+  facingOppCard: FieldCard | null = null
+): boolean {
+  if (!card || card.name !== GEUNYANG_MOJA_ID) return false;
+  if (isEondeokSilenceActive(card)) return true;
+  return getStatusNamesFromPhilipMatchup(facingOppCard, card).length > 0;
+}
+
 /** 기본 공격 흡혈: 입힌 피해의 50%를 회복 — 50% 계산 후 50 단위로 버림 */
 export const postAttackGeunyangMoja: PostAttackFn = (card: FieldCard, ctx: AttackContext) => {
+  if (isGeunyangMojaBasicAttackHealPausedBySilence(card, ctx.facingOppCard ?? null)) {
+    return {};
+  }
   const half = Math.floor(ctx.damageDealt * 0.5);
   const healAmount = floorToNearest50Unit(half);
   const maxHp = Number(card.hp);

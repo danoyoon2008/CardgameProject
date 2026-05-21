@@ -5,18 +5,10 @@
  */
 import { useCallback, useRef, useState } from "react";
 import type { FieldCard } from "../../../types/game";
-import type { AttackContext, PostAttackFn } from "../effectTypes";
 import { UNIT } from "../unitIds";
 import "./ghoston.claw-hit.css";
 
 export const GHOSTONE_ID = UNIT.GHOSTONE;
-
-export const postAttackGhostone: PostAttackFn = (card: FieldCard, ctx: AttackContext) => {
-  if (ctx.targetDestroyed) {
-    return { currentHp: Number(card.hp) };
-  }
-  return {};
-};
 
 /** CSS `--pp-gs-claw-dur` 와 맞춤: 애니 끝 + 약간 여유 후 오버레이 제거 */
 export const GHOSTONE_CLAW_HIT_DURATION_MS = 430;

@@ -2,6 +2,8 @@
  * 메리(No.35) — 필드 패시브: (자신 제외) 전장에 [방어형] 유닛이 있으면 [방어력 +400].
  */
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
+import { hasConfusionStatus, isConfused } from "./dinner";
+import { getUnitFacingOppAtSlot } from "./maengsugyeonPo";
 import { CHEOLGIBYEONG_ID } from "./cheolgibyeong";
 import { bangEomakProtectsTargetSlot } from "../spells/bangeomak";
 import { UNIT } from "../unitIds";
@@ -20,13 +22,38 @@ export function isLivingDefenseTypeUnit(card: FieldCard | null | undefined): boo
   return String(card.type ?? "").trim() === DEFENSE_UNIT_TYPE;
 }
 
+/** [혼란] 시 [방어력 +400] 패시브·윤곽·피해 경감 모두 일시 봉인 */
+export function isMaryDefensePassivePausedByConfusion(
+  maryCard: FieldCard | null | undefined,
+  facingOppCard: FieldCard | null
+): boolean {
+  if (!maryCard || maryCard.name !== MARY_ID || (maryCard.currentHp ?? 0) <= 0) return false;
+  return hasConfusionStatus(maryCard, facingOppCard);
+}
+
+function facingOppForMarySlotKey(
+  marySlotKey: string,
+  playerAField: SimulationPlayerField,
+  playerBField: SimulationPlayerField
+): FieldCard | null {
+  const [pl, sl] = marySlotKey.split("-") as ["A" | "B", string];
+  if (sl !== "is" && sl !== "m" && sl !== "os") return null;
+  return getUnitFacingOppAtSlot(pl, sl, playerAField, playerBField);
+}
+
 export function maryDefenseBuffActive(
   maryCard: FieldCard,
   playerAField: SimulationPlayerField,
   playerBField: SimulationPlayerField,
-  marySlotKey: string
+  marySlotKey: string,
+  facingOppCard?: FieldCard | null
 ): boolean {
   if (maryCard.name !== MARY_ID) return false;
+  const facing =
+    facingOppCard !== undefined
+      ? facingOppCard
+      : facingOppForMarySlotKey(marySlotKey, playerAField, playerBField);
+  if (isMaryDefensePassivePausedByConfusion(maryCard, facing)) return false;
   for (const key of ALL_FIELD_SLOT_KEYS) {
     if (key === marySlotKey) continue;
     const [pl, sl] = key.split("-") as ["A" | "B", "is" | "m" | "os"];
@@ -57,12 +84,31 @@ export function applyIncomingDefenseDamage(
     return { finalDamage: 0, kind: "none" };
   }
 
+  const facingOpp =
+    ts === "is" || ts === "m" || ts === "os"
+      ? (tp === "A" ? playerBField : playerAField)[ts] ?? null
+      : null;
+
   let d = damage;
   let kind: IncomingDefenseKind = "none";
 
   const callieBuffBan =
     (ts === "is" || ts === "m" || ts === "os") &&
     callieBuffBanSuppressesBuffsForVictim(tp, ts, playerAField, playerBField);
+
+  const victimConfused = isConfused(target, facingOpp);
+  const hasLimeBubble = !!(target as FieldCard & { hasLimeBubbleShieldBuff?: boolean }).hasLimeBubbleShieldBuff;
+
+  /* 라임 방울 보호막: 수혜자 [혼란]이어도 시전자(라임) 스킬 링크가 유지되는 동안 -200 방어 적용 */
+  if (!callieBuffBan && hasLimeBubble && d > 100) {
+    const next = Math.max(100, d - 200);
+    if (next < d) kind = "limeBubble";
+    d = next;
+  }
+
+  if (victimConfused) {
+    return { finalDamage: d, kind };
+  }
 
   if (bangEomakProtectsTargetSlot(targetSlotKey, playerAField, playerBField) && d > 100 && !callieBuffBan) {
     const next = Math.max(100, d - 200);
@@ -74,12 +120,12 @@ export function applyIncomingDefenseDamage(
     if (next < d) kind = "cheol";
     d = next;
   }
-  if (!callieBuffBan && (target as FieldCard & { hasLimeBubbleShieldBuff?: boolean }).hasLimeBubbleShieldBuff && d > 100) {
-    const next = Math.max(100, d - 200);
-    if (next < d) kind = "limeBubble";
-    d = next;
-  }
-  if (!callieBuffBan && target.name === MARY_ID && maryDefenseBuffActive(target, playerAField, playerBField, targetSlotKey) && d > 100) {
+  if (
+    !callieBuffBan &&
+    target.name === MARY_ID &&
+    maryDefenseBuffActive(target, playerAField, playerBField, targetSlotKey, facingOpp) &&
+    d > 100
+  ) {
     const next = Math.max(100, d - 400);
     if (next < d) kind = "mary";
     d = next;
