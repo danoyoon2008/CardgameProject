@@ -110,6 +110,7 @@ import {
   EONDEOK_SPELL_ID,
   EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
   applyEndTurnEondeokSilenceTickToFieldUnit,
+  applyEndTurnSuppressionTickToFieldUnit,
   isEondeokSilenceActive,
   BEONGGAE_SPELL_ID,
   applyBeonggaeLightningToFieldUnit,
@@ -131,15 +132,22 @@ import {
   HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS,
   applyHyugesojauiAnsikHealAttempt,
   applyHyugesojauiAnsikTurnStartForOwner,
+  isHyugesojauiAnsikActiveOnSpell,
   type HyugesojauiAnsikHealSlotResult,
   type HyugesojauiAnsikCombatPatch,
   type HyugesojauiAnsikTurnStartVfx,
+  BUSINESS_GANG_SPELL_ID,
+  BUSINESS_GANG_INITIAL_END_TURN_TICKS,
+  getTurnStartTokenGainForPlayer,
+  isBusinessGangActiveOnSpell,
   isInvulnerableFromBaekseuOrCheolbyeok,
   applyEndTurnToSpellStack,
   appendSpellToStack,
   rotateSpellStackTopToBottom,
   normalizeSpellStack,
   getTopSpellFromField,
+  getSpellDurationBadgeInfo,
+  SPELL_DURATION_BADGE_TONE_CLASS,
   applyEndTurnLegendarySwordArmingTickForFieldOwner,
   initializeLegendarySwordFieldCard,
   isLegendarySwordCharging,
@@ -158,6 +166,15 @@ import {
   isJipjungSagyeokSpellCard,
   isMeteoSpellCard,
   applyMeteoDamageToEnemyUnit,
+  isAntHellSpellCard,
+  isAntHellActiveOnSpell,
+  ANT_HELL_SPELL_INITIAL_END_TURN_TICKS,
+  applyAntHellSuppressionWaveToEnemies,
+  tryApplyAntHellSuppressionOnEnemyUnitDeploy,
+  syncAntHellSuppressionForActiveCasters,
+  SUPPRESSION_DEBUFF_BADGE,
+  suppressionBlocksExternalBuffEffects,
+  isSuppressionActive,
   HYPER_BEAM_SPELL_ID,
   isHyperBeamSpellCard,
   applyHyperBeamDamageToEnemyUnit,
@@ -219,6 +236,9 @@ import {
   reconcileSpellUsagePendingFromSnapshot,
   type SpellUsagePendingSave,
   isWitchTarotSpellCard,
+  isBefpkkiriSpellCard,
+  applyBefpkkiriSpellCommit,
+  type SimpanPeekQueueEntry,
   WITCH_TAROT_SPELL_ID,
   WITCH_TAROT_TOTAL_STEPS,
   witchTarotStepPlayer,
@@ -232,10 +252,26 @@ import {
   isGuihwanSpellCard,
   getGuihwanRevivableRewindIndices,
   buildGuihwanRevivedFieldCard,
+  stripGuihwanSpellForRewind,
   patchGuihwanPendingOnState,
   reconcileGuihwanPendingFromSnapshot,
   parseGuihwanPendingSave,
   type GuihwanPendingSave,
+  healUnitCurrentHp,
+  applyFieldAllyHealToUnit,
+  computeFieldAllyHealApplied,
+  normalizeUnitHpSurvivalOnesForCombat,
+  EL_WING_ID,
+  EL_WING_MAGIC_IMMUNITY_BADGE,
+  EL_WING_SINSEOK_GAUGE_CAP,
+  EL_WING_SINSEOK_SKILL_LABEL,
+  EL_WING_SINSEOK_BADGE,
+  EL_WING_SINSEOK_PROMPT_MS,
+  isElWingBlockingEnemyAttackSpell,
+  grantElWingSinseokGaugeFromMeteoSplash,
+  shouldOfferElWingSinseokOnBasicAttackHit,
+  elWingSinseokGaugeFilled,
+  clampElWingSinseokGauge,
 } from "../../utils/battle";
 import {
   GonchungSpellStackTopFace,
@@ -313,9 +349,9 @@ interface SimulationState {
     player: "A" | "B";
     pendingCard: CardRow;
     /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장, "teslaDrawRewind" = 슈퍼 테슬라 보상 드로우(손패) */
-    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind" | "witchTarot";
+    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind" | "witchTarot" | "befpkkiri";
   } | null;
-  simpanPeekQueue: { player: "A" | "B"; pendingCard: CardRow }[];
+  simpanPeekQueue: SimpanPeekQueueEntry[];
   /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
   simpanPeekTick: number;
   /** No.53 마녀 타로 — 동전/드로우·버림 시퀀스(저장·복귀 시 재개) */
@@ -398,6 +434,20 @@ type HandDragState = {
   pointerId: number;
   opponentCardFlipped: boolean;
 };
+
+/** 단하「마법의 갈고리」— 상대 패 슬롯에서 시전자 패 슬롯으로 직선 이동 */
+type DanhaStealFlyVisualState = {
+  casterPlayer: "A" | "B";
+  victimPlayer: "A" | "B";
+  victimHandIndex: number;
+  stolenCard: CardRow;
+  from: { x: number; y: number; w: number; h: number };
+  to: { x: number; y: number; w: number; h: number };
+  phase: 0 | 1;
+  flyMs?: number;
+};
+
+const DANHA_STEAL_HAND_FLY_MS = 580;
 
 /** 심판 피크(패 5장 이하) — 중앙에서 패 빈 슬롯으로 이동하는 시각 연출 */
 type SimpanPeekFlyVisualState = {
@@ -827,10 +877,16 @@ type CombatPopupEntry =
   /**
    * 시스템 메시지: 슬롯 위 짧은 안내 플로팅(렴초 최대 체력, 토큰 부족 등).
    * 표시는 `renderCombatPopups`의 `infoFloatBaseText`(흰색 일반 텍스트) + `damageFloat` 애니, 지속은 보통 `INFO_FLOAT_MS`.
-   * 발행은 `pushInfoFloat(slotKey, text, durationMs, tone?)` — `tone` 생략 시 흰색, `"executeGray"` 시 백스 처형용 회색.
+   * 발행은 `pushInfoFloat(slotKey, text, durationMs, tone?)` — `tone` 생략 시 흰색, `"executeGray"` 처형, `"magicImmunityGreen"` 엘 윙 [마법 면역].
    * 동일 슬롯에 같은 `text`가 이미 떠 있으면 `pushInfoFloat`가 기존 항목을 즉시 제거한 뒤 새로 연다.
    */
-  | { id: number; kind: "infoFloat"; text: string; durationMs: number; tone?: "executeGray" | "skyBlue" };
+  | {
+      id: number;
+      kind: "infoFloat";
+      text: string;
+      durationMs: number;
+      tone?: "executeGray" | "skyBlue" | "magicImmunityGreen";
+    };
 
 /**
  * 카드 섬광 레이어(z-22) — 플로팅 숫자 종류와 별개로 플래시만 구분.
@@ -898,6 +954,7 @@ type FlashOverlayKind =
   | "orietShieldAllyPulse"
   | "ronuPassiveSpellBlock"
   | "meteoSpellHit"
+  | "businessGangSpellPulse"
   | "hyperBeamSpellHit"
   | "beonggaeSpell"
   | "somyeolSpellErase"
@@ -906,6 +963,8 @@ type FlashOverlayKind =
   | "superGreenKingSpellBreaker"
   | "gonchungHiddenPeek"
   | "superTeslaSpellTrigger"
+  | "befpkkiriSpellTrigger"
+  | "elWingMagicImmunityBlock"
   | "oneNightWagerSpellTrigger"
   | "oneNightWagerTokenWipe"
   | "witchTarotSpellPulse"
@@ -926,6 +985,8 @@ const getHealFromSkillUpdates = (before: FieldCard, updates: Partial<FieldCard>)
 
 /** 패에 새로 들어온 카드 — 상세 보기 전까지 손패에 얇은 흰색 외곽 글로우(시뮬 전용 메타) */
 const PP_SIM_HAND_NEW_GLOW = "__ppSimHandNewGlow";
+/** 단하 갈고리로 탈취해 패에 도착한 카드 — 도착 시점 시안색 외곽(시뮬 전용 메타) */
+const PP_SIM_HAND_DANHA_STEAL_ARRIVAL = "__ppSimHandDanhaStealArrival";
 
 function markPpSimHandNewGlow(card: CardRow, token: string): CardRow {
   return { ...card, [PP_SIM_HAND_NEW_GLOW]: token };
@@ -944,9 +1005,46 @@ function ppSimHandNewGlowToken(card: CardRow): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+function markPpSimHandDanhaStealArrival(card: CardRow, token: string): CardRow {
+  const base = stripPpSimHandNewGlow(stripPpSimHandDanhaStealArrival(card));
+  return { ...base, [PP_SIM_HAND_DANHA_STEAL_ARRIVAL]: token };
+}
+
+function stripPpSimHandDanhaStealArrival(card: CardRow): CardRow {
+  const raw = card as CardRow & Record<string, unknown>;
+  if (typeof raw[PP_SIM_HAND_DANHA_STEAL_ARRIVAL] !== "string") return card;
+  const next = { ...raw };
+  delete next[PP_SIM_HAND_DANHA_STEAL_ARRIVAL];
+  return next as CardRow;
+}
+
+function ppSimHandDanhaStealArrivalToken(card: CardRow): string | undefined {
+  const v = (card as CardRow & Record<string, unknown>)[PP_SIM_HAND_DANHA_STEAL_ARRIVAL];
+  return typeof v === "string" ? v : undefined;
+}
+
 function clearPpSimHandNewGlowInStateByToken(prev: SimulationState, token: string): SimulationState {
   const mapHand = (hand: CardRow[]) =>
-    hand.map(c => (ppSimHandNewGlowToken(c) === token ? stripPpSimHandNewGlow(c) : c));
+    hand.map(c => {
+      if (ppSimHandNewGlowToken(c) === token) return stripPpSimHandNewGlow(c);
+      if (ppSimHandDanhaStealArrivalToken(c) === token) return stripPpSimHandDanhaStealArrival(c);
+      return c;
+    });
+  return {
+    ...prev,
+    playerA: { ...prev.playerA, hand: mapHand(prev.playerA.hand) },
+    playerB: { ...prev.playerB, hand: mapHand(prev.playerB.hand) },
+  };
+}
+
+function clearPpSimHandDanhaStealArrivalInStateByToken(
+  prev: SimulationState,
+  token: string
+): SimulationState {
+  const mapHand = (hand: CardRow[]) =>
+    hand.map(c =>
+      ppSimHandDanhaStealArrivalToken(c) === token ? stripPpSimHandDanhaStealArrival(c) : c
+    );
   return {
     ...prev,
     playerA: { ...prev.playerA, hand: mapHand(prev.playerA.hand) },
@@ -966,17 +1064,32 @@ function promoteSimpanAfterClearChoice(prev: SimulationState): SimulationState {
   return primeSimpanPeekReveal(next);
 }
 
+/** 피크·교체 UI가 비었을 때 대기 중인 패 교체 선택(큐)을 띄움 */
+function promoteNextSimpanHandChoice(s: SimulationState): SimulationState {
+  if (s.simpanHandChoice) return s;
+  const q = [...(s.simpanHandChoiceQueue ?? [])];
+  if (q.length === 0) return s;
+  const [head, ...tail] = q;
+  return { ...s, simpanHandChoice: head, simpanHandChoiceQueue: tail };
+}
+
 function primeSimpanPeekReveal(s: SimulationState): SimulationState {
   if (s.simpanHandChoice || s.simpanPeekReveal) return s;
   const pq = [...(s.simpanPeekQueue ?? [])];
-  if (pq.length === 0) return s;
-  const [head, ...tail] = pq;
-  return {
-    ...s,
-    simpanPeekReveal: { player: head.player, pendingCard: head.pendingCard, peekKind: "simpan" },
-    simpanPeekQueue: tail,
-    simpanPeekTick: (s.simpanPeekTick ?? 0) + 1,
-  };
+  if (pq.length > 0) {
+    const [head, ...tail] = pq;
+    return {
+      ...s,
+      simpanPeekReveal: {
+        player: head.player,
+        pendingCard: head.pendingCard,
+        peekKind: head.peekKind ?? "simpan",
+      },
+      simpanPeekQueue: tail,
+      simpanPeekTick: (s.simpanPeekTick ?? 0) + 1,
+    };
+  }
+  return promoteNextSimpanHandChoice(s);
 }
 
 function mergeOnePlayerSimpanDraw(s: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
@@ -1040,13 +1153,24 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     return `pp-hng-${ppSimHandGlowSeqRef.current}`;
   };
 
+  const nextPpSimHandDanhaStealArrivalToken = () => {
+    ppSimHandGlowSeqRef.current += 1;
+    return `pp-danha-arr-${ppSimHandGlowSeqRef.current}`;
+  };
+
   const openHandCardCodexDetail = useCallback(
     (card: CardRow) => {
       const tok = ppSimHandNewGlowToken(card);
+      const danhaTok = ppSimHandDanhaStealArrivalToken(card);
       if (tok) {
         setState(prev => (prev ? clearPpSimHandNewGlowInStateByToken(prev, tok) : prev));
       }
-      onOpenDetail?.(stripPpSimHandNewGlow(card));
+      if (danhaTok) {
+        setState(prev =>
+          prev ? clearPpSimHandDanhaStealArrivalInStateByToken(prev, danhaTok) : prev
+        );
+      }
+      onOpenDetail?.(stripPpSimHandDanhaStealArrival(stripPpSimHandNewGlow(card)));
     },
     [onOpenDetail]
   );
@@ -1128,6 +1252,28 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     position: { x: number; y: number };
   } | null>(null);
 
+  /** 엘 윙 [신속] — 상대 기본 공격 시 5초 회피 선택 */
+  const [pendingElWingSinseokDefense, setPendingElWingSinseokDefense] = useState<{
+    defenderPlayer: "A" | "B";
+    defenderSlot: "is" | "m" | "os";
+    attackerPlayer: "A" | "B";
+    attackerSlot: "is" | "m" | "os";
+    hitKind: "primary" | "secondary";
+    popupPosition: { x: number; y: number };
+    deadlineAt: number;
+    wraithChainFollowUp: boolean;
+  } | null>(null);
+  const elWingSinseokBypassRef = useRef(false);
+  const elWingSinseokResumeRef = useRef<(() => void) | null>(null);
+  const elWingSinseokTimerRef = useRef<number | null>(null);
+  const elWingSinseokTimeoutMetaRef = useRef<{
+    hitKind: "primary" | "secondary";
+    wraithChainFollowUp: boolean;
+  } | null>(null);
+  const [elWingSinseokSecondsLeft, setElWingSinseokSecondsLeft] = useState(0);
+  /** 1 → 0 — 신속 선택 창 파란 카운트다운 게이지 */
+  const [elWingSinseokTimeRatio, setElWingSinseokTimeRatio] = useState(0);
+
   const [pendingLegendarySwordStrike, setPendingLegendarySwordStrike] =
     useState<LegendarySwordPendingSave | null>(null);
   const legendarySwordStrikePendingRef = useRef<LegendarySwordPendingSave | null>(null);
@@ -1192,6 +1338,15 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
   const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
+  const [danhaStealFly, setDanhaStealFly] = useState<DanhaStealFlyVisualState | null>(null);
+  const danhaStealCommitRef = useRef<{
+    caster: "A" | "B";
+    victimPlayer: "A" | "B";
+    victimHandIndex: number;
+    targetHandIndex: number;
+    slotKey: "is" | "m" | "os";
+    arrivalGlowToken: string;
+  } | null>(null);
   const [spellUsageReveal, setSpellUsageReveal] = useState<SpellUsageRevealVisualState | null>(null);
   const [spellUsageRevealTick, setSpellUsageRevealTick] = useState(0);
   const [spellUsageFly, setSpellUsageFly] = useState<SpellUsageFlyVisualState | null>(null);
@@ -1299,7 +1454,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       return merged;
     }
     if (peekKind === "witchTarot") return merged;
-    return peekKind === "draw" ? merged : primeSimpanPeekReveal(merged);
+    if (peekKind === "draw") return merged;
+    return primeSimpanPeekReveal(merged);
   };
 
   const runWitchTarotAdvanceRef = useRef<() => void>(() => {});
@@ -1471,7 +1627,31 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
       const u = field[slot as "is" | "m" | "os"];
       if (!u) return null;
-      if (drag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(u)) return null;
+      if (drag.card.name === BEONGGAE_SPELL_ID) {
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            u,
+            targetPlayer,
+            slot as "is" | "m" | "os",
+            snap.playerA.field,
+            snap.playerB.field
+          )
+        ) {
+          /* 비용 5 초과여도 번개 시도 시 [마법 면역] 연출을 위해 드롭 허용 */
+        } else if (!isBeonggaeValidTargetUnit(u)) {
+          return null;
+        }
+      } else if (
+        isElWingBlockingEnemyAttackSpell(
+          u,
+          targetPlayer,
+          slot as "is" | "m" | "os",
+          snap.playerA.field,
+          snap.playerB.field
+        )
+      ) {
+        return null;
+      }
       const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
       const cost = Number(drag.card.cost) || 0;
       if (tokens < cost) return null;
@@ -1730,6 +1910,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     orietShieldAllyPulse: 820,
     ronuPassiveSpellBlock: 820,
     meteoSpellHit: 820,
+    businessGangSpellPulse: 820,
     hyperBeamSpellHit: 820,
     beonggaeSpell: 1500,
     somyeolSpellErase: 820,
@@ -1740,6 +1921,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     superGreenKingSpellBreaker: 820,
     gonchungHiddenPeek: 820,
     superTeslaSpellTrigger: 980,
+    befpkkiriSpellTrigger: 980,
+    elWingMagicImmunityBlock: 820,
     oneNightWagerSpellTrigger: 980,
     oneNightWagerTokenWipe: 900,
     witchTarotSpellPulse: 980,
@@ -2081,7 +2264,40 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
         field[p.slot] = revived;
 
-        const rewindCards = prev.rewindCards.filter((_, i) => i !== rewindIndex);
+        const newPlayerA = {
+          ...prev.playerA,
+          field: { ...prev.playerA.field },
+        };
+        const newPlayerB = {
+          ...prev.playerB,
+          field: { ...prev.playerB.field },
+        };
+        if (p.ownerPlayer === "A") {
+          newPlayerA.field = field;
+        } else {
+          newPlayerB.field = field;
+        }
+        const guihwanAntHell = tryApplyAntHellSuppressionOnEnemyUnitDeploy({
+          victimPlayer: p.ownerPlayer,
+          victimSlot: p.slot,
+          playerA: { field: newPlayerA.field },
+          playerB: { field: newPlayerB.field },
+          globalTurnCount: prev.globalTurnCount,
+        });
+        if (guihwanAntHell.appliedSlotKey) {
+          window.setTimeout(() => showAntHellSpellHitOnTarget(guihwanAntHell.appliedSlotKey!), 0);
+        }
+        if (guihwanAntHell.elWingImmunitySlotKey) {
+          window.setTimeout(
+            () => showElWingMagicImmunityBlockOnUnit(guihwanAntHell.elWingImmunitySlotKey!),
+            0
+          );
+        }
+
+        const rewindCards = [
+          ...prev.rewindCards.filter((_, i) => i !== rewindIndex),
+          stripGuihwanSpellForRewind(spell),
+        ];
         let unitCombatStats = prev.unitCombatStats;
         let unitStatsOrder = prev.unitStatsOrder;
         if (!unitCombatStats[sid]) {
@@ -2110,7 +2326,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               unitCombatStats,
               unitStatsOrder,
               spellDeployLog: nextSpellLog,
-              [ownerKey]: { ...ps, field },
+              playerA: newPlayerA,
+              playerB: newPlayerB,
             },
             null
           )
@@ -2637,15 +2854,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     slotKey: string,
     text: string,
     durationMs: number,
-    tone?: "default" | "executeGray" | "skyBlue"
+    tone?: "default" | "executeGray" | "skyBlue" | "magicImmunityGreen"
   ) => {
     const id = ++combatPopupIdRef.current;
-    const entry: CombatPopupEntry =
+    const resolvedTone =
       tone === "executeGray"
-        ? { id, kind: "infoFloat", text, durationMs, tone: "executeGray" }
+        ? ("executeGray" as const)
         : tone === "skyBlue"
-          ? { id, kind: "infoFloat", text, durationMs, tone: "skyBlue" }
-          : { id, kind: "infoFloat", text, durationMs };
+          ? ("skyBlue" as const)
+          : tone === "magicImmunityGreen"
+            ? ("magicImmunityGreen" as const)
+            : undefined;
+    const entry: CombatPopupEntry =
+      resolvedTone != null
+        ? { id, kind: "infoFloat", text, durationMs, tone: resolvedTone }
+        : { id, kind: "infoFloat", text, durationMs };
     setCombatPopups(prev => {
       const list = prev[slotKey] ?? [];
       const withoutSameText = list.filter(
@@ -2653,7 +2876,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           !(
             e.kind === "infoFloat" &&
             e.text === text &&
-            e.tone === (tone === "executeGray" ? "executeGray" : tone === "skyBlue" ? "skyBlue" : undefined)
+            e.tone === resolvedTone
           )
       );
       return {
@@ -2674,6 +2897,106 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
     }, durationMs);
   };
+
+  /** 엘 윙 [마법 면역] — 단일 대상 공격 스펠(언덕!/번개/하이퍼 빔/소멸) 적용 시도 시 녹색 이펙트 + 플로팅 */
+  const showElWingMagicImmunityBlockOnUnit = (slotKey: string) => {
+    triggerCardFlash(slotKey, "elWingMagicImmunityBlock");
+    pushInfoFloat(slotKey, EL_WING_MAGIC_IMMUNITY_BADGE, INFO_FLOAT_MS, "magicImmunityGreen");
+  };
+
+  const dismissElWingSinseokUi = useCallback(() => {
+    if (elWingSinseokTimerRef.current != null) {
+      window.clearTimeout(elWingSinseokTimerRef.current);
+      elWingSinseokTimerRef.current = null;
+    }
+    setPendingElWingSinseokDefense(null);
+    setElWingSinseokSecondsLeft(0);
+    setElWingSinseokTimeRatio(0);
+  }, []);
+
+  const clearElWingSinseokPending = useCallback(() => {
+    dismissElWingSinseokUi();
+    elWingSinseokResumeRef.current = null;
+    elWingSinseokBypassRef.current = false;
+    elWingSinseokTimeoutMetaRef.current = null;
+  }, [dismissElWingSinseokUi]);
+
+  /** 5초 경과 — UI만 닫고 bypass로 보류 중이던 기본 공격 피해를 적용 */
+  const finishElWingSinseokTimeout = useCallback(() => {
+    const fn = elWingSinseokResumeRef.current;
+    const meta = elWingSinseokTimeoutMetaRef.current;
+    elWingSinseokBypassRef.current = true;
+    dismissElWingSinseokUi();
+    elWingSinseokResumeRef.current = null;
+    elWingSinseokTimeoutMetaRef.current = null;
+    fn?.();
+    elWingSinseokBypassRef.current = false;
+    if (meta?.hitKind === "primary" && !meta.wraithChainFollowUp) {
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+    }
+  }, [dismissElWingSinseokUi]);
+
+  const commitElWingSinseokDodge = useCallback(() => {
+    const pend = pendingElWingSinseokDefense;
+    if (!pend || !state) return;
+    const {
+      defenderPlayer,
+      defenderSlot,
+      attackerPlayer,
+      attackerSlot,
+      wraithChainFollowUp,
+    } = pend;
+    const defenderKey = defenderPlayer === "A" ? "playerA" : "playerB";
+    const attackerKey = attackerPlayer === "A" ? "playerA" : "playerB";
+    const defenderSlotKey = `${defenderPlayer}-${defenderSlot}`;
+
+    setState(prev => {
+      if (!prev) return prev;
+      const defSide = { ...prev[defenderKey], field: { ...prev[defenderKey].field } };
+      const atkSide = { ...prev[attackerKey], field: { ...prev[attackerKey].field } };
+      const wing = defSide.field[defenderSlot];
+      const attacker = atkSide.field[attackerSlot];
+      if (!wing || wing.name !== EL_WING_ID || !attacker) return prev;
+      const nextGauge = clampElWingSinseokGauge((wing.elWingSinseokGauge ?? 0) - 1);
+      defSide.field[defenderSlot] = { ...wing, elWingSinseokGauge: nextGauge };
+      atkSide.field[attackerSlot] = { ...attacker, hasAttacked: true };
+      if (pend.hitKind === "primary" && !wraithChainFollowUp) {
+        atkSide.attacksThisTurn = (atkSide.attacksThisTurn || 0) + 1;
+      }
+      return { ...prev, [defenderKey]: defSide, [attackerKey]: atkSide };
+    });
+
+    triggerCardFlash(defenderSlotKey, "elWingMagicImmunityBlock");
+    pushInfoFloat(defenderSlotKey, EL_WING_SINSEOK_BADGE, INFO_FLOAT_MS, "magicImmunityGreen");
+    clearElWingSinseokPending();
+    if (pend.hitKind === "primary") {
+      setAttackingSlot(null);
+      setAttackOptionOverride(null);
+      applyStartingWraithChainPending(null);
+    }
+  }, [
+    pendingElWingSinseokDefense,
+    state,
+    clearElWingSinseokPending,
+    applyStartingWraithChainPending,
+  ]);
+
+  useEffect(() => {
+    if (!pendingElWingSinseokDefense) {
+      setElWingSinseokTimeRatio(0);
+      return;
+    }
+    const { deadlineAt } = pendingElWingSinseokDefense;
+    const tick = () => {
+      const remainingMs = Math.max(0, deadlineAt - Date.now());
+      setElWingSinseokTimeRatio(remainingMs / EL_WING_SINSEOK_PROMPT_MS);
+      setElWingSinseokSecondsLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+    };
+    tick();
+    const id = window.setInterval(tick, 50);
+    return () => window.clearInterval(id);
+  }, [pendingElWingSinseokDefense]);
 
   /** 로누 패시브 — 액티브 스펠 차단 시 로누 슬롯 하늘색 능력 발동 + 시스템 플로팅 */
   const blockRonuActiveSpellHandPlay = (
@@ -2733,13 +3056,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     triggerCardFlash(slotKey, "ghostoneKill");
   };
 
-  /** 시작의 망령 트루 스트라이크 기본 공격: 어두운 회색 플로팅만(붉은 피격 섬광 없음) */
+  /** 시작의 망령 트루 스트라이크 기본 공격: 어두운 회색 피해 숫자 + 붉은 피격 섬광 */
   const showStartingWraithTrueStrikeDamageOnTarget = (
     slotKey: string,
     amount: number,
     damageExtras?: CombatDamagePopupExtras
   ) => {
     pushCombatPopup(slotKey, "damage", amount, damageExtras);
+    triggerCardFlash(slotKey, "damage");
   };
 
   /** 시작의 망령 처치 연쇄: 고스톤과 동형 갈색 능력 발동 + 피해 숫자 */
@@ -2754,6 +3078,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const triggerStartingWraithChainKillFlashOnAttacker = (attackerSlotKey: string) => {
     triggerCardFlash(attackerSlotKey, "startingWraithChainKill");
+  };
+
+  /** 스펠 No.43 개미지옥 — 적용 연출(메테오 동형 주황빛, 피해 숫자 없음) */
+  const showAntHellSpellHitOnTarget = (slotKey: string) => {
+    triggerCardFlash(slotKey, "meteoSpellHit");
   };
 
   /** 스펠 No.21 메테오 — 적중: 고스톤과 동형 주황빛 능력 발동 이펙트 + 피해 숫자 */
@@ -2818,11 +3147,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (save.mode === "placeSpellSlot" && isMeteoSpellCard(previewCard)) {
         const enemyPlayer = casterPlayer === "A" ? "B" : "A";
         const meteoVfxHits: { slotKey: string; hpLoss: number }[] = [];
+        const meteoElWingImmunitySlotKeys: string[] = [];
         return {
           ...basePending,
           preApply: noopPreApply,
           commit: prev => {
             meteoVfxHits.length = 0;
+            meteoElWingImmunitySlotKeys.length = 0;
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
             const enemySide = enemyPlayer === "A" ? newPlayerA : newPlayerB;
@@ -2833,6 +3164,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             for (const slotName of ["is", "m", "os"] as const) {
               const unit = enemySide.field[slotName];
               if (!unit || unit.currentHp <= 0) continue;
+              if (
+                isElWingBlockingEnemyAttackSpell(
+                  unit,
+                  enemyPlayer,
+                  slotName,
+                  newPlayerA.field,
+                  newPlayerB.field
+                )
+              ) {
+                meteoElWingImmunitySlotKeys.push(`${enemyPlayer}-${slotName}`);
+                enemySide.field[slotName] = grantElWingSinseokGaugeFromMeteoSplash(unit);
+                continue;
+              }
 
               const resolved = applyMeteoDamageToEnemyUnit({
                 target: unit,
@@ -2878,7 +3222,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (!ally) return;
                   enemySide.field[s] = {
                     ...ally,
-                    currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+                    ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
                   };
                 });
               }
@@ -2889,7 +3233,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (!ally) return;
                   enemySide.field[s] = {
                     ...ally,
-                    currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+                    ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
                   };
                 });
               }
@@ -2909,11 +3253,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             });
           },
           afterCommitVfx: () => {
+            for (const slotKey of meteoElWingImmunitySlotKeys) {
+              showElWingMagicImmunityBlockOnUnit(slotKey);
+            }
             const meteoVfxBySlot = new Map<string, number>();
             for (const hit of meteoVfxHits) meteoVfxBySlot.set(hit.slotKey, hit.hpLoss);
             for (const [slotKey, hpLoss] of meteoVfxBySlot) {
               showMeteoSpellHitOnTarget(slotKey, hpLoss);
             }
+          },
+        };
+      }
+
+      if (save.mode === "placeSpellSlot" && isBefpkkiriSpellCard(previewCard) && targetPlayer) {
+        const tp = targetPlayer;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev =>
+            applyBefpkkiriSpellCommit(prev, casterPlayer, previewCard, c =>
+              markPpSimHandNewGlow(c, `pp-hng-${++ppSimHandGlowSeqRef.current}`)
+            ),
+          afterCommitVfx: () => {
+            triggerCardFlash(`${tp}-spell`, "befpkkiriSpellTrigger");
           },
         };
       }
@@ -2974,11 +3336,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const fieldCard = save.fieldCard;
         const tp = targetPlayer;
         const hyuPlaceVfxBag: { perSlot: HyugesojauiAnsikHealSlotResult[] } = { perSlot: [] };
+        const antHellPlaceVfxBag: { applied: string[]; elWing: string[] } = {
+          applied: [],
+          elWing: [],
+        };
         return {
           ...basePending,
           preApply: noopPreApply,
           commit: prev => {
             hyuPlaceVfxBag.perSlot = [];
+            antHellPlaceVfxBag.applied = [];
+            antHellPlaceVfxBag.elWing = [];
             const tf = isPlayerA ? prev.playerA.field : prev.playerB.field;
             const stackBefore = normalizeSpellStack(tf);
             let updatedField: PlayerState["field"] = {
@@ -3024,6 +3392,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
               };
             }
+            if (isAntHellSpellCard(previewCard)) {
+              const newPlayerA = { ...r.playerA, field: { ...r.playerA.field } };
+              const newPlayerB = { ...r.playerB, field: { ...r.playerB.field } };
+              const wave = applyAntHellSuppressionWaveToEnemies({
+                casterPlayer,
+                playerA: { field: newPlayerA.field },
+                playerB: { field: newPlayerB.field },
+                globalTurnCount: prev.globalTurnCount,
+              });
+              antHellPlaceVfxBag.applied = wave.appliedSlotKeys;
+              antHellPlaceVfxBag.elWing = wave.elWingImmunitySlotKeys;
+              r = { ...r, playerA: newPlayerA, playerB: newPlayerB };
+            }
             const committed = finalizeSpellWithSimpan(r);
             if (previewCard.name === BANG_EOMAK_SPELL_ID) {
               window.setTimeout(() => {
@@ -3046,12 +3427,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 );
               }, 0);
             }
+            if (previewCard.name === BUSINESS_GANG_SPELL_ID) {
+              window.setTimeout(() => {
+                triggerCardFlash(`${tp}-spell`, "businessGangSpellPulse");
+              }, 0);
+            }
+            if (isAntHellSpellCard(previewCard)) {
+              window.setTimeout(() => {
+                triggerCardFlash(`${tp}-spell`, "businessGangSpellPulse");
+              }, 0);
+            }
             window.setTimeout(() => tryTriggerOneNightWagerSequenceRef.current(), 0);
             return committed;
           },
           afterCommitVfx: () => {
             if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlaceVfxBag.perSlot.length > 0) {
               playHyugesojauiAnsikAllyPulseAndHealVfx(tp, hyuPlaceVfxBag.perSlot);
+            }
+            if (isAntHellSpellCard(previewCard)) {
+              for (const slotKey of antHellPlaceVfxBag.elWing) {
+                showElWingMagicImmunityBlockOnUnit(slotKey);
+              }
+              for (const slotKey of antHellPlaceVfxBag.applied) {
+                showAntHellSpellHitOnTarget(slotKey);
+              }
             }
           },
         };
@@ -3066,6 +3465,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
             const u2 = victim.field[skCommit];
             if (!u2) return prev;
+            if (
+              isElWingBlockingEnemyAttackSpell(
+                u2,
+                targetPlayer,
+                skCommit,
+                prev.playerA.field,
+                prev.playerB.field
+              )
+            ) {
+              return prev;
+            }
             if (!isBeonggaeValidTargetUnit(u2)) return prev;
             if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
             const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
@@ -3092,6 +3502,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
             const u2 = victim.field[skCommit];
             if (!u2) return prev;
+            if (
+              isElWingBlockingEnemyAttackSpell(
+                u2,
+                targetPlayer,
+                skCommit,
+                prev.playerA.field,
+                prev.playerB.field
+              )
+            ) {
+              return prev;
+            }
             const updated: FieldCard = {
               ...u2,
               eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
@@ -3121,6 +3542,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
             const erased = victimState.field[skCommit];
             if (!erased) return prev;
+            if (
+              isElWingBlockingEnemyAttackSpell(
+                erased,
+                targetPlayer,
+                skCommit,
+                newPlayerA.field,
+                newPlayerB.field
+              )
+            ) {
+              return prev;
+            }
 
             cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
               skipDarkKnightSoulIncrement: true,
@@ -3171,6 +3603,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const enemySide = targetPlayer === "A" ? newPlayerA : newPlayerB;
             const unit = enemySide.field[skCommit];
             if (!unit || unit.currentHp <= 0) return prev;
+            if (
+              isElWingBlockingEnemyAttackSpell(
+                unit,
+                targetPlayer,
+                skCommit,
+                newPlayerA.field,
+                newPlayerB.field
+              )
+            ) {
+              return prev;
+            }
 
             const resolved = applyHyperBeamDamageToEnemyUnit({
               target: unit,
@@ -3220,7 +3663,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!ally) return;
                 enemySide.field[s] = {
                   ...ally,
-                  currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+                  ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
                 };
               });
             }
@@ -3231,7 +3674,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!ally) return;
                 enemySide.field[s] = {
                   ...ally,
-                  currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+                  ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
                 };
               });
             }
@@ -3484,6 +3927,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-slate-200 antialiased drop-shadow-[0_1px_2px_rgba(15,23,42,0.92),0_0_10px_rgba(226,232,240,0.35)]";
     const infoFloatSkyBlueText =
       "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-sky-300 antialiased drop-shadow-[0_1px_2px_rgba(8,47,73,0.92),0_0_12px_rgba(56,189,248,0.45)]";
+    const infoFloatMagicImmunityGreenText =
+      "pointer-events-none absolute left-1/2 z-[41] max-w-none -translate-x-1/2 whitespace-nowrap text-center font-black leading-snug text-base md:text-lg text-emerald-200 antialiased drop-shadow-[0_1px_2px_rgba(6,78,59,0.92),0_0_12px_rgba(74,222,128,0.5)]";
 
     return (
       <>
@@ -3637,7 +4082,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 ? infoFloatExecuteGrayText
                 : e.tone === "skyBlue"
                   ? infoFloatSkyBlueText
-                  : infoFloatBaseText
+                  : e.tone === "magicImmunityGreen"
+                    ? infoFloatMagicImmunityGreenText
+                    : infoFloatBaseText
             }
             style={{
               top: popupTopFromAnchor(stackAboveBuffBlocks + 8 + infIdx * 44),
@@ -3845,6 +4292,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-st-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerLayerClass}`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 엘 윙 [마법 면역]에 단일 대상 공격 스펠 적용 시도(녹색) */
+    if (snap.kind === "elWingMagicImmunityBlock") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-el-wing-mi-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-el-wing-mi-aura`}
+            className={`pp-combat-flash-layer--el-wing-magic-immunity-block-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-el-wing-mi-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--el-wing-magic-immunity-block`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 베프끼리(스펠 칸 배치·즉시 소멸 — 슈퍼 테슬라 동형·파랑) */
+    if (snap.kind === "befpkkiriSpellTrigger") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-bef-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-bef-aura`}
+            className={`pp-combat-flash-layer--befpkkiri-spell-trigger-aura--spell-land pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-bef-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--befpkkiri-spell-trigger--spell-land`}
           />
         </div>
       );
@@ -4258,6 +4743,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-hyugesojaui-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-hyugesojaui-ansik-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 스펠 No.30 비즈니스 강도단(스펠 칸 배치·만료 — 메테오 동형·주황) */
+    if (snap.kind === "businessGangSpellPulse") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-business-gang-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-business-gang-aura`}
+            className={`pp-combat-flash-layer--business-gang-spell-pulse-aura--spell-land pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-business-gang-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--business-gang-spell-pulse--spell-land`}
           />
         </div>
       );
@@ -5015,6 +5519,106 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return () => window.clearTimeout(tid);
   }, [simpanPeekFly]);
 
+  useLayoutEffect(() => {
+    if (!danhaStealFly || danhaStealFly.phase !== 0) return;
+    let cancelled = false;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setDanhaStealFly(f => (f && f.phase === 0 ? { ...f, phase: 1 } : f));
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [danhaStealFly]);
+
+  useEffect(() => {
+    if (!danhaStealFly || danhaStealFly.phase !== 1) return;
+    const flyMs = danhaStealFly.flyMs ?? DANHA_STEAL_HAND_FLY_MS;
+    const tid = window.setTimeout(() => {
+      const commit = danhaStealCommitRef.current;
+      danhaStealCommitRef.current = null;
+      setDanhaStealFly(null);
+      if (!commit) {
+        setPendingSkill(null);
+        return;
+      }
+      setState(prev => {
+        if (!prev) return prev;
+        const vHand = commit.victimPlayer === "A" ? prev.playerA.hand : prev.playerB.hand;
+        if (commit.victimHandIndex < 0 || commit.victimHandIndex >= vHand.length) return prev;
+        const card = vHand[commit.victimHandIndex];
+        if (!card) return prev;
+
+        const ally = commit.caster === "A" ? prev.playerA : prev.playerB;
+        if (ally.hand.length >= 6) return prev;
+
+        const newVictimHand = [...vHand];
+        newVictimHand.splice(commit.victimHandIndex, 1);
+        const newAllyHand = [
+          ...ally.hand,
+          markPpSimHandDanhaStealArrival(
+            stripPpSimHandDanhaStealArrival(stripPpSimHandNewGlow(card)),
+            commit.arrivalGlowToken
+          ),
+        ];
+
+        const slotKey = commit.slotKey;
+        const newPlayerA = {
+          ...prev.playerA,
+          hand:
+            commit.caster === "A"
+              ? newAllyHand
+              : commit.victimPlayer === "A"
+                ? newVictimHand
+                : prev.playerA.hand,
+          field: { ...prev.playerA.field },
+        };
+        const newPlayerB = {
+          ...prev.playerB,
+          hand:
+            commit.caster === "B"
+              ? newAllyHand
+              : commit.victimPlayer === "B"
+                ? newVictimHand
+                : prev.playerB.hand,
+          field: { ...prev.playerB.field },
+        };
+
+        if (commit.caster === "A") {
+          const u = newPlayerA.field[slotKey];
+          if (u) {
+            newPlayerA.field = {
+              ...newPlayerA.field,
+              [slotKey]: { ...u, danhaMagicHookConsumed: true },
+            };
+          }
+        } else {
+          const u = newPlayerB.field[slotKey];
+          if (u) {
+            newPlayerB.field = {
+              ...newPlayerB.field,
+              [slotKey]: { ...u, danhaMagicHookConsumed: true },
+            };
+          }
+        }
+
+        return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+      });
+      triggerCardFlash(
+        `hand-${commit.caster}-${commit.targetHandIndex}`,
+        "danhaMagicHook"
+      );
+      setPendingSkill(null);
+    }, flyMs + 50);
+    return () => window.clearTimeout(tid);
+  }, [danhaStealFly, triggerCardFlash]);
+
   useEffect(() => {
     if (!spellUsageReveal) {
       spellUsageRevealTransitionStartedRef.current = false;
@@ -5471,6 +6075,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       state.simpanHandChoice ||
       state.simpanPeekReveal ||
       simpanPeekFly ||
+      danhaStealFly ||
       spellUsageReveal ||
       spellUsageFly ||
       spellUsageMotionActiveRef.current ||
@@ -5496,6 +6101,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setIsDrawModalOpen(false);
 
     const hyuTurnVfxBag: { vfx: HyugesojauiAnsikTurnStartVfx | null } = { vfx: null };
+    const businessGangExpireVfxBag: { a: boolean; b: boolean } = { a: false, b: false };
+    const antHellTurnSyncVfxBag: { applied: string[]; elWing: string[] } = {
+      applied: [],
+      elWing: [],
+    };
     flushSync(() => {
       setState(prev => {
       if (!prev) return prev;
@@ -5513,7 +6123,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           applyEndTurnIversonWaitTickToFieldUnit(
             applyEndTurnStunTickToFieldUnit(
               applyEndTurnBaekseuInvulnTickToFieldUnit(
-                applyEndTurnEondeokSilenceTickToFieldUnit(u),
+                applyEndTurnEondeokSilenceTickToFieldUnit(
+                  applyEndTurnSuppressionTickToFieldUnit(u),
+                ),
               ),
             ),
           );
@@ -5533,15 +6145,39 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
       const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
       let rewindCards = [...prev.rewindCards];
-      if (ta.expiredBangEomakToRewind) rewindCards = [...rewindCards, ta.expiredBangEomakToRewind];
-      if (tb.expiredBangEomakToRewind) rewindCards = [...rewindCards, tb.expiredBangEomakToRewind];
-      if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
-      if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
-      if (ta.expiredHyugesojauiAnsikToRewind) {
-        rewindCards = [...rewindCards, ta.expiredHyugesojauiAnsikToRewind];
+      if (ta.expiredBangEomakToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredBangEomakToRewind];
       }
-      if (tb.expiredHyugesojauiAnsikToRewind) {
-        rewindCards = [...rewindCards, tb.expiredHyugesojauiAnsikToRewind];
+      if (tb.expiredBangEomakToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredBangEomakToRewind];
+      }
+      if (ta.expiredCheolbyeokToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredCheolbyeokToRewind];
+      }
+      if (tb.expiredCheolbyeokToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredCheolbyeokToRewind];
+      }
+      if (ta.expiredHyugesojauiAnsikToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredHyugesojauiAnsikToRewind];
+      }
+      if (tb.expiredHyugesojauiAnsikToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredHyugesojauiAnsikToRewind];
+      }
+      if (ta.expiredBusinessGangToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredBusinessGangToRewind];
+        businessGangExpireVfxBag.a = true;
+      }
+      if (tb.expiredBusinessGangToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredBusinessGangToRewind];
+        businessGangExpireVfxBag.b = true;
+      }
+      if (ta.expiredAntHellToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredAntHellToRewind];
+        businessGangExpireVfxBag.a = true;
+      }
+      if (tb.expiredAntHellToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredAntHellToRewind];
+        businessGangExpireVfxBag.b = true;
       }
 
       const nextTurn = isA ? "B" : "A";
@@ -5557,6 +6193,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       fieldB = hyu.nextPlayerBField;
       hyuTurnVfxBag.vfx = hyu.vfx;
 
+      const antHellSync = syncAntHellSuppressionForActiveCasters({
+        playerA: { field: fieldA },
+        playerB: { field: fieldB },
+        globalTurnCount: prev.globalTurnCount,
+      });
+      antHellTurnSyncVfxBag.applied = antHellSync.appliedSlotKeys;
+      antHellTurnSyncVfxBag.elWing = antHellSync.elWingImmunitySlotKeys;
+
       let nextState: typeof prev = {
         ...prev,
         rewindCards,
@@ -5566,7 +6210,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         turnTimeLeft: 60,
         playerA: {
           ...prev.playerA,
-          tokens: !isA ? Math.min(prev.playerA.tokens + 2, 10) : prev.playerA.tokens,
+          tokens: !isA
+            ? Math.min(
+                prev.playerA.tokens + getTurnStartTokenGainForPlayer(fieldA),
+                10
+              )
+            : prev.playerA.tokens,
           hasDrawnThisTurn: false,
           attacksThisTurn: 0,
           hasBeenAttackedThisTurn: false,
@@ -5574,7 +6223,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         },
         playerB: {
           ...prev.playerB,
-          tokens: isA ? Math.min(prev.playerB.tokens + 2, 10) : prev.playerB.tokens,
+          tokens: isA
+            ? Math.min(
+                prev.playerB.tokens + getTurnStartTokenGainForPlayer(fieldB),
+                10
+              )
+            : prev.playerB.tokens,
           hasDrawnThisTurn: false,
           attacksThisTurn: 0,
           hasBeenAttackedThisTurn: false,
@@ -5595,6 +6249,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         hyuTurnVfxBag.vfx.allyPlayer,
         hyuTurnVfxBag.vfx.perSlot
       );
+    }
+    if (businessGangExpireVfxBag.a) {
+      window.setTimeout(() => triggerCardFlash("A-spell", "businessGangSpellPulse"), 0);
+    }
+    if (businessGangExpireVfxBag.b) {
+      window.setTimeout(() => triggerCardFlash("B-spell", "businessGangSpellPulse"), 0);
+    }
+    for (const slotKey of antHellTurnSyncVfxBag.elWing) {
+      window.setTimeout(() => showElWingMagicImmunityBlockOnUnit(slotKey), 0);
+    }
+    for (const slotKey of antHellTurnSyncVfxBag.applied) {
+      window.setTimeout(() => showAntHellSpellHitOnTarget(slotKey), 0);
     }
   };
 
@@ -5645,14 +6311,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const targetUnit = targetPlayer.field[healSlotKey];
 
       if (targetUnit) {
-        const healAmount = MOMO_SKILL_HEAL_AMOUNT;
-        const maxHp = Number(targetUnit.hp);
-        const newHp = Math.min(maxHp, targetUnit.currentHp + healAmount);
         targetPlayer.field = {
           ...targetPlayer.field,
           [healSlotKey]: {
-            ...targetUnit,
-            currentHp: newHp,
+            ...healUnitCurrentHp(targetUnit, MOMO_SKILL_HEAL_AMOUNT, {
+              supportSource: "selfAbility",
+            }),
             skillLastUsedGlobalTurn: prev.globalTurnCount,
           } as FieldCard,
         };
@@ -5668,6 +6332,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         rewindCards: newRewind
       };
     });
+    setPendingSkill(null);
     if (actualHeal > 0) {
       showHealNumber(healPopupKey, actualHeal);
     }
@@ -5676,6 +6341,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const handleDanhaSteal = (victimHandIndex: number, victimPlayer: "A" | "B") => {
     const ps = pendingSkill;
     if (!ps || !state || ps.name !== PENDING_SKILL.DANHA_GALGORI) return;
+    if (danhaStealFly) return;
     const caster = ps.player;
     if (victimPlayer === caster) return;
 
@@ -5689,58 +6355,109 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     const victimHandArr = victimPlayer === "A" ? state.playerA.hand : state.playerB.hand;
-    if (!victimHandArr[victimHandIndex]) return;
+    const stolenCard = victimHandArr[victimHandIndex];
+    if (!stolenCard) return;
 
     const allyHandLen = (caster === "A" ? state.playerA.hand : state.playerB.hand).length;
     if (allyHandLen >= 6) return;
 
     const danhaFieldKey = `${caster}-${slotKey}`;
-    const victimHandKey = `hand-${victimPlayer}-${victimHandIndex}`;
     triggerCardFlash(danhaFieldKey, "danhaMagicHook");
-    triggerCardFlash(victimHandKey, "danhaMagicHook");
 
-    const stealGlowToken = nextPpSimHandGlowToken();
-    setState(prev => {
-      if (!prev) return prev;
-      const vHand = victimPlayer === "A" ? prev.playerA.hand : prev.playerB.hand;
-      if (victimHandIndex < 0 || victimHandIndex >= vHand.length) return prev;
-      const card = vHand[victimHandIndex];
-      if (!card) return prev;
+    const arrivalGlowToken = nextPpSimHandDanhaStealArrivalToken();
+    const fromEl =
+      victimPlayer === "A"
+        ? handSlotOuterRefsA.current[victimHandIndex]
+        : handSlotOuterRefsB.current[victimHandIndex];
+    const toEl =
+      caster === "A"
+        ? handSlotOuterRefsA.current[allyHandLen]
+        : handSlotOuterRefsB.current[allyHandLen];
+    const fr = fromEl?.getBoundingClientRect();
+    const tr = toEl?.getBoundingClientRect();
 
-      const ally = caster === "A" ? prev.playerA : prev.playerB;
-      if (ally.hand.length >= 6) return prev;
+    danhaStealCommitRef.current = {
+      caster,
+      victimPlayer,
+      victimHandIndex,
+      targetHandIndex: allyHandLen,
+      slotKey,
+      arrivalGlowToken,
+    };
 
-      const newVictimHand = [...vHand];
-      newVictimHand.splice(victimHandIndex, 1);
-      const newAllyHand = [...ally.hand, markPpSimHandNewGlow(stripPpSimHandNewGlow(card), stealGlowToken)];
-
-      const newPlayerA = {
-        ...prev.playerA,
-        hand: caster === "A" ? newAllyHand : victimPlayer === "A" ? newVictimHand : prev.playerA.hand,
-        field: { ...prev.playerA.field },
-      };
-      const newPlayerB = {
-        ...prev.playerB,
-        hand: caster === "B" ? newAllyHand : victimPlayer === "B" ? newVictimHand : prev.playerB.hand,
-        field: { ...prev.playerB.field },
-      };
-
-      if (caster === "A") {
-        const u = newPlayerA.field[slotKey];
-        if (u) {
-          newPlayerA.field = { ...newPlayerA.field, [slotKey]: { ...u, danhaMagicHookConsumed: true } };
+    if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+      const commitSnapshot = danhaStealCommitRef.current;
+      danhaStealCommitRef.current = null;
+      setState(prev => {
+        const commit = commitSnapshot;
+        if (!prev || !commit) return prev;
+        const vHand = commit.victimPlayer === "A" ? prev.playerA.hand : prev.playerB.hand;
+        if (commit.victimHandIndex < 0 || commit.victimHandIndex >= vHand.length) return prev;
+        const card = vHand[commit.victimHandIndex];
+        if (!card) return prev;
+        const ally = commit.caster === "A" ? prev.playerA : prev.playerB;
+        if (ally.hand.length >= 6) return prev;
+        const newVictimHand = [...vHand];
+        newVictimHand.splice(commit.victimHandIndex, 1);
+        const newAllyHand = [
+          ...ally.hand,
+          markPpSimHandDanhaStealArrival(
+            stripPpSimHandDanhaStealArrival(stripPpSimHandNewGlow(card)),
+            commit.arrivalGlowToken
+          ),
+        ];
+        const sk = commit.slotKey;
+        const newPlayerA = {
+          ...prev.playerA,
+          hand:
+            commit.caster === "A"
+              ? newAllyHand
+              : commit.victimPlayer === "A"
+                ? newVictimHand
+                : prev.playerA.hand,
+          field: { ...prev.playerA.field },
+        };
+        const newPlayerB = {
+          ...prev.playerB,
+          hand:
+            commit.caster === "B"
+              ? newAllyHand
+              : commit.victimPlayer === "B"
+                ? newVictimHand
+                : prev.playerB.hand,
+          field: { ...prev.playerB.field },
+        };
+        if (commit.caster === "A") {
+          const u = newPlayerA.field[sk];
+          if (u) newPlayerA.field = { ...newPlayerA.field, [sk]: { ...u, danhaMagicHookConsumed: true } };
+        } else {
+          const u = newPlayerB.field[sk];
+          if (u) newPlayerB.field = { ...newPlayerB.field, [sk]: { ...u, danhaMagicHookConsumed: true } };
         }
-      } else {
-        const u = newPlayerB.field[slotKey];
-        if (u) {
-          newPlayerB.field = { ...newPlayerB.field, [slotKey]: { ...u, danhaMagicHookConsumed: true } };
-        }
+        return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+      });
+      if (commitSnapshot) {
+        triggerCardFlash(
+          `hand-${commitSnapshot.caster}-${commitSnapshot.targetHandIndex}`,
+          "danhaMagicHook"
+        );
       }
+      setPendingSkill(null);
+      return;
+    }
 
-      return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
+    queueMicrotask(() => {
+      setDanhaStealFly({
+        casterPlayer: caster,
+        victimPlayer,
+        victimHandIndex,
+        stolenCard,
+        from: { x: fr.left, y: fr.top, w: fr.width, h: fr.height },
+        to: { x: tr.left, y: tr.top, w: tr.width, h: tr.height },
+        phase: 0,
+        flyMs: DANHA_STEAL_HAND_FLY_MS,
+      });
     });
-
-    setPendingSkill(null);
   };
 
   const handleDrawClick = () => {
@@ -5753,6 +6470,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (
       state.simpanHandChoice ||
       state.simpanPeekReveal ||
+      danhaStealFly ||
       spellUsageReveal ||
       spellUsageFly ||
       spellUsageMotionActiveRef.current ||
@@ -6148,6 +6866,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
     if (
+      danhaStealFly ||
       spellUsageReveal ||
       spellUsageFly ||
       spellUsageMotionActiveRef.current ||
@@ -6204,6 +6923,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (handCard.name === DARK_KNIGHT_ID) {
       card.darkKnightSoulGauge = 0;
     }
+    if (handCard.name === EL_WING_ID) {
+      card.elWingSinseokGauge = 0;
+    }
     if (handCard.name === MAXELLAND_ID) {
       card.maxellandTenacityGauge = 0;
     }
@@ -6221,6 +6943,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     if (slot === "spell" && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
       card.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
+    }
+    if (slot === "spell" && handCard.name === BUSINESS_GANG_SPELL_ID) {
+      card.businessGangEndTurnTicksRemaining = BUSINESS_GANG_INITIAL_END_TURN_TICKS;
+    }
+    if (slot === "spell" && isAntHellSpellCard(handCard)) {
+      card.antHellEndTurnTicksRemaining = ANT_HELL_SPELL_INITIAL_END_TURN_TICKS;
     }
 
     const typeStr = String(card.type || "").toLowerCase();
@@ -6273,6 +7001,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (isMeteoSpellCard(handCard)) {
         const enemyPlayer = sourcePlayer === "A" ? "B" : "A";
         const meteoVfxHits: { slotKey: string; hpLoss: number }[] = [];
+        const meteoElWingImmunitySlotKeys: string[] = [];
         scheduleSpellHandUsageSequence(gameState, {
           casterPlayer: sourcePlayer,
           previewCard: handCard,
@@ -6296,16 +7025,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           commit: prev => {
             /* Strict Mode 등에서 commit 업데이터가 2회 호출될 때 VFX 중복 방지 */
             meteoVfxHits.length = 0;
+            meteoElWingImmunitySlotKeys.length = 0;
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
             const enemySide = enemyPlayer === "A" ? newPlayerA : newPlayerB;
             let rewindCards = [...prev.rewindCards, handCardForField];
             let unitCombatStats = prev.unitCombatStats;
             let unitStatsOrder = prev.unitStatsOrder;
-
             for (const slotName of ["is", "m", "os"] as const) {
               const unit = enemySide.field[slotName];
               if (!unit || unit.currentHp <= 0) continue;
+              if (
+                isElWingBlockingEnemyAttackSpell(
+                  unit,
+                  enemyPlayer,
+                  slotName,
+                  newPlayerA.field,
+                  newPlayerB.field
+                )
+              ) {
+                meteoElWingImmunitySlotKeys.push(`${enemyPlayer}-${slotName}`);
+                enemySide.field[slotName] = grantElWingSinseokGaugeFromMeteoSplash(unit);
+                continue;
+              }
 
               const resolved = applyMeteoDamageToEnemyUnit({
                 target: unit,
@@ -6351,10 +7093,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (!ally) return;
                   enemySide.field[s] = {
                     ...ally,
-                    currentHp: Math.min(
-                      Number(ally.hp),
-                      ally.currentHp + resolved.morningMoodDeathHeal
-                    ),
+                    ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
                   };
                 });
               }
@@ -6365,10 +7104,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (!ally) return;
                   enemySide.field[s] = {
                     ...ally,
-                    currentHp: Math.min(
-                      Number(ally.hp),
-                      ally.currentHp + resolved.startingTreeAllyHeal
-                    ),
+                    ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
                   };
                 });
               }
@@ -6391,11 +7127,46 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             });
           },
           afterCommitVfx: () => {
+            for (const slotKey of meteoElWingImmunitySlotKeys) {
+              showElWingMagicImmunityBlockOnUnit(slotKey);
+            }
             const meteoVfxBySlot = new Map<string, number>();
             for (const hit of meteoVfxHits) meteoVfxBySlot.set(hit.slotKey, hit.hpLoss);
             for (const [slotKey, hpLoss] of meteoVfxBySlot) {
               showMeteoSpellHitOnTarget(slotKey, hpLoss);
             }
+          },
+        });
+        return;
+      }
+
+      if (isBefpkkiriSpellCard(handCard)) {
+        scheduleSpellHandUsageSequence(gameState, {
+          casterPlayer: sourcePlayer,
+          previewCard: handCard,
+          mode: "placeSpellSlot",
+          targetPlayer,
+          flyToSpellSlotAfterReveal: true,
+          centerShowsCardBack: isHiddenSpellCard(handCard),
+          preApply: prev => {
+            const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+            if (cardIndex < 0 || cardIndex >= h.length) return prev;
+            const row = h[cardIndex];
+            if (!row || !isBefpkkiriSpellCard(row)) return prev;
+            h.splice(cardIndex, 1);
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            return {
+              ...prev,
+              [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost },
+            };
+          },
+          commit: prev =>
+            applyBefpkkiriSpellCommit(prev, sourcePlayer, handCardForField, c =>
+              markPpSimHandNewGlow(c, `pp-hng-${++ppSimHandGlowSeqRef.current}`)
+            ),
+          afterCommitVfx: () => {
+            triggerCardFlash(`${sourcePlayer}-spell`, "befpkkiriSpellTrigger");
           },
         });
         return;
@@ -6496,8 +7267,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
         fieldCard.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
       }
+      if (handCard.name === BUSINESS_GANG_SPELL_ID) {
+        fieldCard.businessGangEndTurnTicksRemaining = BUSINESS_GANG_INITIAL_END_TURN_TICKS;
+      }
+      if (isAntHellSpellCard(handCard)) {
+        fieldCard.antHellEndTurnTicksRemaining = ANT_HELL_SPELL_INITIAL_END_TURN_TICKS;
+      }
       let hyuPlacePerSlot: HyugesojauiAnsikHealSlotResult[] = [];
       let hyuPlaceCombatPatches: HyugesojauiAnsikCombatPatch[] = [];
+      const antHellHandPlaceVfx: { applied: string[]; elWing: string[] } = {
+        applied: [],
+        elWing: [],
+      };
       scheduleSpellHandUsageSequence(gameState, {
         casterPlayer: sourcePlayer,
         previewCard: handCard,
@@ -6560,6 +7341,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
             };
           }
+          if (isAntHellSpellCard(handCard)) {
+            antHellHandPlaceVfx.applied = [];
+            antHellHandPlaceVfx.elWing = [];
+            const newPlayerA = { ...r.playerA, field: { ...r.playerA.field } };
+            const newPlayerB = { ...r.playerB, field: { ...r.playerB.field } };
+            const wave = applyAntHellSuppressionWaveToEnemies({
+              casterPlayer: sourcePlayer,
+              playerA: { field: newPlayerA.field },
+              playerB: { field: newPlayerB.field },
+              globalTurnCount: prev.globalTurnCount,
+            });
+            antHellHandPlaceVfx.applied = wave.appliedSlotKeys;
+            antHellHandPlaceVfx.elWing = wave.elWingImmunitySlotKeys;
+            r = { ...r, playerA: newPlayerA, playerB: newPlayerB };
+          }
           return finalizeSpellWithSimpan(r);
         },
         afterCommitVfx: () => {
@@ -6569,6 +7365,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           };
           if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuPlacePerSlot.length > 0) {
             playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuPlacePerSlot);
+          }
+          if (isAntHellSpellCard(handCard)) {
+            window.setTimeout(() => {
+              triggerCardFlash(`${targetPlayer}-spell`, "businessGangSpellPulse");
+            }, 0);
+            for (const slotKey of antHellHandPlaceVfx.elWing) {
+              showElWingMagicImmunityBlockOnUnit(slotKey);
+            }
+            for (const slotKey of antHellHandPlaceVfx.applied) {
+              showAntHellSpellHitOnTarget(slotKey);
+            }
           }
           if (handCard.name === BANG_EOMAK_SPELL_ID) {
             window.setTimeout(() => {
@@ -6591,6 +7398,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               );
             }, 0);
           }
+          if (handCard.name === BUSINESS_GANG_SPELL_ID) {
+            window.setTimeout(() => {
+              triggerCardFlash(`${targetPlayer}-spell`, "businessGangSpellPulse");
+            }, 0);
+          }
           window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
         },
       });
@@ -6598,6 +7410,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     const hyuDirectVfxBag: { perSlot: HyugesojauiAnsikHealSlotResult[] } = { perSlot: [] };
+    const antHellDeployVfxBag: { applied: string[]; elWing: string[] } = {
+      applied: [],
+      elWing: [],
+    };
     setState(prev => {
       if (!prev) return prev;
       
@@ -6629,90 +7445,92 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         hyuDirectVfxBag.perSlot = hr.perSlot;
       }
 
+      const newPlayerA = {
+        ...prev.playerA,
+        tokens: isPlayerA ? prev.playerA.tokens - placementCost : prev.playerA.tokens,
+        hand: isPlayerA ? newHand : prev.playerA.hand,
+        field: { ...prev.playerA.field },
+      };
+      const newPlayerB = {
+        ...prev.playerB,
+        tokens: isPlayerA ? prev.playerB.tokens : prev.playerB.tokens - placementCost,
+        hand: isPlayerA ? prev.playerB.hand : newHand,
+        field: { ...prev.playerB.field },
+      };
       if (isPlayerA) {
-        const nextUnitCombat = !isSpellSlot
-          ? {
-              ...prev.unitCombatStats,
-              [card.statsInstanceId!]: emptyUnitCombatRow(card.name, "A", card.summonedTurn),
-            }
-          : prev.unitCombatStats;
-        const nextUnitOrder = !isSpellSlot
-          ? [...prev.unitStatsOrder, card.statsInstanceId!]
-          : prev.unitStatsOrder;
-        const nextSpellLog = isSpellSlot
-          ? [
-              ...prev.spellDeployLog,
-              {
-                statsInstanceId: card.statsInstanceId!,
-                name: card.name,
-                player: "A" as const,
-                summonedTurn: card.summonedTurn,
-              },
-            ]
-          : prev.spellDeployLog;
-        let rA: typeof prev = {
-          ...prev,
-          unitCombatStats: nextUnitCombat,
-          unitStatsOrder: nextUnitOrder,
-          spellDeployLog: nextSpellLog,
-          playerA: {
-            ...prev.playerA,
-            tokens: prev.playerA.tokens - placementCost,
-            hand: newHand,
-            field: updatedField
-          }
-        };
-        if (hyuDirectCombatPatches.length > 0) {
-          rA = {
-            ...rA,
-            unitCombatStats: patchManyUnitCombatStats(rA.unitCombatStats, hyuDirectCombatPatches),
-          };
-        }
-        return isSpellSlot ? finalizeSpellWithSimpan(rA) : rA;
+        newPlayerA.field = updatedField;
       } else {
-        const nextUnitCombat = !isSpellSlot
-          ? {
-              ...prev.unitCombatStats,
-              [card.statsInstanceId!]: emptyUnitCombatRow(card.name, "B", card.summonedTurn),
-            }
-          : prev.unitCombatStats;
-        const nextUnitOrder = !isSpellSlot
-          ? [...prev.unitStatsOrder, card.statsInstanceId!]
-          : prev.unitStatsOrder;
-        const nextSpellLog = isSpellSlot
-          ? [
-              ...prev.spellDeployLog,
-              {
-                statsInstanceId: card.statsInstanceId!,
-                name: card.name,
-                player: "B" as const,
-                summonedTurn: card.summonedTurn,
-              },
-            ]
-          : prev.spellDeployLog;
-        let rB: typeof prev = {
-          ...prev,
-          unitCombatStats: nextUnitCombat,
-          unitStatsOrder: nextUnitOrder,
-          spellDeployLog: nextSpellLog,
-          playerB: {
-            ...prev.playerB,
-            tokens: prev.playerB.tokens - placementCost,
-            hand: newHand,
-            field: updatedField
-          }
-        };
-        if (hyuDirectCombatPatches.length > 0) {
-          rB = {
-            ...rB,
-            unitCombatStats: patchManyUnitCombatStats(rB.unitCombatStats, hyuDirectCombatPatches),
-          };
-        }
-        return isSpellSlot ? finalizeSpellWithSimpan(rB) : rB;
+        newPlayerB.field = updatedField;
       }
+
+      if (!isSpellSlot) {
+        const deployVfx = tryApplyAntHellSuppressionOnEnemyUnitDeploy({
+          victimPlayer: targetPlayer,
+          victimSlot: slot as "is" | "m" | "os",
+          playerA: { field: newPlayerA.field },
+          playerB: { field: newPlayerB.field },
+          globalTurnCount: prev.globalTurnCount,
+        });
+        if (deployVfx.appliedSlotKey) antHellDeployVfxBag.applied.push(deployVfx.appliedSlotKey);
+        if (deployVfx.elWingImmunitySlotKey) {
+          antHellDeployVfxBag.elWing.push(deployVfx.elWingImmunitySlotKey);
+        }
+      }
+
+      const nextUnitCombat = !isSpellSlot
+        ? {
+            ...prev.unitCombatStats,
+            [card.statsInstanceId!]: emptyUnitCombatRow(
+              card.name,
+              targetPlayer,
+              card.summonedTurn
+            ),
+          }
+        : prev.unitCombatStats;
+      const nextUnitOrder = !isSpellSlot
+        ? [...prev.unitStatsOrder, card.statsInstanceId!]
+        : prev.unitStatsOrder;
+      const nextSpellLog = isSpellSlot
+        ? [
+            ...prev.spellDeployLog,
+            {
+              statsInstanceId: card.statsInstanceId!,
+              name: card.name,
+              player: targetPlayer,
+              summonedTurn: card.summonedTurn,
+            },
+          ]
+        : prev.spellDeployLog;
+
+      let nextState: typeof prev = {
+        ...prev,
+        unitCombatStats: nextUnitCombat,
+        unitStatsOrder: nextUnitOrder,
+        spellDeployLog: nextSpellLog,
+        playerA: newPlayerA,
+        playerB: newPlayerB,
+      };
+      if (hyuDirectCombatPatches.length > 0) {
+        nextState = {
+          ...nextState,
+          unitCombatStats: patchManyUnitCombatStats(
+            nextState.unitCombatStats,
+            hyuDirectCombatPatches
+          ),
+        };
+      }
+      return isSpellSlot ? finalizeSpellWithSimpan(nextState) : nextState;
     });
     if (isSpellSlot && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID && hyuDirectVfxBag.perSlot.length > 0) {
       playHyugesojauiAnsikAllyPulseAndHealVfx(targetPlayer, hyuDirectVfxBag.perSlot);
+    }
+    if (!isSpellSlot) {
+      for (const slotKey of antHellDeployVfxBag.elWing) {
+        showElWingMagicImmunityBlockOnUnit(slotKey);
+      }
+      for (const slotKey of antHellDeployVfxBag.applied) {
+        showAntHellSpellHitOnTarget(slotKey);
+      }
     }
 
     const fieldAfterPlace: PlayerState["field"] = {
@@ -6743,6 +7561,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         (["is", "m", "os"] as const).forEach(s =>
           triggerCardFlash(`${targetPlayer}-${s}`, "spellCheolbyeokAllyPulse")
         );
+      }, 0);
+    }
+    if (isSpellSlot && handCard.name === BUSINESS_GANG_SPELL_ID) {
+      window.setTimeout(() => {
+        triggerCardFlash(`${targetPlayer}-spell`, "businessGangSpellPulse");
       }, 0);
     }
 
@@ -6933,6 +7756,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (
       state.simpanPeekReveal?.player === player ||
       simpanPeekFly?.player === player ||
+      danhaStealFly ||
       spellUsageReveal ||
       spellUsageFly ||
       spellUsageMotionActiveRef.current ||
@@ -7011,6 +7835,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
+    if (
+      isElWingBlockingEnemyAttackSpell(
+        enemyUnit,
+        targetPlayer,
+        sk,
+        snap.playerA.field,
+        snap.playerB.field
+      )
+    ) {
+      showElWingMagicImmunityBlockOnUnit(`${targetPlayer}-${sk}`);
+      return true;
+    }
+
     if (!isBeonggaeValidTargetUnit(enemyUnit)) {
       pushInfoFloat(`${targetPlayer}-${sk}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
       return true;
@@ -7055,6 +7892,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
         const u2 = victim.field[skCommit];
         if (!u2) return prev;
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            u2,
+            targetPlayer,
+            skCommit,
+            prev.playerA.field,
+            prev.playerB.field
+          )
+        ) {
+          return prev;
+        }
         if (!isBeonggaeValidTargetUnit(u2)) return prev;
         if (isInvulnerableFromBaekseuOrCheolbyeok(u2, victim.field)) return prev;
         const updated = applyBeonggaeLightningToFieldUnit(u2, victim.field);
@@ -7105,6 +7953,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
+    if (
+      isElWingBlockingEnemyAttackSpell(
+        enemyUnit,
+        targetPlayer,
+        sk,
+        snap.playerA.field,
+        snap.playerB.field
+      )
+    ) {
+      showElWingMagicImmunityBlockOnUnit(`${targetPlayer}-${sk}`);
+      return true;
+    }
+
     const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
     const cost = Number(spellRow.cost) || 0;
     if (tokens < cost) {
@@ -7138,6 +7999,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const victim = targetPlayer === "A" ? prev.playerA : prev.playerB;
         const u2 = victim.field[skCommit];
         if (!u2) return prev;
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            u2,
+            targetPlayer,
+            skCommit,
+            prev.playerA.field,
+            prev.playerB.field
+          )
+        ) {
+          return prev;
+        }
         const updated: FieldCard = {
           ...u2,
           eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
@@ -7183,6 +8055,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
+    if (
+      isElWingBlockingEnemyAttackSpell(
+        enemyUnit,
+        targetPlayer,
+        sk,
+        snap.playerA.field,
+        snap.playerB.field
+      )
+    ) {
+      showElWingMagicImmunityBlockOnUnit(`${targetPlayer}-${sk}`);
+      return true;
+    }
+
     const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
     const cost = Number(spellRow.cost) || 0;
     if (tokens < cost) {
@@ -7218,6 +8103,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const victimState = targetPlayer === "A" ? newPlayerA : newPlayerB;
         const erased = victimState.field[skCommit];
         if (!erased) return prev;
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            erased,
+            targetPlayer,
+            skCommit,
+            newPlayerA.field,
+            newPlayerB.field
+          )
+        ) {
+          return prev;
+        }
 
         cleanupSimulationUnitDeath(erased, newPlayerA, newPlayerB, prev.globalTurnCount, {
           skipDarkKnightSoulIncrement: true,
@@ -7276,6 +8172,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return true;
     }
 
+    if (
+      isElWingBlockingEnemyAttackSpell(
+        enemyUnit,
+        targetPlayer,
+        sk,
+        snap.playerA.field,
+        snap.playerB.field
+      )
+    ) {
+      showElWingMagicImmunityBlockOnUnit(`${targetPlayer}-${sk}`);
+      return true;
+    }
+
     const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
     const cost = Number(spellRow.cost) || 0;
     if (tokens < cost) {
@@ -7313,6 +8222,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const enemySide = targetPlayer === "A" ? newPlayerA : newPlayerB;
         const unit = enemySide.field[skCommit];
         if (!unit || unit.currentHp <= 0) return prev;
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            unit,
+            targetPlayer,
+            skCommit,
+            newPlayerA.field,
+            newPlayerB.field
+          )
+        ) {
+          return prev;
+        }
 
         const resolved = applyHyperBeamDamageToEnemyUnit({
           target: unit,
@@ -7362,7 +8282,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (!ally) return;
             enemySide.field[s] = {
               ...ally,
-              currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.morningMoodDeathHeal),
+              ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
             };
           });
         }
@@ -7373,7 +8293,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (!ally) return;
             enemySide.field[s] = {
               ...ally,
-              currentHp: Math.min(Number(ally.hp), ally.currentHp + resolved.startingTreeAllyHeal),
+              ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
             };
           });
         }
@@ -7465,6 +8385,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
         const u = allySide.field[skCommit];
         if (!u) return prev;
+        if (suppressionBlocksExternalBuffEffects(u)) return prev;
         const updatedAlly: FieldCard = {
           ...u,
           hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
@@ -7502,7 +8423,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const snap = state;
     if (!snap) return;
-    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
     if (snap.guihwanPending) return;
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
@@ -7653,11 +8574,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (
       !wraithPlayerHpFollowUpValidate &&
       targetPlayerState.hasBeenAttackedThisTurn &&
-      !fieldGrantsFocusedFireMultihitExemption(attackerFieldPeek, {
-        allyPlayer: attackerPlayer,
-        playerAField: state.playerA.field,
-        playerBField: state.playerB.field,
-      }) &&
+      !fieldGrantsFocusedFireMultihitExemption(
+        attackerFieldPeek,
+        {
+          allyPlayer: attackerPlayer,
+          playerAField: state.playerA.field,
+          playerBField: state.playerB.field,
+        },
+        attackerCardPeek
+      ) &&
       !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
         attackerCardPeek,
         wraithFacingPlayerStrike
@@ -7783,7 +8708,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (["is", "m", "os"] as const).forEach(s => {
         const u = allySnapMaeng[s];
         if (!u?.statsInstanceId) return;
-        const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+        const healedFld = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
         if (healedFld <= 0) return;
         if (u.statsInstanceId === attackerCard.statsInstanceId) {
           maengCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -7824,9 +8755,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (!unit) return;
           const updatedUnit = { ...unit };
           if (fieldHealAmount > 0) {
-            updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+            Object.assign(
+              updatedUnit,
+              applyFieldAllyHealToUnit(
+                updatedUnit,
+                fieldHealAmount,
+                attackerCard,
+                attackerSlotName,
+                s
+              )
+            );
           }
-          if (fieldBuffKey) {
+          if (fieldBuffKey && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
             (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
           }
           activePlayer.field[s] = updatedUnit;
@@ -7852,7 +8792,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (["is", "m", "os"] as const).forEach(s => {
         const u = allySnap[s];
         if (!u) return;
-        const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+        const healed = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
         if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
       });
     }
@@ -8007,16 +8953,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       let actualPrimaryDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldForInvuln)
         ? 0
         : preInvulnTotal;
-      const barrierSplitPrimary = splitDamageThroughHpBarrier(card, actualPrimaryDamage);
-      const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
+      const cardForCombatPrimary = normalizeUnitHpSurvivalOnesForCombat(card);
+      const barrierSplitPrimary = splitDamageThroughHpBarrier(cardForCombatPrimary, actualPrimaryDamage);
+      const hpAfterRawPrimary = cardForCombatPrimary.currentHp - barrierSplitPrimary.damageToCurrentHp;
       const resolvedPrimary = resolveBaekseuFatalDamage(
-        card,
+        cardForCombatPrimary,
         hpAfterRawPrimary,
         barrierSplitPrimary.damageToCurrentHp,
         facingOppUnitAtSlot(state!, defenderPlayer, slotName)
       );
       const newHp = resolvedPrimary.finalHp;
-      const hpLossPrimary = Math.max(0, card.currentHp - newHp);
+      const hpLossPrimary = Math.max(0, cardForCombatPrimary.currentHp - newHp);
       const targetMitigationPrimary =
         banjitMitPrimary + defenseMitPrimary + Math.max(0, preInvulnTotal - hpLossPrimary);
       const isDestroyed = resolvedPrimary.isDestroyed;
@@ -8067,7 +9014,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       rows.push({
         slot: slotName,
-        card,
+        card: cardForCombatPrimary,
         newHp,
         isDestroyed,
         actualPrimaryDamage,
@@ -8143,7 +9090,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         (["is", "m", "os"] as const).forEach(s => {
           const u = allySidePrimary[s];
           if (!u?.statsInstanceId) return;
-          const healedFld = Math.min(Number(u.hp) - u.currentHp, r.fieldHealAmountPrimary);
+          const healedFld = computeFieldAllyHealApplied(
+            u,
+            r.fieldHealAmountPrimary,
+            attackerCardSnap,
+            attackerSlotName,
+            s
+          );
           if (healedFld <= 0) return;
           if (u.statsInstanceId === attackerCardSnap.statsInstanceId) {
             combatPatchList.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -8228,7 +9181,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (!unit) return;
             deadSide.field[s] = {
               ...unit,
-              currentHp: Math.min(Number(unit.hp), unit.currentHp + r.morningMoodDeathHeal),
+              ...healUnitCurrentHp(unit, r.morningMoodDeathHeal, { supportSource: "allyUnit" }),
             };
           });
         }
@@ -8244,7 +9197,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (!unit) return;
           damagedSide.field[s] = {
             ...unit,
-            currentHp: Math.min(Number(unit.hp), unit.currentHp + r.startingTreeAllyHeal),
+            ...healUnitCurrentHp(unit, r.startingTreeAllyHeal, { supportSource: "allyUnit" }),
           };
         });
       }
@@ -8256,12 +9209,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (!unit) return;
           const updatedUnit = { ...unit };
           if (fieldHealDiagoTotal > 0) {
-            updatedUnit.currentHp = Math.min(
-              Number(updatedUnit.hp),
-              updatedUnit.currentHp + fieldHealDiagoTotal
+            Object.assign(
+              updatedUnit,
+              applyFieldAllyHealToUnit(
+                updatedUnit,
+                fieldHealDiagoTotal,
+                attackerCardSnap,
+                attackerSlotName,
+                s
+              )
             );
           }
-          if (fieldBuffKeyDiago) {
+          if (fieldBuffKeyDiago && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
             (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyDiago] = true;
           }
           activePlayerPrimary.field[s] = updatedUnit;
@@ -8461,7 +9420,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (["is", "m", "os"] as const).forEach(s => {
         const u = allySnapPrimary[s];
         if (!u) return;
-        const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealDiagoTotal);
+        const healed = computeFieldAllyHealApplied(
+          u,
+          fieldHealDiagoTotal,
+          attackerCardSnap,
+          attackerSlotName,
+          s
+        );
         if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
       });
     }
@@ -8522,10 +9487,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleFieldClick = (e: React.MouseEvent, player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
-    if (spellUsageReveal || spellUsageFly || spellUsageMotionActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
     e.stopPropagation(); 
     if (winner) return;
     if (!state) return;
+    if (pendingElWingSinseokDefense) return;
 
     if (state.guihwanPending && slot !== "spell") {
       const gp = state.guihwanPending;
@@ -8591,7 +9557,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const eristina = activePlayer.field[pendingSkill.slot as "is"|"m"|"os"];
         const target = activePlayer.field[slot as "is"|"m"|"os"];
 
-        if (eristina && target && eristina.name === UNIT.ERISTINA) {
+        if (
+          eristina &&
+          target &&
+          eristina.name === UNIT.ERISTINA &&
+          !suppressionBlocksExternalBuffEffects(target)
+        ) {
           activePlayer.field[pendingSkill.slot as "is"|"m"|"os"] = {
             ...eristina,
             isSkillActive: true,
@@ -8649,11 +9620,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             isSkillActive: true,
             linkedTarget: `${player}-${slot}`,
           };
-          activePlayer.field[slot as "is" | "m" | "os"] = {
-            ...target,
-            hasLimeBubbleShieldBuff: true,
-            linkedSource: `${pendingSkill.player}-${pendingSkill.slot}`,
-          };
+          if (!suppressionBlocksExternalBuffEffects(target)) {
+            activePlayer.field[slot as "is" | "m" | "os"] = {
+              ...target,
+              hasLimeBubbleShieldBuff: true,
+              linkedSource: `${pendingSkill.player}-${pendingSkill.slot}`,
+            };
+          }
         }
 
         return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
@@ -8948,7 +9921,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (!unit) return;
             deadSide.field[s] = {
               ...unit,
-              currentHp: Math.min(Number(unit.hp), unit.currentHp + resolved.morningMoodDeathHeal),
+              ...healUnitCurrentHp(unit, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
             };
           });
         }
@@ -8960,7 +9933,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (!unit) return;
             damagedSide.field[s] = {
               ...unit,
-              currentHp: Math.min(Number(unit.hp), unit.currentHp + resolved.startingTreeAllyHeal),
+              ...healUnitCurrentHp(unit, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
             };
           });
         }
@@ -9045,8 +10018,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           return;
         }
 
-        const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
-        const actualHeal = newTargetHp - card.currentHp;
+        const healedTarget = healUnitCurrentHp(card, RANIGO_ALLY_BASIC_HEAL_AMOUNT, { supportSource: "allyUnit" });
+        const actualHeal = healedTarget.currentHp - card.currentHp;
 
         let fieldHealAmount = 0;
         let fieldBuffKey = "";
@@ -9091,7 +10064,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (["is", "m", "os"] as const).forEach(s => {
             const u = allySnapRanigoC[s];
             if (!u?.statsInstanceId) return;
-            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            const healedFld = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
             if (healedFld <= 0) return;
             if (u.statsInstanceId === attackerCard.statsInstanceId) {
               ranigoChainPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -9107,7 +10086,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
           const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
 
-          const updatedTarget = { ...card, currentHp: newTargetHp };
+          const updatedTarget = { ...card, ...healedTarget };
           if (player === "A") newPlayerA.field[slot as "is" | "m" | "os"] = updatedTarget;
           else newPlayerB.field[slot as "is" | "m" | "os"] = updatedTarget;
 
@@ -9126,7 +10105,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmount > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                  Object.assign(
+              updatedUnit,
+              applyFieldAllyHealToUnit(
+                updatedUnit,
+                fieldHealAmount,
+                attackerCard,
+                attackerSlotName,
+                s
+              )
+            );
                 }
                 if (fieldBuffKey) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
@@ -9152,7 +10140,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (["is", "m", "os"] as const).forEach(s => {
             const u = allySnap[s];
             if (!u) return;
-            const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            const healed = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
             if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
           });
         }
@@ -9247,6 +10241,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           afterBanjitSecondary = flooredS;
         }
 
+        const runElWingDeferrableSecondaryHit = () => {
+          if (
+            !elWingSinseokBypassRef.current &&
+            shouldOfferElWingSinseokOnBasicAttackHit(
+              card,
+              player,
+              slot as "is" | "m" | "os",
+              attackerPlayer,
+              attackerPlayer,
+              state!.playerA.field,
+              state!.playerB.field
+            )
+          ) {
+            if (elWingSinseokTimerRef.current != null) {
+              window.clearTimeout(elWingSinseokTimerRef.current);
+            }
+            const deadlineAt = Date.now() + EL_WING_SINSEOK_PROMPT_MS;
+            setPendingElWingSinseokDefense({
+              defenderPlayer: player,
+              defenderSlot: slot as "is" | "m" | "os",
+              attackerPlayer,
+              attackerSlot: attackerSlotName,
+              hitKind: "secondary",
+              popupPosition: { x: e.clientX, y: e.clientY },
+              deadlineAt,
+              wraithChainFollowUp: false,
+            });
+            elWingSinseokTimeoutMetaRef.current = {
+              hitKind: "secondary",
+              wraithChainFollowUp: false,
+            };
+            elWingSinseokResumeRef.current = runElWingDeferrableSecondaryHit;
+              setElWingSinseokSecondsLeft(Math.ceil(EL_WING_SINSEOK_PROMPT_MS / 1000));
+              setElWingSinseokTimeRatio(1);
+            elWingSinseokTimerRef.current = window.setTimeout(
+              () => finishElWingSinseokTimeout(),
+              EL_WING_SINSEOK_PROMPT_MS
+            );
+            return;
+          }
+
         const victimFieldSecondary = player === "A" ? state!.playerA.field : state!.playerB.field;
 
         const secondaryDefenseResult = mitigationBypassSecondary
@@ -9270,22 +10305,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         let actualDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldSecondary)
           ? 0
           : preInvulnTotalSecondary;
+        const cardForCombatSecondary = normalizeUnitHpSurvivalOnesForCombat(card);
         const barrierSplitSecondary = splitDamageThroughHpBarrier(
-          card,
+          cardForCombatSecondary,
           actualDamage,
           isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
             ? { bypassAbsorption: true }
             : undefined
         );
-        const hpAfterRaw = card.currentHp - barrierSplitSecondary.damageToCurrentHp;
+        const hpAfterRaw = cardForCombatSecondary.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
-          card,
+          cardForCombatSecondary,
           hpAfterRaw,
           barrierSplitSecondary.damageToCurrentHp,
           facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
         );
         const newHp = resolvedSecondary.finalHp;
-        const hpLossSecondary = Math.max(0, card.currentHp - newHp);
+        const hpLossSecondary = Math.max(0, cardForCombatSecondary.currentHp - newHp);
         const targetMitigationSecondary =
           banjitMitSecondary + defenseMitSecondary + Math.max(0, preInvulnTotalSecondary - hpLossSecondary);
         const isDestroyed = resolvedSecondary.isDestroyed;
@@ -9403,7 +10439,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (["is", "m", "os"] as const).forEach(s => {
             const u = allySideSec[s];
             if (!u?.statsInstanceId) return;
-            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+            const healedFld = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
             if (healedFld <= 0) return;
             if (u.statsInstanceId === attackerCard.statsInstanceId) {
               secondaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -9464,8 +10506,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           
           const baseTargetCard =
             Object.keys(baekseuPatchSecondary).length > 0
-              ? stripBaekseuHarmfulEffectsForInvuln(card)
-              : card;
+              ? stripBaekseuHarmfulEffectsForInvuln(cardForCombatSecondary)
+              : cardForCombatSecondary;
           const updatedTarget = {
             ...baseTargetCard,
             ...elixir5StunTargetPatch(
@@ -9515,7 +10557,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmount > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                  Object.assign(
+              updatedUnit,
+              applyFieldAllyHealToUnit(
+                updatedUnit,
+                fieldHealAmount,
+                attackerCard,
+                attackerSlotName,
+                s
+              )
+            );
                 }
                 if (fieldBuffKey) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
@@ -9533,7 +10584,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 deadSide.field[s] = {
                   ...unit,
-                  currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
+                  ...healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" }),
                 };
               });
             }
@@ -9550,7 +10601,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               if (!unit) return;
               damagedSide.field[s] = {
                 ...unit,
-                currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
+                ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
               };
             });
           }
@@ -9568,8 +10619,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             playerB: newPlayerB,
           };
         });
-
-        const newHitsRemaining = pendingSecondaryAttack.hitsRemaining - 1;
 
         const targetKey = `${player}-${slot}`;
         const attackerSlotKey = `${attackerPlayer}-${attackerSlotName}`;
@@ -9759,21 +10808,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             (["is", "m", "os"] as const).forEach(s => {
               const u = allySnap[s];
               if (!u) return;
-              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmount);
+              const healed = computeFieldAllyHealApplied(
+          u,
+          fieldHealAmount,
+          attackerCard,
+          attackerSlotName,
+          s
+        );
               if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
             });
           }
         }
 
+        const newHitsRemaining = pendingSecondaryAttack.hitsRemaining - 1;
         if (newHitsRemaining > 0 && !willBeEmpty) {
           setPendingSecondaryAttack(prev => ({
             ...prev!,
             hitsRemaining: newHitsRemaining,
-            hitTargets: [...prev!.hitTargets, targetId]
+            hitTargets: [...prev!.hitTargets, targetId],
           }));
         } else {
           setPendingSecondaryAttack(null);
         }
+        };
+        runElWingDeferrableSecondaryHit();
       }
       return;
     }
@@ -9832,8 +10890,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             return;
           }
 
-          const newHp = Math.min(maxHp, attackerCardBanner.currentHp + healAmount);
-          const actualHeal = newHp - attackerCardBanner.currentHp;
+          const healedAttacker = healUnitCurrentHp(attackerCardBanner, healAmount, {
+            supportSource: "selfAbility",
+          });
+          const actualHeal = healedAttacker.currentHp - attackerCardBanner.currentHp;
 
           const ryeomchoHealPatches: Array<{
             id: string | undefined;
@@ -9856,7 +10916,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
 
-            const updatedAttacker = { ...attackerCardBanner, currentHp: newHp, hasAttacked: true };
+            const updatedAttacker = { ...healedAttacker, hasAttacked: true };
 
             if (attackerPlayer === "A") {
               newPlayerA.field[attackerSlotName] = updatedAttacker;
@@ -9921,8 +10981,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             return;
           }
 
-          const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
-          const actualHeal = newTargetHp - card.currentHp;
+          const healedTarget = healUnitCurrentHp(card, RANIGO_ALLY_BASIC_HEAL_AMOUNT, { supportSource: "allyUnit" });
+          const actualHeal = healedTarget.currentHp - card.currentHp;
 
           const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRawWithFacing(
             attackerCardBanner,
@@ -9977,7 +11037,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (["is", "m", "os"] as const).forEach(s => {
             const u = allySnapRanigoP[s];
             if (!u?.statsInstanceId) return;
-            const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+            const healedFld = computeFieldAllyHealApplied(
+              u,
+              fieldHealAmountPrimary,
+              attackerCardBanner,
+              attackerSlotName,
+              s
+            );
             if (healedFld <= 0) return;
             if (u.statsInstanceId === attackerCardBanner.statsInstanceId) {
               ranigoPrimaryPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -9993,7 +11059,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
 
-            const updatedTarget = { ...card, currentHp: newTargetHp };
+            const updatedTarget = { ...card, ...healedTarget };
             const updatedAttacker = {
               ...attackerCardBanner,
               hasAttacked: true,
@@ -10018,12 +11084,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmountPrimary > 0) {
-                  updatedUnit.currentHp = Math.min(
-                    Number(updatedUnit.hp),
-                    updatedUnit.currentHp + fieldHealAmountPrimary
+                  Object.assign(
+                    updatedUnit,
+                    applyFieldAllyHealToUnit(
+                      updatedUnit,
+                      fieldHealAmountPrimary,
+                      attackerCardBanner,
+                      attackerSlotName,
+                      s
+                    )
                   );
                 }
-                if (fieldBuffKeyPrimary) {
+                if (fieldBuffKeyPrimary && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
                 }
                 activePlayerPrimary.field[s] = updatedUnit;
@@ -10046,7 +11118,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             (["is", "m", "os"] as const).forEach(s => {
               const u = allySnapPrimary[s];
               if (!u) return;
-              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              const healed = computeFieldAllyHealApplied(
+                u,
+                fieldHealAmountPrimary,
+                attackerCardBanner,
+                attackerSlotName,
+                s
+              );
               if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
             });
           }
@@ -10156,11 +11234,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (
           card.hasBeenAttackedThisTurn &&
           !isTargetTaunted &&
-          !fieldGrantsFocusedFireMultihitExemption(attackerField, {
-            allyPlayer: attackerPlayer,
-            playerAField: state!.playerA.field,
-            playerBField: state!.playerB.field,
-          }) &&
+          !fieldGrantsFocusedFireMultihitExemption(
+            attackerField,
+            {
+              allyPlayer: attackerPlayer,
+              playerAField: state!.playerA.field,
+              playerBField: state!.playerB.field,
+            },
+            attackerCard
+          ) &&
           !startingHeraldAbsBasic &&
           !wraithChainBypassesAntiGangup
         ) {
@@ -10302,6 +11384,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             afterBanjitPrimary = floored;
           }
 
+          const runElWingDeferrablePrimaryHit = () => {
+            if (
+              !elWingSinseokBypassRef.current &&
+              shouldOfferElWingSinseokOnBasicAttackHit(
+                card,
+                player,
+                slot as "is" | "m" | "os",
+                attackerPlayer,
+                attackerPlayer,
+                state!.playerA.field,
+                state!.playerB.field
+              )
+            ) {
+              if (elWingSinseokTimerRef.current != null) {
+                window.clearTimeout(elWingSinseokTimerRef.current);
+              }
+              const deadlineAt = Date.now() + EL_WING_SINSEOK_PROMPT_MS;
+              setPendingElWingSinseokDefense({
+                defenderPlayer: player,
+                defenderSlot: slot as "is" | "m" | "os",
+                attackerPlayer,
+                attackerSlot: attackerSlotName,
+                hitKind: "primary",
+                popupPosition: { x: e.clientX, y: e.clientY },
+                deadlineAt,
+                wraithChainFollowUp: isStartingWraithChainFollowUp,
+              });
+              elWingSinseokTimeoutMetaRef.current = {
+                hitKind: "primary",
+                wraithChainFollowUp: isStartingWraithChainFollowUp,
+              };
+              elWingSinseokResumeRef.current = runElWingDeferrablePrimaryHit;
+              setElWingSinseokSecondsLeft(Math.ceil(EL_WING_SINSEOK_PROMPT_MS / 1000));
+              setElWingSinseokTimeRatio(1);
+              elWingSinseokTimerRef.current = window.setTimeout(
+                () => finishElWingSinseokTimeout(),
+                EL_WING_SINSEOK_PROMPT_MS
+              );
+              return;
+            }
+
           const victimFieldPrimary = player === "A" ? state!.playerA.field : state!.playerB.field;
 
           const primaryDefenseResult = mitigationBypassPrimary
@@ -10325,22 +11448,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           let actualPrimaryDamage = isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldPrimary)
             ? 0
             : preInvulnTotal;
+          const cardForCombatPrimary = normalizeUnitHpSurvivalOnesForCombat(card);
           const barrierSplitPrimary = splitDamageThroughHpBarrier(
-            card,
+            cardForCombatPrimary,
             actualPrimaryDamage,
             isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
               ? { bypassAbsorption: true }
               : undefined
           );
-          const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
+          const hpAfterRawPrimary = cardForCombatPrimary.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(
-            card,
+            cardForCombatPrimary,
             hpAfterRawPrimary,
             barrierSplitPrimary.damageToCurrentHp,
             facingOppUnitAtSlot(state!, player, slot as "is" | "m" | "os")
           );
           const newHp = resolvedPrimary.finalHp;
-          const hpLossPrimary = Math.max(0, card.currentHp - newHp);
+          const hpLossPrimary = Math.max(0, cardForCombatPrimary.currentHp - newHp);
           const targetMitigationPrimary =
             banjitMitPrimary + defenseMitPrimary + Math.max(0, preInvulnTotal - hpLossPrimary);
           const isDestroyed = resolvedPrimary.isDestroyed;
@@ -10453,7 +11577,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             (["is", "m", "os"] as const).forEach(s => {
               const u = allySidePrimary[s];
               if (!u?.statsInstanceId) return;
-              const healedFld = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              const healedFld = computeFieldAllyHealApplied(
+                u,
+                fieldHealAmountPrimary,
+                attackerCard,
+                attackerSlotName,
+                s
+              );
               if (healedFld <= 0) return;
               if (u.statsInstanceId === attackerCard.statsInstanceId) {
                 primaryCombatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healedFld } });
@@ -10539,8 +11669,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             
             const baseTargetPrimary =
               Object.keys(baekseuPatchPrimary).length > 0
-                ? stripBaekseuHarmfulEffectsForInvuln(card)
-                : card;
+                ? stripBaekseuHarmfulEffectsForInvuln(cardForCombatPrimary)
+                : cardForCombatPrimary;
             const wraithChainSkipsGangupMark = startingWraithChainFollowUpBypassesAntiGangup(
               isStartingWraithChainFollowUp,
               attackerCard,
@@ -10621,12 +11751,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmountPrimary > 0) {
-                  updatedUnit.currentHp = Math.min(
-                    Number(updatedUnit.hp),
-                    updatedUnit.currentHp + fieldHealAmountPrimary
+                  Object.assign(
+                    updatedUnit,
+                    applyFieldAllyHealToUnit(
+                      updatedUnit,
+                      fieldHealAmountPrimary,
+                      attackerCard,
+                      attackerSlotName,
+                      s
+                    )
                   );
                 }
-                if (fieldBuffKeyPrimary) {
+                if (fieldBuffKeyPrimary && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
                 }
                 activePlayerPrimary.field[s] = updatedUnit;
@@ -10641,7 +11777,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (!unit) return;
                   deadSide.field[s] = {
                     ...unit,
-                    currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
+                    ...healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" }),
                   };
                 });
               }
@@ -10658,7 +11794,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (!unit) return;
                 damagedSide.field[s] = {
                   ...unit,
-                  currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
+                  ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
                 };
               });
             }
@@ -10868,7 +12004,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             (["is", "m", "os"] as const).forEach(s => {
               const u = allySnapPrimary[s];
               if (!u) return;
-              const healed = Math.min(Number(u.hp) - u.currentHp, fieldHealAmountPrimary);
+              const healed = computeFieldAllyHealApplied(
+                u,
+                fieldHealAmountPrimary,
+                attackerCard,
+                attackerSlotName,
+                s
+              );
               if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
             });
           }
@@ -10899,6 +12041,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           } else {
             applyStartingWraithChainPending(null);
           }
+          };
+          runElWingDeferrablePrimaryHit();
         }
       }
       
@@ -10947,7 +12091,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const eondeokDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
       if (!isEnemyUnitDragTargetSpell(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -10957,7 +12101,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const tokens = handDrag.player === "A" ? state.playerA.tokens : state.playerB.tokens;
       const cost = Number(handDrag.card.cost) || 0;
       if (tokens < cost) return "no";
-      if (handDrag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(card)) return "no";
+      if (handDrag.card.name === BEONGGAE_SPELL_ID) {
+        if (
+          isElWingBlockingEnemyAttackSpell(
+            card,
+            targetPlayer,
+            slotName as "is" | "m" | "os",
+            state.playerA.field,
+            state.playerB.field
+          )
+        ) {
+          return "yes";
+        }
+        if (!isBeonggaeValidTargetUnit(card)) return "no";
+      }
       return "yes";
     })();
     if (eondeokDragMode === "yes") return true;
@@ -10965,7 +12122,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const orietDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
       if (!isSpellCardRow(handDrag.card) || !isOrietChosangSpellCard(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -11267,6 +12424,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return "border-[3px] border-slate-100/95 bg-gradient-to-br from-slate-200/35 to-slate-50/22 shadow-[0_0_26px_rgba(248,250,252,0.65),0_0_42px_rgba(148,163,184,0.4)] animate-pulse z-[18]";
   };
 
+  /** 스펠 No.30 비즈니스 강도단 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(주황). 겹침 시 공통 스택 펄스 */
+  const getHandDragBusinessGangSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    if (handDrag.card.name !== BUSINESS_GANG_SPELL_ID) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    if (normalizeSpellStack(field).length > 0) return "";
+    return "border-[3px] border-orange-400/95 bg-gradient-to-br from-orange-600/35 to-amber-500/22 shadow-[0_0_26px_rgba(249,115,22,0.55),0_0_42px_rgba(234,88,12,0.38)] animate-pulse z-[18]";
+  };
+
+  /** 스펠 No.55 베프끼리 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(파랑). 겹침 시 공통 스택 펄스 */
+  const getHandDragBefpkkiriSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    if (!isBefpkkiriSpellCard(handDrag.card)) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    if (normalizeSpellStack(field).length > 0) return "";
+    return "border-[3px] border-blue-400/95 bg-gradient-to-br from-blue-600/35 to-sky-500/22 shadow-[0_0_26px_rgba(96,165,250,0.55),0_0_42px_rgba(59,130,246,0.38)] animate-pulse z-[18]";
+  };
+
+  /** 스펠 칸 맨 위 카드 — 지속 스펠 남은 ×턴(B: 왼쪽 아래, A: 오른쪽 위) */
+  const renderFieldSpellDurationBadge = (
+    field: PlayerState["field"],
+    player: "A" | "B"
+  ) => {
+    const top = getTopSpellFromField(field);
+    const info = getSpellDurationBadgeInfo(top);
+    if (!info) return null;
+
+    const positionClass =
+      player === "B" ? "bottom-0.5 left-0.5" : "top-0.5 right-0.5";
+
+    return (
+      <div
+        className={`pointer-events-none absolute ${positionClass} z-[28] rounded border px-1 py-px text-[9px] font-black tabular-nums ${SPELL_DURATION_BADGE_TONE_CLASS[info.tone]}`}
+        aria-hidden
+      >
+        {`${info.turnCount}*`}
+      </div>
+    );
+  };
+
   const isStartingHeraldPrivilegeTargetOutlineVisible = (
     targetPlayer: "A" | "B",
     slot: "is" | "m" | "os",
@@ -11486,8 +12685,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     "[무적]",
     "[공격력 +300]",
     DEBUFF_IMMUNITY_BADGE,
+    EL_WING_MAGIC_IMMUNITY_BADGE,
     BUFF_BAN_BADGE,
     PAKKI_ATTACK_DEBUFF_BADGE,
+    SUPPRESSION_DEBUFF_BADGE,
     "침묵",
     "혼란",
     "기절",
@@ -11523,10 +12724,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return "bg-red-700 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       case DEBUFF_IMMUNITY_BADGE:
         return "bg-slate-400 border-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]";
+      case EL_WING_MAGIC_IMMUNITY_BADGE:
+        return "bg-gradient-to-br from-emerald-600 to-green-500 border-green-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950";
       case BUFF_BAN_BADGE:
         return "bg-red-800 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       case PAKKI_ATTACK_DEBUFF_BADGE:
         return "bg-amber-500 border-amber-200 shadow-[inset_0_0_0_1px_rgba(255,251,235,0.35)]";
+      case SUPPRESSION_DEBUFF_BADGE:
+        return "bg-orange-600 border-orange-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       case "반짓고리":
         return "bg-pink-600 border-pink-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       case "침묵":
@@ -11866,6 +13071,61 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
+  const renderElWingSinseokGaugeSegments = (card: FieldCard | null) => {
+    if (!card || card.name !== EL_WING_ID) return null;
+    const filled = elWingSinseokGaugeFilled(card);
+    return (
+      <>
+        {Array.from({ length: EL_WING_SINSEOK_GAUGE_CAP }, (_, i) => (
+          <div
+            key={i}
+            className={`min-h-0 min-w-0 flex-1 rounded-[2px] ${
+              i < filled
+                ? "border border-emerald-950/85 bg-gradient-to-b from-emerald-300 via-emerald-600 to-emerald-950 shadow-[0_0_4px_rgba(52,211,153,0.5),inset_0_1px_0_rgba(167,243,208,0.35)]"
+                : "border border-slate-500/70 bg-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)]"
+            }`}
+          />
+        ))}
+      </>
+    );
+  };
+
+  const renderElWingSinseokGaugeAboveHpAbsolute = (card: FieldCard | null, fieldSlotKey: string) => {
+    if (!card || card.name !== EL_WING_ID) return null;
+    const filled = elWingSinseokGaugeFilled(card);
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 gap-0.5">
+        {renderElWingSinseokGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        aria-label={`엘 윙 ${EL_WING_SINSEOK_SKILL_LABEL} ${filled}/${EL_WING_SINSEOK_GAUGE_CAP}`}
+      >
+        <div className="w-full rounded-[4px]">{row}</div>
+      </div>
+    );
+  };
+
+  const renderElWingSinseokGaugeBelowHpFlow = (card: FieldCard | null) => {
+    if (!card || card.name !== EL_WING_ID) return null;
+    const filled = elWingSinseokGaugeFilled(card);
+    const row = (
+      <div className="flex h-[10px] w-full min-w-0 shrink-0 gap-0.5">
+        {renderElWingSinseokGaugeSegments(card)}
+      </div>
+    );
+    return (
+      <div
+        className="w-full pointer-events-none"
+        aria-label={`엘 윙 ${EL_WING_SINSEOK_SKILL_LABEL} ${filled}/${EL_WING_SINSEOK_GAUGE_CAP}`}
+      >
+        <div className="w-full rounded-[4px]">{row}</div>
+      </div>
+    );
+  };
+
   const renderMaxellandTenacityGaugeSegments = (card: FieldCard | null) => {
     if (!card || card.name !== MAXELLAND_ID) return null;
     const filled = Math.max(0, Math.min(MAXELLAND_TENACITY_GAUGE_CAP, card.maxellandTenacityGauge ?? 0));
@@ -12005,6 +13265,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div className={playerAFieldSlotBelowHpReserveClass}>
             {card?.name === DARK_KNIGHT_ID ? (
               renderDarkKnightSoulGaugeBelowHpFlow(card, fieldSlotKey)
+            ) : card?.name === EL_WING_ID ? (
+              renderElWingSinseokGaugeBelowHpFlow(card)
             ) : card?.name === MAXELLAND_ID ? (
               renderMaxellandTenacityGaugeBelowHpFlow(card, fieldSlotKey)
             ) : card?.name === IVERSON_ID ? (
@@ -12019,6 +13281,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return (
       <div className={`relative z-20 shrink-0 ${fieldUnitWidthClass}`}>
         {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
+        {renderElWingSinseokGaugeAboveHpAbsolute(card, fieldSlotKey)}
         {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
         {renderIversonWaitGaugeAboveHpAbsolute(card)}
         <div className={fieldSlotHpRowClass}>{hpInner}</div>
@@ -12224,6 +13487,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (status === BUFF_BAN_BADGE) {
         return "[버프 금지]";
       }
+      if (status === SUPPRESSION_DEBUFF_BADGE) {
+        return "[제압]";
+      }
+      if (status === EL_WING_MAGIC_IMMUNITY_BADGE) {
+        return "[마법 면역]";
+      }
       if (status === "침묵" && isEondeokSilenceActive(card)) {
         return "[침묵]";
       }
@@ -12264,7 +13533,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             role="listitem"
             aria-label={statusTooltip(status)}
           >
-            {status === BUFF_BAN_BADGE ? (
+            {status === BUFF_BAN_BADGE || status === SUPPRESSION_DEBUFF_BADGE ? (
               <svg
                 className="pointer-events-none absolute inset-0 z-[2] h-full w-full overflow-visible"
                 viewBox="0 0 20 20"
@@ -12279,6 +13548,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   strokeLinecap="square"
                 />
               </svg>
+            ) : status === SUPPRESSION_DEBUFF_BADGE && isSuppressionActive(card) ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                aria-hidden
+              >
+                {`${Math.ceil((card.suppressionEndTurnTicksRemaining ?? 0) / 2)}*`}
+              </span>
             ) : status === "침묵" && isEondeokSilenceActive(card) ? (
               <span
                 className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
@@ -12810,6 +14086,51 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           );
         })()}
 
+        {/* 엘 윙 — [신속](상대 턴 피격 시 팝업에서 사용, 카드 버튼은 안내용) */}
+        {slot !== "spell" && card.name === EL_WING_ID && (() => {
+          const sinseokFilled = elWingSinseokGaugeFilled(card as FieldCard);
+          const sinseokPopupActive =
+            !!pendingElWingSinseokDefense &&
+            pendingElWingSinseokDefense.defenderPlayer === player &&
+            pendingElWingSinseokDefense.defenderSlot === slot;
+          const sinseokFieldDisabled =
+            isMyTurn || stunned || confused || sinseokFilled <= 0 || !sinseokPopupActive;
+          return (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                if (sinseokFieldDisabled) return;
+                commitElWingSinseokDodge();
+              }}
+              disabled={sinseokFieldDisabled}
+              aria-disabled={sinseokFieldDisabled}
+              className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+                isMyTurn
+                  ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                  : stunned
+                    ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                    : confused
+                      ? "bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                      : sinseokFilled <= 0
+                        ? "bg-slate-800 text-slate-500 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
+                        : sinseokPopupActive
+                          ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-200/40 shadow-[0_0_15px_rgba(52,211,153,0.6)] active:scale-95"
+                          : "bg-emerald-950/80 text-emerald-400/90 border-emerald-900 cursor-not-allowed opacity-90 shadow-none pointer-events-none"
+              }`}
+            >
+              {(() => {
+                if (isMyTurn) return "사용 불가";
+                if (stunned) return "기절 (스킬불가)";
+                if (confused) return "혼란 (능력불가)";
+                if (sinseokFilled <= 0) return `${EL_WING_SINSEOK_SKILL_LABEL} 없음`;
+                if (sinseokPopupActive) return `${EL_WING_SINSEOK_SKILL_LABEL} (${elWingSinseokSecondsLeft}초)`;
+                return `상대 턴 · ${EL_WING_SINSEOK_SKILL_LABEL} 대기`;
+              })()}
+            </button>
+          );
+        })()}
+
         <button 
           onClick={(e) => { 
             e.stopPropagation(); 
@@ -12985,6 +14306,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     "absolute inset-0 z-[2] overflow-hidden rounded-[8px] flex items-center justify-center";
   const handNewDrawGlowOverlayClass =
     "pointer-events-none absolute -inset-[3px] z-[1] rounded-[10px] border border-white/75 shadow-[0_0_14px_4px_rgba(255,255,255,0.38),0_0_4px_1px_rgba(255,255,255,0.92)]";
+  /** 단하 갈고리 탈취 카드 패 도착 — 시안 외곽(이동 중 비행 카드에는 미적용) */
+  const handDanhaStealArrivalGlowOverlayClass =
+    "pointer-events-none absolute -inset-[3px] z-[1] rounded-[10px] border-2 border-sky-400/90 shadow-[0_0_22px_6px_rgba(56,189,248,0.55),0_0_8px_2px_rgba(125,211,252,0.85)] animate-pulse";
   /** 심판 패 6장 교체 모드 — 공격 가능 유닛과 동형의 흰색 맥박 */
   const simpanHandReplaceSelectableClass =
     "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-[30]";
@@ -13033,6 +14357,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !!state.simpanHandChoice ||
     !!spellUsageReveal ||
     !!spellUsageFly ||
+    !!danhaStealFly ||
     !!oneNightWagerModal ||
     !!state.oneNightWagerPending ||
     !!state.spellUsagePending ||
@@ -13049,6 +14374,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !state.simpanHandChoice &&
     !spellUsageReveal &&
     !spellUsageFly &&
+    !danhaStealFly &&
     !oneNightWagerModal &&
     !state.oneNightWagerPending &&
     !state.spellUsagePending &&
@@ -13180,6 +14506,40 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100 ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
             >
               {simpanPeekFly.pendingCard.name}
+            </div>
+          )}
+        </div>
+      ) : null}
+      {danhaStealFly ? (
+        <div
+          aria-hidden
+          className="fixed z-[126] pointer-events-none overflow-hidden rounded-[10px] border border-white/25 bg-black/85 shadow-lg"
+          style={{
+            left: 0,
+            top: 0,
+            width: danhaStealFly.phase === 1 ? danhaStealFly.to.w : danhaStealFly.from.w,
+            height: danhaStealFly.phase === 1 ? danhaStealFly.to.h : danhaStealFly.from.h,
+            transform: `translate3d(${danhaStealFly.phase === 1 ? danhaStealFly.to.x : danhaStealFly.from.x}px, ${danhaStealFly.phase === 1 ? danhaStealFly.to.y : danhaStealFly.from.y}px, 0)`,
+            transition:
+              danhaStealFly.phase === 1
+                ? (() => {
+                    const ms = danhaStealFly.flyMs ?? DANHA_STEAL_HAND_FLY_MS;
+                    const ease = "cubic-bezier(0.25, 0.85, 0.35, 1)";
+                    return `transform ${ms}ms ${ease}, width ${ms}ms ${ease}, height ${ms}ms ${ease}`;
+                  })()
+                : "none",
+            willChange: "transform, width, height",
+          }}
+        >
+          {danhaStealFly.stolenCard.image_url ? (
+            <img
+              src={danhaStealFly.stolenCard.image_url}
+              alt={danhaStealFly.stolenCard.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-sky-100">
+              {danhaStealFly.stolenCard.name}
             </div>
           )}
         </div>
@@ -13867,6 +15227,52 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
+      {pendingElWingSinseokDefense && (
+        <div
+          className="fixed inset-0 z-[110] bg-black/35 backdrop-blur-[2px]"
+          onClick={() => {
+            /* 클릭 무시 — 5초 후 자동 피해 또는 [신속] 버튼만 처리 */
+          }}
+        >
+          <div
+            className="absolute z-[111] min-w-[220px] max-w-[280px] rounded-2xl border-2 border-emerald-400 bg-[#0a1628] p-4 shadow-[0_0_40px_rgba(52,211,153,0.75)] animate-[scaleIn_0.15s_ease-out]"
+            style={{
+              top: Math.max(16, pendingElWingSinseokDefense.popupPosition.y - 120) + "px",
+              left:
+                Math.max(
+                  120,
+                  Math.min(window.innerWidth - 120, pendingElWingSinseokDefense.popupPosition.x)
+                ) + "px",
+              transform: "translateX(-50%)",
+            }}
+            onClick={ev => ev.stopPropagation()}
+          >
+            <p className="mb-1 text-center text-[11px] font-bold tracking-wide text-emerald-300/90">
+              기본 공격 회피
+            </p>
+            <p className="mb-2 text-center text-xs text-slate-300">
+              {elWingSinseokSecondsLeft}초 안에 [신속]을 사용하면 피해를 받지 않습니다.
+            </p>
+            <div
+              className="mb-3 h-2.5 w-full overflow-hidden rounded-full border border-slate-400/80 bg-white shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]"
+              aria-hidden
+            >
+              <div
+                className="h-full max-w-full rounded-full bg-gradient-to-r from-sky-300 via-sky-500 to-blue-700 shadow-[0_0_8px_rgba(56,189,248,0.45)] transition-[width] duration-75 ease-linear"
+                style={{ width: `${Math.round(elWingSinseokTimeRatio * 10000) / 100}%` }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => commitElWingSinseokDodge()}
+              className="w-full rounded-xl border border-emerald-200/50 bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-[0_0_18px_rgba(52,211,153,0.55)] transition-all hover:bg-emerald-500 active:scale-95"
+            >
+              {EL_WING_SINSEOK_SKILL_LABEL}
+            </button>
+          </div>
+        </div>
+      )}
+
       {pendingLibutyAllEnemiesAttack && (
         <div
           className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[1px]"
@@ -14309,7 +15715,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <div className="flex justify-start w-full mt-2">
                 <div className="flex flex-row items-center gap-1">
                   <div
-                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="B"
                     data-field-slot="spell"
@@ -14319,6 +15725,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   >
                     {renderFlashOverlay("B-spell", "rounded-[8px]")}
                     {renderGonchungSpellStackFace("B", state.playerB.field)}
+                    {renderFieldSpellDurationBadge(state.playerB.field, "B")}
                     {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
                   </div>
@@ -14354,7 +15761,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     </button>
                   ) : null}
                   <div
-                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="A"
                     data-field-slot="spell"
@@ -14364,6 +15771,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   >
                     {renderFlashOverlay("A-spell", "rounded-[8px]")}
                     {renderGonchungSpellStackFace("A", state.playerA.field)}
+                    {renderFieldSpellDurationBadge(state.playerA.field, "A")}
                     {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
                   </div>
@@ -14538,6 +15946,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   !witchTarotDiscardHandB &&
                   !witchTarotFlowActive;
                 const isDragSourceB = handDrag?.player === "B" && handDrag.cardIndex === i;
+                const isDanhaStealFlySourceB =
+                  danhaStealFly?.victimPlayer === "B" && danhaStealFly.victimHandIndex === i;
                 
                 return (
                   <div key={i} ref={el => { handSlotOuterRefsB.current[i] = el; }} className={handSlotOuterStyle}>
@@ -14557,7 +15967,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "B");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragB ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB || isDanhaStealFlySourceB ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${canPointerDragB ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragB ? (e) => beginHandDrag(e, i, "B", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -14569,7 +15979,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       setHandDragHoverSlotKey(null);
                     } : undefined}
                   >
-                    {card && ppSimHandNewGlowToken(card) ? (
+                    {card && ppSimHandDanhaStealArrivalToken(card) ? (
+                      <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
+                    ) : card && ppSimHandNewGlowToken(card) ? (
                       <div className={handNewDrawGlowOverlayClass} aria-hidden />
                     ) : null}
                      {card ? (
@@ -14728,6 +16140,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   !witchTarotDiscardHandA &&
                   !witchTarotFlowActive;
                 const isDragSourceA = handDrag?.player === "A" && handDrag.cardIndex === i;
+                const isDanhaStealFlySourceA =
+                  danhaStealFly?.victimPlayer === "A" && danhaStealFly.victimHandIndex === i;
 
                 return (
                   <div key={i} ref={el => { handSlotOuterRefsA.current[i] = el; }} className={handSlotOuterStyle}>
@@ -14747,7 +16161,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "A");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA ? "opacity-35 scale-[0.98]" : ""} ${canPointerDragA ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA || isDanhaStealFlySourceA ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${canPointerDragA ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragA ? (e) => beginHandDrag(e, i, "A", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -14759,7 +16173,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       setHandDragHoverSlotKey(null);
                     } : undefined}
                   >
-                    {card && ppSimHandNewGlowToken(card) ? (
+                    {card && ppSimHandDanhaStealArrivalToken(card) ? (
+                      <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
+                    ) : card && ppSimHandNewGlowToken(card) ? (
                       <div className={handNewDrawGlowOverlayClass} aria-hidden />
                     ) : null}
                      {card ? (

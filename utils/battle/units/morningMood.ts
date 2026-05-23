@@ -10,6 +10,7 @@ import {
 } from "./dinner";
 import { PYRED_ATTACK_AURA_BADGE, PYRED_ATTACK_AURA_BONUS } from "./pyred";
 import { UNIT } from "../unitIds";
+import { isSuppressionActive } from "../debuffs/suppression";
 
 export const MORNING_MOOD_ID = UNIT.MORNING_MOOD;
 export const MORNING_MOOD_ALLY_HEAL_ON_DEATH = 400 as const;
@@ -71,6 +72,7 @@ export function hasMorningMoodAttackAura(
   ctx?: MorningMoodFieldContext
 ): boolean {
   if (!card) return false;
+  if (isSuppressionActive(card)) return false;
   if (card.name === MORNING_MOOD_ID) return false;
   if (!isSupportTypeUnit(card)) return false;
   return fieldHasLivingMorningMood(allyField, ctx);

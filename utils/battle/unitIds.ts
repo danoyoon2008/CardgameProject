@@ -6,6 +6,8 @@ export const UNIT = {
   /** No.1 — 패시브: 마주보는 적에게 [혼란](패시브·액티브 봉인, 기본 공격·체력 유지) */
   DINNER: "디너",
   MOMO: "모모",
+  /** No.9 — 상시 [마법 면역](적 공격류 스펠 무효) */
+  EL_WING: "엘 윙",
   ERISTINA: "에리스티나",
   CHEOLGIBYEONG: "철기병",
   PYRED: "파이레드",

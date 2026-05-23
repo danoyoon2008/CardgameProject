@@ -3,6 +3,7 @@
  * 2*턴(양측 턴 넘김 합계 4회) 동안 모든 아군 유닛에게 [무적](백스와 동일 판정·뱃지, 버프 금지로 해제되지 않음).
  */
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
+import { isSuppressionActive } from "../debuffs/suppression";
 import { normalizeSpellStack, type FieldSliceWithSpell } from "../fieldSpellAccess";
 import { isBaekseuInvulnerable } from "../units/baekseu";
 
@@ -63,5 +64,6 @@ export function isInvulnerableFromBaekseuOrCheolbyeok(
 ): boolean {
   if (!unit || (unit.currentHp ?? 0) <= 0) return false;
   if (isBaekseuInvulnerable(unit)) return true;
+  if (isSuppressionActive(unit)) return false;
   return spellStackHasActiveCheolbyeok(unitsField);
 }

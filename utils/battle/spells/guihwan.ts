@@ -1,5 +1,11 @@
 import type { CardRow, FieldCard } from "../../../types/game";
 import type { UnitCombatStatsRow } from "../../../types/gameStats";
+import { IVERSON_SUMMON_WAIT_END_TURNS } from "../units/iverson";
+import { initializeLegendarySwordFieldCard } from "../units/legendarySword";
+import { DARK_KNIGHT_ID } from "../units/darkKnight";
+import { MAXELLAND_ID } from "../units/maxelland";
+import { EL_WING_ID } from "../units/elWing";
+import { UNIT } from "../unitIds";
 import { parseSpellCardNumber } from "./witchTarot";
 
 /** No.28 마법 — 빈 아군 필드에 배치 후 리와인드에서 아군 유닛 1체 부활(체력 1) */
@@ -14,6 +20,47 @@ export type GuihwanPendingSave = {
 };
 
 type CardRowLite = { name?: string; number?: number | string; category?: string; type?: string };
+
+/**
+ * 시뮬레이션 필드 유닛 런타임 — 부활 시 카드 원본(도감/리와인드 스냅)에서 제거.
+ * 버프·디버프·상태·쿨타임·일회성 소진·게이지 등 전부 해당.
+ */
+const SIMULATION_UNIT_FIELD_RUNTIME_KEYS = [
+  "statsInstanceId",
+  "currentHp",
+  "hasAttacked",
+  "hasBeenAttackedThisTurn",
+  "summonedTurn",
+  "skillLastUsedGlobalTurn",
+  "isSkillActive",
+  "linkedTarget",
+  "linkedSource",
+  "hasBanjitgori",
+  "hasLimeBubbleShieldBuff",
+  "hasConcentratedFire",
+  "darkKnightSoulGauge",
+  "maxellandTenacityGauge",
+  "elWingSinseokGauge",
+  "hasPakiAttackHalveDebuff",
+  "stunEndTurnTicksRemaining",
+  "iversonSummonWaitEndTurnTicksRemaining",
+  "danhaMagicHookConsumed",
+  "superGreenKingSpellBreakerConsumed",
+  "gonchungHiddenPeekConsumed",
+  "suppressionEndTurnTicksRemaining",
+  "eondeokSilenceEndTurnTicksRemaining",
+  "bangEomakDefenseEndTurnTicksRemaining",
+  "cheolbyeokAllyInvulnEndTurnTicksRemaining",
+  "hyugesojauiAnsikEndTurnTicksRemaining",
+  "hyugesojauiAnsikTurnHealsRemaining",
+  "hpBarrierAbsorptionRemaining",
+  "hpSurvivalOnesMarker",
+  "baekseuLastStandUsed",
+  "baekseuInvulnerableEndTurnTicksRemaining",
+  "legendarySwordArmingEndTurnTicksRemaining",
+  "legendarySwordArmed",
+  "legendarySwordChargeFastBlink",
+] as const;
 
 function normalizeSpellCardName(name: string | undefined): string {
   return String(name ?? "").trim();
@@ -75,55 +122,77 @@ export function getGuihwanRevivableRewindIndices(
   return out;
 }
 
-/** 부활 시 필드 카드 — 체력 1, 전투 상태 초기화(스펠 전용 필드 플래그 제거) */
+/** 리와인드/사망 스냅샷에서 필드 런타임 전부 제거 — 도감 카드 행만 남김 */
+export function stripSimulationUnitFieldRuntime(card: CardRow): CardRow {
+  const next = { ...card } as Record<string, unknown>;
+  for (const k of SIMULATION_UNIT_FIELD_RUNTIME_KEYS) {
+    delete next[k];
+  }
+  return next as CardRow;
+}
+
+/** 유닛별 소환·부활 공통 초기 게이지·일회성 액티브(필드 배치와 동일 규칙) */
+function applyUnitFreshPlacementFields(card: FieldCard): FieldCard {
+  let next = card;
+  if (card.name === DARK_KNIGHT_ID) {
+    next = { ...next, darkKnightSoulGauge: 0 };
+  }
+  if (card.name === MAXELLAND_ID) {
+    next = { ...next, maxellandTenacityGauge: 0 };
+  }
+  if (card.name === EL_WING_ID) {
+    next = { ...next, elWingSinseokGauge: 0 };
+  }
+  if (card.name === UNIT.IVERSON) {
+    next = { ...next, iversonSummonWaitEndTurnTicksRemaining: IVERSON_SUMMON_WAIT_END_TURNS };
+  }
+  if (card.name === UNIT.LEGENDARY_SWORD) {
+    next = initializeLegendarySwordFieldCard(next);
+  }
+  return next;
+}
+
+/**
+ * 귀환 부활 필드 카드.
+ * 1) 버프·디버프·상태 이상·링크 해제
+ * 2) 고유 게이지·스택 초기화
+ * 3–4) 일회성 액티브·패시브 소진 플래그 제거
+ * 5) `skillLastUsedGlobalTurn` 제거 — 다회 액티브 쿨타임 초기화
+ */
 export function buildGuihwanRevivedFieldCard(
   deadCard: CardRow,
   turnCount: number,
   currentTurn: "A" | "B"
 ): FieldCard {
-  const base = { ...deadCard } as FieldCard;
-  const statsInstanceId =
-    base.statsInstanceId && String(base.statsInstanceId).length > 0
-      ? base.statsInstanceId
-      : undefined;
+  const base = stripSimulationUnitFieldRuntime(deadCard) as FieldCard;
 
-  const revived: FieldCard = {
+  const revived: FieldCard = applyUnitFreshPlacementFields({
     ...base,
-    statsInstanceId,
     currentHp: 1,
+    hpSurvivalOnesMarker: true,
     hasAttacked: false,
     hasBeenAttackedThisTurn: false,
     summonedTurn: `${turnCount}-${currentTurn}`,
-    hpBarrierAbsorptionRemaining: undefined,
-    stunEndTurnTicksRemaining: undefined,
-    eondeokSilenceEndTurnTicksRemaining: undefined,
-    baekseuInvulnerableEndTurnTicksRemaining: undefined,
-    baekseuLastStandUsed: undefined,
-    iversonSummonWaitEndTurnTicksRemaining: undefined,
-    hasPakiAttackHalveDebuff: undefined,
-    legendarySwordArmingEndTurnTicksRemaining: undefined,
-    legendarySwordArmed: undefined,
-    legendarySwordChargeFastBlink: undefined,
-    bangEomakDefenseEndTurnTicksRemaining: undefined,
-    cheolbyeokAllyInvulnEndTurnTicksRemaining: undefined,
-    hyugesojauiAnsikEndTurnTicksRemaining: undefined,
-    hyugesojauiAnsikTurnHealsRemaining: undefined,
     isSkillActive: false,
     linkedTarget: null,
     linkedSource: null,
-    hasBanjitgori: undefined,
-    hasLimeBubbleShieldBuff: undefined,
-    hasConcentratedFire: undefined,
-  };
-
-  if (revived.name === "다크나이트") {
-    revived.darkKnightSoulGauge = 0;
-  }
-  if (revived.name === "맥셀렌드") {
-    revived.maxellandTenacityGauge = 0;
-  }
+  });
 
   return revived;
+}
+
+/** 부활 완료 후 귀환 스펠을 리와인드 존에 넣을 때 — 필드 런타임 필드 제거 */
+export function stripGuihwanSpellForRewind(spell: FieldCard): FieldCard {
+  const {
+    statsInstanceId: _sid,
+    currentHp: _hp,
+    hasAttacked: _ha,
+    hasBeenAttackedThisTurn: _hb,
+    summonedTurn: _st,
+    hpSurvivalOnesMarker: _m,
+    ...rest
+  } = spell;
+  return rest as FieldCard;
 }
 
 export function patchGuihwanPendingOnState<T extends { guihwanPending: GuihwanPendingSave | null }>(

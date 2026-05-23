@@ -13,6 +13,7 @@ import {
   stripBaekseuHarmfulEffectsForInvuln,
 } from "./baekseu";
 import { hasConfusionStatus } from "./dinner";
+import { normalizeUnitHpSurvivalOnesForCombat } from "../hpSurvivalOnes";
 
 export const LIBUTY_ID = UNIT.LIBUTY;
 
@@ -75,14 +76,15 @@ export function computeLibutyReflectPureDamageOnAggressor(
     };
   }
   const barrierSplit = splitDamageThroughHpBarrier(aggressor, pureAmount);
-  const hpAfterRaw = aggressor.currentHp - barrierSplit.damageToCurrentHp;
+  const aggressorForCombat = normalizeUnitHpSurvivalOnesForCombat(aggressor);
+  const hpAfterRaw = aggressorForCombat.currentHp - barrierSplit.damageToCurrentHp;
   const resolved = resolveBaekseuFatalDamage(
-    aggressor,
+    aggressorForCombat,
     hpAfterRaw,
     barrierSplit.damageToCurrentHp,
     facingOppCard
   );
-  const hpLoss = Math.max(0, aggressor.currentHp - resolved.finalHp);
+  const hpLoss = Math.max(0, aggressorForCombat.currentHp - resolved.finalHp);
   return {
     finalHp: resolved.finalHp,
     hpLoss,

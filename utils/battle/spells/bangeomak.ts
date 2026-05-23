@@ -1,4 +1,5 @@
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
+import { suppressionBlocksExternalBuffEffects } from "../debuffs/suppression";
 import { normalizeSpellStack, type FieldSliceWithSpell } from "../fieldSpellAccess";
 
 /** No.8 마법 카드 — 자신의 스펠 칸에만 배치 */
@@ -69,6 +70,10 @@ export function getBangEomakAllyDefenseStatuses(ctx: BangEomakStatusBattleCtx): 
   const field = pl === "A" ? ctx.playerAField : ctx.playerBField;
 
   if (!spellStackHasActiveBangEomak(field)) return [];
+  if (slot === "is" || slot === "m" || slot === "os") {
+    const unit = field[slot];
+    if (suppressionBlocksExternalBuffEffects(unit)) return [];
+  }
   return [BANG_EOMAK_DEFENSE_BADGE];
 }
 
@@ -84,5 +89,10 @@ export function bangEomakProtectsTargetSlot(
   const sl = parts[1];
   if (sl === "spell") return false;
   const field = pl === "A" ? playerAField : playerBField;
-  return spellStackHasActiveBangEomak(field);
+  if (!spellStackHasActiveBangEomak(field)) return false;
+  if (sl === "is" || sl === "m" || sl === "os") {
+    const unit = field[sl];
+    if (suppressionBlocksExternalBuffEffects(unit)) return false;
+  }
+  return true;
 }

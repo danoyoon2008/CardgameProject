@@ -7,6 +7,7 @@ import { applyFlatAttackModifierByPattern, floorToNearest50Unit, type AttackModi
 import { hasConfusionStatus } from "./dinner";
 import { PYRED_ATTACK_AURA_BADGE, PYRED_ATTACK_AURA_BONUS } from "./pyred";
 import { UNIT } from "../unitIds";
+import { isSuppressionActive } from "../debuffs/suppression";
 
 export const STARTING_TREE_ID = UNIT.STARTING_TREE;
 
@@ -72,6 +73,7 @@ export function hasStartingTreeAttackAura(
   auraCtx?: StartingTreeFieldContext | null
 ): boolean {
   if (!card) return false;
+  if (isSuppressionActive(card)) return false;
   if (card.name === STARTING_TREE_ID) return false; // 본인 제외
   if (auraCtx) return fieldHasLivingStartingTree(allyField, auraCtx);
   return fieldHasLivingStartingTree(allyField);

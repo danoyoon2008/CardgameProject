@@ -12,6 +12,7 @@ import type { FieldCard } from "../../../types/game";
 import type { AttackContext, PostAttackFn } from "../effectTypes";
 import { isEondeokSilenceActive } from "../spells/eondeok";
 import { floorToNearest50Unit } from "../attackModifier";
+import { healUnitCurrentHp } from "../hpSurvivalOnes";
 import { UNIT } from "../unitIds";
 import { getStatusNamesFromPhilipMatchup } from "./philip";
 import "./geunyangMoja.hit-flame.css";
@@ -35,9 +36,7 @@ export const postAttackGeunyangMoja: PostAttackFn = (card: FieldCard, ctx: Attac
   }
   const half = Math.floor(ctx.damageDealt * 0.5);
   const healAmount = floorToNearest50Unit(half);
-  const maxHp = Number(card.hp);
-  const newHp = Math.min(maxHp, card.currentHp + healAmount);
-  return { currentHp: newHp };
+  return healUnitCurrentHp(card, healAmount);
 };
 
 export const GEUNYANG_MOJA_HIT_FLAME_DURATION_MS = 520;

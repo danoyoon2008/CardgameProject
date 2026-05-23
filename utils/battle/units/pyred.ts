@@ -2,6 +2,7 @@ import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "../attackModifier";
 import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
+import { isSuppressionActive } from "../debuffs/suppression";
 
 export const PYRED_ID = UNIT.PYRED;
 export const PYRED_ATTACK_AURA_BADGE = "[공격력 +300]" as const;
@@ -72,6 +73,7 @@ export function hasPyredAttackAura(
   auraCtx?: PyredAuraFieldContext | null
 ): boolean {
   if (!card) return false;
+  if (isSuppressionActive(card)) return false;
   if (card.name === PYRED_ID) return false;
   if (!isAttackTypeUnit(card)) return false;
   if (auraCtx) return fieldHasActivePyredAuraSource(auraCtx);

@@ -4,6 +4,7 @@ import { BEONGGAE_SPELL_ID } from "./beonggae";
 import { EONDEOK_SPELL_ID } from "./eondeok";
 import { HYPER_BEAM_SPELL_ID } from "./hyperBeam";
 import { METEO_SPELL_ID } from "./meteo";
+import { ANT_HELL_SPELL_ID } from "./antHell";
 import { SOMYEOL_SPELL_ID } from "./somyeol";
 
 /** 히든 스펠 — 슈퍼 테슬라 (트리거: 상대의 공격 유형 스펠 사용 시) */
@@ -73,6 +74,7 @@ export function isAttackTypeSpellCard(card: CardRow | null | undefined): boolean
     n === BEONGGAE_SPELL_ID ||
     n === SOMYEOL_SPELL_ID ||
     n === METEO_SPELL_ID ||
+    n === ANT_HELL_SPELL_ID ||
     n === HYPER_BEAM_SPELL_ID
   ) {
     return true;

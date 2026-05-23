@@ -4,6 +4,7 @@ import { fieldSpellStackGrantsFocusedFire } from "../spellStack";
 import { hasConfusionStatus } from "./dinner";
 import { isGeomeunHwangjePassivesPausedByConfusion } from "./geomeunHwangje";
 import { UNIT } from "../unitIds";
+import { isSuppressionActive } from "../debuffs/suppression";
 
 export const DIAGO_ID = UNIT.DIAGO;
 
@@ -67,13 +68,30 @@ export function fieldHasLivingFocusedFireAura(
 /** @deprecated `fieldHasLivingFocusedFireAura` 와 동일(다이아고·검은 황제 공통 오라). */
 export const fieldHasLivingDiago = fieldHasLivingFocusedFireAura;
 
-/** 다구리(동일 대상·플레이어 중복 타격) 면제: 다이아고·검은 황제 오라 또는 No.12 집중 사격 스펠이 스택 어디에든 있을 때 */
-export function fieldGrantsFocusedFireMultihitExemption(
+/** 유닛이 [집중 사격] 오라·스펠 버프 혜택을 받는지(제압 시 false) */
+export function unitReceivesFocusedFireBenefits(
+  card: FieldCard | null | undefined,
   field: FieldSlice | undefined | null,
   ctx?: FocusedFireAuraFieldContext
 ): boolean {
+  if (!card || isSuppressionActive(card)) return false;
   if (fieldHasLivingFocusedFireAura(field, ctx)) return true;
   return fieldSpellStackGrantsFocusedFire(field as SimulationPlayerField);
+}
+
+/** 다구리(동일 대상·플레이어 중복 타격) 면제: 집중 사격 혜택을 받는 공격자만 */
+export function fieldGrantsFocusedFireMultihitExemption(
+  field: FieldSlice | undefined | null,
+  ctx?: FocusedFireAuraFieldContext,
+  attacker?: FieldCard | null
+): boolean {
+  if (!attacker) {
+    return (
+      fieldHasLivingFocusedFireAura(field, ctx) ||
+      fieldSpellStackGrantsFocusedFire(field as SimulationPlayerField)
+    );
+  }
+  return unitReceivesFocusedFireBenefits(attacker, field, ctx);
 }
 
 /**

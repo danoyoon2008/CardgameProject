@@ -10,7 +10,7 @@ import {
   damageModRegistry,
   onSummonRegistry,
 } from "./battle/units/registry";
-import { fieldHasLivingFocusedFireAura } from "./battle/units/diago";
+import { fieldHasLivingFocusedFireAura, unitReceivesFocusedFireBenefits } from "./battle/units/diago";
 import { fieldSpellStackGrantsFocusedFire } from "./battle/spellStack";
 import {
   DARK_KNIGHT_ID,
@@ -40,12 +40,23 @@ import { PAKKI_ATTACK_DEBUFF_BADGE } from "./battle/units/pakki";
 import { isStunned, STUN_STATUS } from "./battle/units/elixir5";
 import { BUFF_BAN_BADGE, callieBuffBanSuppressesBuffsForVictim } from "./battle/units/kalli";
 import {
+  EL_WING_MAGIC_IMMUNITY_BADGE,
+  elWingShowsMagicImmunity,
+  isElWingUnit,
+} from "./battle/units/elWing";
+import {
   BAEKSEU_INVULN_BADGE,
   isBaekseuInvulnerable,
   isHarmfulEffectLabelBlockedByBaekseuInvuln,
 } from "./battle/units/baekseu";
 import { isInvulnerableFromBaekseuOrCheolbyeok } from "./battle/spells/cheolbyeok";
 import { isTauntSuppressedByRyeomhwaForUnitOwner } from "./battle/units/ryeomhwa";
+import {
+  getSuppressionStatusesForCard,
+  isSuppressionActive,
+  suppressionBlocksExternalBuffEffects,
+  filterStatusesForSuppressionDisplay,
+} from "./battle/debuffs/suppression";
 
 export { isStunned };
 
@@ -108,7 +119,11 @@ export const getActiveStatuses = (
 
   const passiveFn = passiveStatusRegistry[myCard.name];
   if (passiveFn) {
-    statuses.push(...passiveFn(myCard, oppCard, myFieldSafe));
+    let passiveStatuses = passiveFn(myCard, oppCard, myFieldSafe);
+    if (isSuppressionActive(myCard)) {
+      passiveStatuses = filterStatusesForSuppressionDisplay(passiveStatuses);
+    }
+    statuses.push(...passiveStatuses);
   }
 
   if (battleCtx) {
@@ -144,7 +159,7 @@ export const getActiveStatuses = (
     statuses.push(...eondeokSilence);
   }
 
-  if (myCard.hasBanjitgori) {
+  if (myCard.hasBanjitgori && !suppressionBlocksExternalBuffEffects(myCard)) {
     statuses.push("반짓고리");
     /* 도발은 반짓고리 규칙에 포함되나 UI에 별도 뱃지로 중복 표시하지 않음 */
     if (battleCtx?.mySlotKey) {
@@ -162,7 +177,11 @@ export const getActiveStatuses = (
     }
   }
 
-  if (myCard.hasLimeBubbleShieldBuff && !statuses.includes(LIME_BUBBLE_DEFENSE_BADGE)) {
+  if (
+    myCard.hasLimeBubbleShieldBuff &&
+    !suppressionBlocksExternalBuffEffects(myCard) &&
+    !statuses.includes(LIME_BUBBLE_DEFENSE_BADGE)
+  ) {
     statuses.push(LIME_BUBBLE_DEFENSE_BADGE);
   }
 
@@ -175,10 +194,7 @@ export const getActiveStatuses = (
           playerBField: battleCtx.playerBField,
         }
       : undefined;
-  if (
-    fieldHasLivingFocusedFireAura(myFieldSafe, focusedFireAuraCtx) ||
-    fieldSpellStackGrantsFocusedFire(myFieldSafe)
-  ) {
+  if (unitReceivesFocusedFireBenefits(myCard, myFieldSafe, focusedFireAuraCtx)) {
     if (!statuses.includes("집중 사격")) {
       statuses.push("집중 사격");
     }
@@ -223,9 +239,33 @@ export const getActiveStatuses = (
           playerBField: battleCtx.playerBField,
         }
       : undefined;
-  statuses.push(...getPyredAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
-  statuses.push(...getMorningMoodAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
-  statuses.push(...getStartingTreeAttackAuraStatuses(myCard, myFieldSafe, ironKiwiImmunityCtx));
+  if (!suppressionBlocksExternalBuffEffects(myCard)) {
+    statuses.push(...getPyredAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
+    statuses.push(...getMorningMoodAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
+    statuses.push(...getStartingTreeAttackAuraStatuses(myCard, myFieldSafe, ironKiwiImmunityCtx));
+  }
+
+  /* 엘 윙 — 상시 [마법 면역](혼란·버프 금지 시 뱃지·효과 봉인) */
+  if (battleCtx?.mySlotKey && isElWingUnit(myCard)) {
+    const segs = battleCtx.mySlotKey.split("-");
+    if (segs.length === 2) {
+      const pl = segs[0] as "A" | "B";
+      const sl = segs[1] as "is" | "m" | "os" | "spell";
+      if (sl !== "spell") {
+        if (
+          elWingShowsMagicImmunity(
+            myCard,
+            pl,
+            sl,
+            battleCtx.playerAField,
+            battleCtx.playerBField
+          )
+        ) {
+          statuses.push(EL_WING_MAGIC_IMMUNITY_BADGE);
+        }
+      }
+    }
+  }
 
   /* 캘리: 상대 is/os 유닛 — [버프 금지](버프 뱃지·효과 제거). [디버프 면역] 오라가 있으면 캘리 효과 전부 무시. */
   if (battleCtx?.mySlotKey) {
@@ -254,6 +294,13 @@ export const getActiveStatuses = (
     statuses = statuses.filter(label => !isHarmfulEffectLabelBlockedByBaekseuInvuln(label));
     if (!statuses.includes(BAEKSEU_INVULN_BADGE)) {
       statuses.push(BAEKSEU_INVULN_BADGE);
+    }
+  }
+
+  if (isSuppressionActive(myCard)) {
+    statuses = filterStatusesForSuppressionDisplay(statuses);
+    for (const s of getSuppressionStatusesForCard(myCard)) {
+      if (!statuses.includes(s)) statuses.push(s);
     }
   }
 
@@ -291,7 +338,7 @@ export const applyDamageMods = (
 
   let damage = rawDamage;
 
-  if (targetCard.hasBanjitgori) {
+  if (targetCard.hasBanjitgori && !isSuppressionActive(targetCard)) {
     damage = Math.floor((damage * 0.75) / 50) * 50;
   }
 
@@ -355,6 +402,7 @@ export const isTaunting = (
       if (getActiveStatuses(card, oCard, myFieldUse, battleCtx).includes("도발")) return true;
       if (
         !!card.hasBanjitgori &&
+        !isSuppressionActive(card) &&
         !callieBuffBanSuppressesBuffsForVictim(pl, sl, battleCtx.playerAField, battleCtx.playerBField)
       ) {
         return true;
@@ -364,7 +412,10 @@ export const isTaunting = (
     }
   }
   if (isConfused(card, oppCard)) return false;
-  return getActiveStatuses(card, oppCard, myField).includes("도발") || !!card.hasBanjitgori;
+  return (
+    getActiveStatuses(card, oppCard, myField).includes("도발") ||
+    (!!card.hasBanjitgori && !isSuppressionActive(card))
+  );
 };
 
 export const isSilenced = (card: FieldCard | null, oppCard: FieldCard | null = null): boolean => {

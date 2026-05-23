@@ -59,6 +59,9 @@ export interface FieldCard extends CardRow {
   /** 맥셀렌드 전용 [투지] 게이지(0 ~ 4). 기본 공격으로 적 유닛 처치 시마다 +1, 칸당 기본 공격력 +400 */
   maxellandTenacityGauge?: number;
 
+  /** 엘 윙 [신속] 게이지(0 ~ 2). 상대 턴 기본 공격 시 회피 기회 */
+  elWingSinseokGauge?: number;
+
   /** 패키 처치 패시브 — [공격력 50% 감소] 디버프(디버프 면역 시 부여·적용 안 됨, 면역 획득 시 제거) */
   hasPakiAttackHalveDebuff?: boolean;
 
@@ -77,6 +80,9 @@ export interface FieldCard extends CardRow {
   /** 곤충 전문가 — 액티브「A) 탐색」1회 사용 여부 */
   gonchungHiddenPeekConsumed?: boolean;
 
+  /** 스펠 No.43 개미지옥 — [제압] 남은 턴 넘김 횟수(4×턴=8) */
+  suppressionEndTurnTicksRemaining?: number;
+
   /** 스펠 No.7 언덕! — [침묵] 남은 턴 넘김 횟수(2*턴=4, 필립 침묵과 동일 판정·감소 규칙) */
   eondeokSilenceEndTurnTicksRemaining?: number;
 
@@ -88,6 +94,12 @@ export interface FieldCard extends CardRow {
 
   /** 스펠 No.26 휴게소의 안식 — 남은 턴 넘김 횟수(3×턴=6, 만료 시 리와인드) */
   hyugesojauiAnsikEndTurnTicksRemaining?: number;
+
+  /** 스펠 No.30 비즈니스 강도단 — 남은 턴 넘김 횟수(4×턴=8, 만료 시 리와인드) */
+  businessGangEndTurnTicksRemaining?: number;
+
+  /** 스펠 No.43 개미지옥 — 필드 스펠 칸 지속 턴(4×턴=8, 만료 시 리와인드) */
+  antHellEndTurnTicksRemaining?: number;
   /** @deprecated — `hyugesojauiAnsikEndTurnTicksRemaining` */
   hyugesojauiAnsikTurnHealsRemaining?: number;
 
@@ -96,6 +108,12 @@ export interface FieldCard extends CardRow {
    * 최대/현재 체력 수치 표기·회복 판정은 기본 유닛 체력만 사용.
    */
   hpBarrierAbsorptionRemaining?: number;
+
+  /**
+   * 체력 1 생존 표기(백스·번개·귀환 등) — 회복 시 일의자리 유령 1을 1회 제거할 때까지 유지.
+   * 단독 `currentHp === 1`만 유효한 생존 판정, 201·3201 등은 회복·전투 직전에 정리.
+   */
+  hpSurvivalOnesMarker?: boolean;
 
   /** 백스(No.46) — 치명적 피해 1회 생존 패시브 소진 후 true 유지(필드 생존 동안 10% 처형·윤곽 연출, [무적] 틱과 별개) */
   baekseuLastStandUsed?: boolean;

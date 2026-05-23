@@ -10,8 +10,12 @@ import { DINNER_OPP_CONFUSION_STATUS } from "./units/dinner";
 import { STUN_STATUS } from "./units/elixir5";
 import { BANG_EOMAK_DEFENSE_BADGE } from "./spells/bangeomak";
 import { PYRED_ATTACK_AURA_BADGE } from "./units/pyred";
+import { EL_WING_MAGIC_IMMUNITY_BADGE } from "./units/elWing";
 
 export type EffectSemanticKind = "buff" | "debuff" | "status";
+
+/** 스펠 No.43 개미지옥 — [제압] 뱃지(디버프 시맨틱·UI 공용) */
+export const SUPPRESSION_DEBUFF_BADGE = "[제압]" as const;
 
 const EFFECT_SEMANTIC: Partial<Record<string, EffectSemanticKind>> = {
   도발: "buff",
@@ -22,6 +26,7 @@ const EFFECT_SEMANTIC: Partial<Record<string, EffectSemanticKind>> = {
   "집중 사격": "buff",
   [YORIN_STATUS_BADGE]: "buff",
   [PYRED_ATTACK_AURA_BADGE]: "buff",
+  [EL_WING_MAGIC_IMMUNITY_BADGE]: "buff",
 
   /** 필립 패시브 — 버프도 디버프도 아님 */
   [PHILIP_OPP_SILENCE_STATUS]: "status",
@@ -33,6 +38,7 @@ const EFFECT_SEMANTIC: Partial<Record<string, EffectSemanticKind>> = {
   /** 패키 처치 저주 — `utils/battle/units/pakki` 의 PAKKI_ATTACK_DEBUFF_BADGE 와 동일 문자열 */
   "[공격력 50% 감소]": "debuff",
   "[버프 금지]": "debuff",
+  [SUPPRESSION_DEBUFF_BADGE]: "debuff",
 };
 
 export function getEffectSemanticKind(displayName: string): EffectSemanticKind | undefined {

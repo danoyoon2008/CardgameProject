@@ -9,6 +9,7 @@ import { bangEomakProtectsTargetSlot } from "../spells/bangeomak";
 import { UNIT } from "../unitIds";
 import { isInvulnerableFromBaekseuOrCheolbyeok } from "../spells/cheolbyeok";
 import { callieBuffBanSuppressesBuffsForVictim } from "./kalli";
+import { isSuppressionActive } from "../debuffs/suppression";
 
 export const MARY_ID = UNIT.MARY;
 export const MARY_DEFENSE_BUFF_BADGE = "방어력 +400";
@@ -100,7 +101,7 @@ export function applyIncomingDefenseDamage(
   const hasLimeBubble = !!(target as FieldCard & { hasLimeBubbleShieldBuff?: boolean }).hasLimeBubbleShieldBuff;
 
   /* 라임 방울 보호막: 수혜자 [혼란]이어도 시전자(라임) 스킬 링크가 유지되는 동안 -200 방어 적용 */
-  if (!callieBuffBan && hasLimeBubble && d > 100) {
+  if (!callieBuffBan && hasLimeBubble && !isSuppressionActive(target) && d > 100) {
     const next = Math.max(100, d - 200);
     if (next < d) kind = "limeBubble";
     d = next;

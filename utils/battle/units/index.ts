@@ -11,6 +11,7 @@
  * 4. 액티브 pending 키는 해당 유닛 파일의 `*_ACTIVE.pendingSkillKey` 등으로 정의
  */
 export * from "./dinner";
+export * from "./elWing";
 export * from "./cheolgibyeong";
 export * from "./pyred";
 export * from "./morningMood";

@@ -3,6 +3,7 @@ import type { PostAttackFn } from "../effectTypes";
 import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "../attackModifier";
 import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
+import { healUnitCurrentHp } from "../hpSurvivalOnes";
 
 export const DARK_KNIGHT_ID = UNIT.DARK_KNIGHT;
 
@@ -87,8 +88,7 @@ export const postAttackDarkKnight: PostAttackFn = (card, ctx) => {
   const mh = ctx.targetMaxHpWhenDestroyed;
   if (mh == null || !Number.isFinite(mh) || mh <= 0) return {};
   const heal = darkKnightHealOnKillFromVictimMaxHp(mh);
-  const cap = Number(card.hp);
-  return { currentHp: Math.min(cap, card.currentHp + heal) };
+  return healUnitCurrentHp(card, heal);
 };
 
 /**

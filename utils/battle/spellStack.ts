@@ -2,6 +2,8 @@ import type { FieldCard, SimulationPlayerField } from "../../types/game";
 import { applyEndTurnBangEomakSpellToField } from "./spells/bangeomak";
 import { applyEndTurnCheolbyeokSpellToField } from "./spells/cheolbyeok";
 import { applyEndTurnHyugesojauiAnsikSpellToField } from "./spells/hyugesojauiAnsik";
+import { applyEndTurnBusinessGangSpellToField } from "./spells/businessGang";
+import { applyEndTurnAntHellSpellToField } from "./spells/antHell";
 import { isJipjungSagyeokSpellCard } from "./spells/jipjungSagyeok";
 import type { FieldSliceWithSpell } from "./fieldSpellAccess";
 import { normalizeSpellStack } from "./fieldSpellAccess";
@@ -17,56 +19,132 @@ export function rotateSpellStackTopToBottom(stack: FieldCard[]): FieldCard[] {
   return [top, ...stack.slice(0, -1)];
 }
 
-export function applyEndTurnToSpellStack(stack: FieldCard[]): {
+export type SpellStackEndTurnResult = {
   nextStack: FieldCard[];
-  expiredBangEomakToRewind: FieldCard | null;
-  expiredCheolbyeokToRewind: FieldCard | null;
-  expiredHyugesojauiAnsikToRewind: FieldCard | null;
+  expiredBangEomakToRewind: FieldCard[];
+  expiredCheolbyeokToRewind: FieldCard[];
+  expiredHyugesojauiAnsikToRewind: FieldCard[];
+  expiredBusinessGangToRewind: FieldCard[];
+  expiredAntHellToRewind: FieldCard[];
+};
+
+const emptySpellStackEndTurnResult = (): SpellStackEndTurnResult => ({
+  nextStack: [],
+  expiredBangEomakToRewind: [],
+  expiredCheolbyeokToRewind: [],
+  expiredHyugesojauiAnsikToRewind: [],
+  expiredBusinessGangToRewind: [],
+  expiredAntHellToRewind: [],
+});
+
+/** 스펠 스택 한 장 — 지속 스펠 틱(카드당 하나의 스펠 타입만 해당) */
+function applyEndTurnTickToSpellCard(spell: FieldCard): {
+  nextSpell: FieldCard | null;
+  expiredBangEomak: FieldCard | null;
+  expiredCheolbyeok: FieldCard | null;
+  expiredHyugesojauiAnsik: FieldCard | null;
+  expiredBusinessGang: FieldCard | null;
+  expiredAntHell: FieldCard | null;
 } {
-  if (stack.length === 0) {
-    return {
-      nextStack: [],
-      expiredBangEomakToRewind: null,
-      expiredCheolbyeokToRewind: null,
-      expiredHyugesojauiAnsikToRewind: null,
-    };
-  }
-  const top = stack[stack.length - 1]!;
-  const bangR = applyEndTurnBangEomakSpellToField(top);
+  const bangR = applyEndTurnBangEomakSpellToField(spell);
   if (bangR.expiredToRewind) {
     return {
-      nextStack: stack.slice(0, -1),
-      expiredBangEomakToRewind: bangR.expiredToRewind,
-      expiredCheolbyeokToRewind: null,
-      expiredHyugesojauiAnsikToRewind: null,
+      nextSpell: null,
+      expiredBangEomak: bangR.expiredToRewind,
+      expiredCheolbyeok: null,
+      expiredHyugesojauiAnsik: null,
+      expiredBusinessGang: null,
+      expiredAntHell: null,
     };
   }
-  const afterBang = bangR.nextSpell ?? top;
-  const cheolR = applyEndTurnCheolbyeokSpellToField(afterBang);
+  let c = bangR.nextSpell ?? spell;
+  const cheolR = applyEndTurnCheolbyeokSpellToField(c);
   if (cheolR.expiredToRewind) {
     return {
-      nextStack: stack.slice(0, -1),
-      expiredBangEomakToRewind: null,
-      expiredCheolbyeokToRewind: cheolR.expiredToRewind,
-      expiredHyugesojauiAnsikToRewind: null,
+      nextSpell: null,
+      expiredBangEomak: null,
+      expiredCheolbyeok: cheolR.expiredToRewind,
+      expiredHyugesojauiAnsik: null,
+      expiredBusinessGang: null,
+      expiredAntHell: null,
     };
   }
-  const afterCheol = cheolR.nextSpell ?? afterBang;
-  const hyuR = applyEndTurnHyugesojauiAnsikSpellToField(afterCheol);
+  c = cheolR.nextSpell ?? c;
+  const hyuR = applyEndTurnHyugesojauiAnsikSpellToField(c);
   if (hyuR.expiredToRewind) {
     return {
-      nextStack: stack.slice(0, -1),
-      expiredBangEomakToRewind: null,
-      expiredCheolbyeokToRewind: null,
-      expiredHyugesojauiAnsikToRewind: hyuR.expiredToRewind,
+      nextSpell: null,
+      expiredBangEomak: null,
+      expiredCheolbyeok: null,
+      expiredHyugesojauiAnsik: hyuR.expiredToRewind,
+      expiredBusinessGang: null,
+      expiredAntHell: null,
     };
   }
-  const newTop = hyuR.nextSpell ?? afterCheol;
+  c = hyuR.nextSpell ?? c;
+  const businessR = applyEndTurnBusinessGangSpellToField(c);
+  if (businessR.expiredToRewind) {
+    return {
+      nextSpell: null,
+      expiredBangEomak: null,
+      expiredCheolbyeok: null,
+      expiredHyugesojauiAnsik: null,
+      expiredBusinessGang: businessR.expiredToRewind,
+      expiredAntHell: null,
+    };
+  }
+  c = businessR.nextSpell ?? c;
+  const antHellR = applyEndTurnAntHellSpellToField(c);
+  if (antHellR.expiredToRewind) {
+    return {
+      nextSpell: null,
+      expiredBangEomak: null,
+      expiredCheolbyeok: null,
+      expiredHyugesojauiAnsik: null,
+      expiredBusinessGang: null,
+      expiredAntHell: antHellR.expiredToRewind,
+    };
+  }
   return {
-    nextStack: [...stack.slice(0, -1), newTop],
-    expiredBangEomakToRewind: null,
-    expiredCheolbyeokToRewind: null,
-    expiredHyugesojauiAnsikToRewind: null,
+    nextSpell: antHellR.nextSpell ?? c,
+    expiredBangEomak: null,
+    expiredCheolbyeok: null,
+    expiredHyugesojauiAnsik: null,
+    expiredBusinessGang: null,
+    expiredAntHell: null,
+  };
+}
+
+/** 스펠 스택 전체 — 겹침 순서와 무관하게 각 카드 지속 턴 틱·만료 리와인드 */
+export function applyEndTurnToSpellStack(stack: FieldCard[]): SpellStackEndTurnResult {
+  if (stack.length === 0) {
+    return emptySpellStackEndTurnResult();
+  }
+
+  const nextStack: FieldCard[] = [];
+  const expiredBangEomakToRewind: FieldCard[] = [];
+  const expiredCheolbyeokToRewind: FieldCard[] = [];
+  const expiredHyugesojauiAnsikToRewind: FieldCard[] = [];
+  const expiredBusinessGangToRewind: FieldCard[] = [];
+  const expiredAntHellToRewind: FieldCard[] = [];
+
+  for (const card of stack) {
+    const r = applyEndTurnTickToSpellCard(card);
+    if (r.nextSpell) nextStack.push(r.nextSpell);
+    if (r.expiredBangEomak) expiredBangEomakToRewind.push(r.expiredBangEomak);
+    if (r.expiredCheolbyeok) expiredCheolbyeokToRewind.push(r.expiredCheolbyeok);
+    if (r.expiredHyugesojauiAnsik) expiredHyugesojauiAnsikToRewind.push(r.expiredHyugesojauiAnsik);
+    if (r.expiredBusinessGang) expiredBusinessGangToRewind.push(r.expiredBusinessGang);
+    if (r.expiredAntHell) expiredAntHellToRewind.push(r.expiredAntHell);
+  }
+
+  return {
+    nextStack,
+    expiredBangEomakToRewind,
+    expiredCheolbyeokToRewind,
+    expiredHyugesojauiAnsikToRewind,
+    expiredBusinessGangToRewind,
+    expiredAntHellToRewind,
   };
 }
 

@@ -51,6 +51,9 @@ import {
   HYUGESOJAUI_ANSIK_SPELL_ID,
   HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER,
   HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS,
+  BUSINESS_GANG_SPELL_ID,
+  BUSINESS_GANG_INITIAL_END_TURN_TICKS,
+  getTurnStartTokenGainForPlayer,
   applyHyugesojauiAnsikHealAttempt,
   applyHyugesojauiAnsikTurnStartForOwner,
   isInvulnerableFromBaekseuOrCheolbyeok,
@@ -70,6 +73,7 @@ import {
   hpBarrierPatchFromRemaining,
   applyEndTurnBaekseuInvulnTickToFieldUnit,
   applyEndTurnEondeokSilenceTickToFieldUnit,
+  applyEndTurnSuppressionTickToFieldUnit,
   resolveBaekseuFatalDamage,
   isBaekseuPassivesPausedByConfusion,
   stripBaekseuHarmfulEffectsForInvuln,
@@ -79,6 +83,10 @@ import {
   isHiddenSpellCard,
   GONCHUNG_JEONMOGA_ACTIVE,
   spellStackHasHiddenSpell,
+  healUnitCurrentHp,
+  applyFieldAllyHealToUnit,
+  suppressionBlocksExternalBuffEffects,
+  normalizeUnitHpSurvivalOnesForCombat,
 } from "../utils/battle";
 
 const ATTACK_DISABLED_UNITS: Set<string> = new Set(["모닝 무드", "시작의 나무", "전설의 검"]);
@@ -448,7 +456,9 @@ export function useSimulationLogic(cards: CardRow[]) {
               ...applyEndTurnIversonWaitTickToFieldUnit(
                 applyEndTurnStunTickToFieldUnit(
                   applyEndTurnBaekseuInvulnTickToFieldUnit(
-                    applyEndTurnEondeokSilenceTickToFieldUnit(f.is),
+                    applyEndTurnEondeokSilenceTickToFieldUnit(
+                      applyEndTurnSuppressionTickToFieldUnit(f.is),
+                    ),
                   ),
                 ),
               ),
@@ -461,7 +471,9 @@ export function useSimulationLogic(cards: CardRow[]) {
               ...applyEndTurnIversonWaitTickToFieldUnit(
                 applyEndTurnStunTickToFieldUnit(
                   applyEndTurnBaekseuInvulnTickToFieldUnit(
-                    applyEndTurnEondeokSilenceTickToFieldUnit(f.m),
+                    applyEndTurnEondeokSilenceTickToFieldUnit(
+                      applyEndTurnSuppressionTickToFieldUnit(f.m),
+                    ),
                   ),
                 ),
               ),
@@ -474,7 +486,9 @@ export function useSimulationLogic(cards: CardRow[]) {
               ...applyEndTurnIversonWaitTickToFieldUnit(
                 applyEndTurnStunTickToFieldUnit(
                   applyEndTurnBaekseuInvulnTickToFieldUnit(
-                    applyEndTurnEondeokSilenceTickToFieldUnit(f.os),
+                    applyEndTurnEondeokSilenceTickToFieldUnit(
+                      applyEndTurnSuppressionTickToFieldUnit(f.os),
+                    ),
                   ),
                 ),
               ),
@@ -487,15 +501,35 @@ export function useSimulationLogic(cards: CardRow[]) {
       const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
       const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
       let rewindCards = [...prev.rewindCards];
-      if (ta.expiredBangEomakToRewind) rewindCards = [...rewindCards, ta.expiredBangEomakToRewind];
-      if (tb.expiredBangEomakToRewind) rewindCards = [...rewindCards, tb.expiredBangEomakToRewind];
-      if (ta.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, ta.expiredCheolbyeokToRewind];
-      if (tb.expiredCheolbyeokToRewind) rewindCards = [...rewindCards, tb.expiredCheolbyeokToRewind];
-      if (ta.expiredHyugesojauiAnsikToRewind) {
-        rewindCards = [...rewindCards, ta.expiredHyugesojauiAnsikToRewind];
+      if (ta.expiredBangEomakToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredBangEomakToRewind];
       }
-      if (tb.expiredHyugesojauiAnsikToRewind) {
-        rewindCards = [...rewindCards, tb.expiredHyugesojauiAnsikToRewind];
+      if (tb.expiredBangEomakToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredBangEomakToRewind];
+      }
+      if (ta.expiredCheolbyeokToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredCheolbyeokToRewind];
+      }
+      if (tb.expiredCheolbyeokToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredCheolbyeokToRewind];
+      }
+      if (ta.expiredHyugesojauiAnsikToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredHyugesojauiAnsikToRewind];
+      }
+      if (tb.expiredHyugesojauiAnsikToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredHyugesojauiAnsikToRewind];
+      }
+      if (ta.expiredBusinessGangToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredBusinessGangToRewind];
+      }
+      if (tb.expiredBusinessGangToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredBusinessGangToRewind];
+      }
+      if (ta.expiredAntHellToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...ta.expiredAntHellToRewind];
+      }
+      if (tb.expiredAntHellToRewind.length > 0) {
+        rewindCards = [...rewindCards, ...tb.expiredAntHellToRewind];
       }
 
       const nextTurn = isA ? "B" : "A";
@@ -519,7 +553,12 @@ export function useSimulationLogic(cards: CardRow[]) {
         turnTimeLeft: 60,
         playerA: {
           ...prev.playerA,
-          tokens: !isA ? Math.min(prev.playerA.tokens + 2, 10) : prev.playerA.tokens,
+          tokens: !isA
+            ? Math.min(
+                prev.playerA.tokens + getTurnStartTokenGainForPlayer(fieldA),
+                10
+              )
+            : prev.playerA.tokens,
           hasDrawnThisTurn: false,
           attacksThisTurn: 0,
           hasBeenAttackedThisTurn: false,
@@ -527,7 +566,12 @@ export function useSimulationLogic(cards: CardRow[]) {
         },
         playerB: {
           ...prev.playerB,
-          tokens: isA ? Math.min(prev.playerB.tokens + 2, 10) : prev.playerB.tokens,
+          tokens: isA
+            ? Math.min(
+                prev.playerB.tokens + getTurnStartTokenGainForPlayer(fieldB),
+                10
+              )
+            : prev.playerB.tokens,
           hasDrawnThisTurn: false,
           attacksThisTurn: 0,
           hasBeenAttackedThisTurn: false,
@@ -557,14 +601,12 @@ export function useSimulationLogic(cards: CardRow[]) {
       const targetUnit = targetPlayer.field[healSlotKey];
 
       if (targetUnit) {
-        const healAmount = MOMO_SKILL_HEAL_AMOUNT;
-        const maxHp = Number(targetUnit.hp);
-        const newHp = Math.min(maxHp, targetUnit.currentHp + healAmount);
         targetPlayer.field = {
           ...targetPlayer.field,
           [healSlotKey]: {
-            ...targetUnit,
-            currentHp: newHp,
+            ...healUnitCurrentHp(targetUnit, MOMO_SKILL_HEAL_AMOUNT, {
+              supportSource: "selfAbility",
+            }),
             skillLastUsedGlobalTurn: prev.globalTurnCount,
           } as FieldCard,
         };
@@ -581,7 +623,6 @@ export function useSimulationLogic(cards: CardRow[]) {
     });
 
     setPendingSkill(null);
-    setTimeout(() => alert(BATTLE_MSG.momo.skillHealAlert(discardedCard.name)), 50);
   };
 
   const handleDrawClick = (onOpenSelectModal: () => void) => {
@@ -688,6 +729,9 @@ export function useSimulationLogic(cards: CardRow[]) {
     }
     if (slot === "spell" && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
       card.hyugesojauiAnsikEndTurnTicksRemaining = HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS;
+    }
+    if (slot === "spell" && handCard.name === BUSINESS_GANG_SPELL_ID) {
+      card.businessGangEndTurnTicksRemaining = BUSINESS_GANG_INITIAL_END_TURN_TICKS;
     }
 
     const typeStr = String(card.type || "").toLowerCase();
@@ -871,11 +915,15 @@ export function useSimulationLogic(cards: CardRow[]) {
     if (
       !wraithPlayerHpFollowUpValidate &&
       targetPlayerState.hasBeenAttackedThisTurn &&
-      !fieldGrantsFocusedFireMultihitExemption(attackerField, {
-        allyPlayer: attackerPlayer,
-        playerAField: state!.playerA.field,
-        playerBField: state!.playerB.field,
-      }) &&
+      !fieldGrantsFocusedFireMultihitExemption(
+        attackerField,
+        {
+          allyPlayer: attackerPlayer,
+          playerAField: state!.playerA.field,
+          playerBField: state!.playerB.field,
+        },
+        attackerCard
+      ) &&
       !startingHeraldBasicAttackIgnoresTauntTargetingRestrictions(
         attackerCard,
         getUnitFacingOppAtSlot(attackerPlayer, attackerSlotName, state!.playerA.field, state!.playerB.field)
@@ -968,9 +1016,18 @@ export function useSimulationLogic(cards: CardRow[]) {
           if (unit) {
             const updatedUnit = { ...unit }; // ✨ 깊은 복사로 불변성 유지 (2배 힐링 버그 방지)
             if (fieldHealAmount > 0) {
-              updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+              Object.assign(
+                updatedUnit,
+                applyFieldAllyHealToUnit(
+                  updatedUnit,
+                  fieldHealAmount,
+                  attackerCard,
+                  attackerSlotName,
+                  s as "is" | "m" | "os"
+                )
+              );
             }
-            if (fieldBuffKey) {
+            if (fieldBuffKey && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
               (updatedUnit as any)[fieldBuffKey] = true;
             }
             activePlayer.field[s as "is"|"m"|"os"] = updatedUnit;
@@ -1232,8 +1289,8 @@ export function useSimulationLogic(cards: CardRow[]) {
           return;
         }
 
-        const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
-        const actualHeal = newTargetHp - card.currentHp;
+        const healedTarget = healUnitCurrentHp(card, RANIGO_ALLY_BASIC_HEAL_AMOUNT, { supportSource: "allyUnit" });
+        const actualHeal = healedTarget.currentHp - card.currentHp;
 
         let fieldHealAmount = 0;
         let fieldBuffKey = "";
@@ -1256,7 +1313,7 @@ export function useSimulationLogic(cards: CardRow[]) {
           const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
           const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
 
-          const updatedTarget = { ...card, currentHp: newTargetHp };
+          const updatedTarget = { ...card, ...healedTarget };
           if (player === "A") newPlayerA.field[slot as "is" | "m" | "os"] = updatedTarget;
           else newPlayerB.field[slot as "is" | "m" | "os"] = updatedTarget;
 
@@ -1275,9 +1332,18 @@ export function useSimulationLogic(cards: CardRow[]) {
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmount > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                  Object.assign(
+                    updatedUnit,
+                    applyFieldAllyHealToUnit(
+                      updatedUnit,
+                      fieldHealAmount,
+                      attackerCard,
+                      attackerSlotName,
+                      s
+                    )
+                  );
                 }
-                if (fieldBuffKey) {
+                if (fieldBuffKey && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKey] = true;
                 }
                 activePlayerSec.field[s] = updatedUnit;
@@ -1395,16 +1461,17 @@ export function useSimulationLogic(cards: CardRow[]) {
         if (isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldHookSecondary)) {
           actualDamage = 0;
         }
+        const cardForCombatSecondary = normalizeUnitHpSurvivalOnesForCombat(card);
         const barrierSplitSecondary = splitDamageThroughHpBarrier(
-          card,
+          cardForCombatSecondary,
           actualDamage,
           isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
             ? { bypassAbsorption: true }
             : undefined
         );
-        const hpAfterRaw = card.currentHp - barrierSplitSecondary.damageToCurrentHp;
+        const hpAfterRaw = cardForCombatSecondary.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
-          card,
+          cardForCombatSecondary,
           hpAfterRaw,
           barrierSplitSecondary.damageToCurrentHp,
           getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
@@ -1471,8 +1538,8 @@ export function useSimulationLogic(cards: CardRow[]) {
           
           const baseTargetCard =
             Object.keys(baekseuPatchSecondary).length > 0
-              ? stripBaekseuHarmfulEffectsForInvuln(card)
-              : card;
+              ? stripBaekseuHarmfulEffectsForInvuln(cardForCombatSecondary)
+              : cardForCombatSecondary;
           const updatedTarget = {
             ...baseTargetCard,
             ...elixir5StunTargetPatch(
@@ -1525,9 +1592,18 @@ export function useSimulationLogic(cards: CardRow[]) {
                 if (unit) {
                   const updatedUnit = { ...unit }; // ✨ 클론본 생성
                   if (fieldHealAmount > 0) {
-                    updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                    Object.assign(
+                      updatedUnit,
+                      applyFieldAllyHealToUnit(
+                        updatedUnit,
+                        fieldHealAmount,
+                        attackerCard,
+                        attackerSlotName,
+                        s as "is" | "m" | "os"
+                      )
+                    );
                   }
-                  if (fieldBuffKey) {
+                  if (fieldBuffKey && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                     (updatedUnit as any)[fieldBuffKey] = true;
                   }
                   activePlayer.field[s as "is"|"m"|"os"] = updatedUnit;
@@ -1542,10 +1618,7 @@ export function useSimulationLogic(cards: CardRow[]) {
               (["is", "m", "os"] as const).forEach(s => {
                 const unit = deadSide.field[s];
                 if (!unit) return;
-                deadSide.field[s] = {
-                  ...unit,
-                  currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
-                };
+                deadSide.field[s] = healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" });
               });
             }
              cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
@@ -1556,10 +1629,7 @@ export function useSimulationLogic(cards: CardRow[]) {
               if (s === slot) return;
               const unit = damagedSide.field[s];
               if (!unit) return;
-              damagedSide.field[s] = {
-                ...unit,
-                currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
-              };
+              damagedSide.field[s] = healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" });
             });
           }
 
@@ -1674,15 +1744,17 @@ export function useSimulationLogic(cards: CardRow[]) {
             return;
           }
 
-          const newHp = Math.min(maxHp, attackerCard.currentHp + healAmount);
-          const actualHeal = newHp - attackerCard.currentHp;
+          const healedAttacker = healUnitCurrentHp(attackerCard, healAmount, {
+            supportSource: "selfAbility",
+          });
+          const actualHeal = healedAttacker.currentHp - attackerCard.currentHp;
 
           setState(prev => {
             if (!prev) return prev;
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
             
-            const updatedAttacker = { ...attackerCard, currentHp: newHp, hasAttacked: true };
+            const updatedAttacker = { ...healedAttacker, hasAttacked: true };
             
             if (attackerPlayer === "A") {
               newPlayerA.field[attackerSlotName] = updatedAttacker;
@@ -1745,8 +1817,8 @@ export function useSimulationLogic(cards: CardRow[]) {
             return;
           }
 
-          const newTargetHp = Math.min(maxHp, card.currentHp + RANIGO_ALLY_BASIC_HEAL_AMOUNT);
-          const actualHeal = newTargetHp - card.currentHp;
+          const healedTarget = healUnitCurrentHp(card, RANIGO_ALLY_BASIC_HEAL_AMOUNT, { supportSource: "allyUnit" });
+          const actualHeal = healedTarget.currentHp - card.currentHp;
 
           const baseAtkRaw =
             resolveFieldUnitSimulationBaseAtkRaw(attackerCard, attackOptionOverride);
@@ -1776,7 +1848,7 @@ export function useSimulationLogic(cards: CardRow[]) {
             const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
             const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
 
-            const updatedTarget = { ...card, currentHp: newTargetHp };
+            const updatedTarget = { ...card, ...healedTarget };
             const updatedAttacker = { ...attackerCard, hasAttacked: true, ...skillUpdates };
 
             if (player === "A") newPlayerA.field[slot as "is" | "m" | "os"] = updatedTarget;
@@ -1797,9 +1869,18 @@ export function useSimulationLogic(cards: CardRow[]) {
                 if (!unit) return;
                 const updatedUnit = { ...unit };
                 if (fieldHealAmountPrimary > 0) {
-                  updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmountPrimary);
+                  Object.assign(
+                    updatedUnit,
+                    applyFieldAllyHealToUnit(
+                      updatedUnit,
+                      fieldHealAmountPrimary,
+                      attackerCard,
+                      attackerSlotName,
+                      s
+                    )
+                  );
                 }
-                if (fieldBuffKeyPrimary) {
+                if (fieldBuffKeyPrimary && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                   (updatedUnit as FieldCard & Record<string, unknown>)[fieldBuffKeyPrimary] = true;
                 }
                 activePlayerPrimary.field[s] = updatedUnit;
@@ -1931,11 +2012,15 @@ export function useSimulationLogic(cards: CardRow[]) {
           if (
             card.hasBeenAttackedThisTurn &&
             !isTargetTaunted &&
-            !fieldGrantsFocusedFireMultihitExemption(attackerField, {
-              allyPlayer: attackerPlayer,
-              playerAField: state!.playerA.field,
-              playerBField: state!.playerB.field,
-            }) &&
+            !fieldGrantsFocusedFireMultihitExemption(
+              attackerField,
+              {
+                allyPlayer: attackerPlayer,
+                playerAField: state!.playerA.field,
+                playerBField: state!.playerB.field,
+              },
+              attackerCard
+            ) &&
             !startingHeraldAbsBasic &&
             !wraithChainBypassesAntiGangup
           ) {
@@ -2081,16 +2166,17 @@ export function useSimulationLogic(cards: CardRow[]) {
           if (isInvulnerableFromBaekseuOrCheolbyeok(card, victimFieldHookPrimary)) {
             actualPrimaryDamage = 0;
           }
+          const cardForCombatPrimary = normalizeUnitHpSurvivalOnesForCombat(card);
           const barrierSplitPrimary = splitDamageThroughHpBarrier(
-            card,
+            cardForCombatPrimary,
             actualPrimaryDamage,
             isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
               ? { bypassAbsorption: true }
               : undefined
           );
-          const hpAfterRawPrimary = card.currentHp - barrierSplitPrimary.damageToCurrentHp;
+          const hpAfterRawPrimary = cardForCombatPrimary.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(
-            card,
+            cardForCombatPrimary,
             hpAfterRawPrimary,
             barrierSplitPrimary.damageToCurrentHp,
             getUnitFacingOppAtSlot(player, slot as "is" | "m" | "os", state!.playerA.field, state!.playerB.field)
@@ -2178,8 +2264,8 @@ export function useSimulationLogic(cards: CardRow[]) {
             
             const baseTargetPrimary =
               Object.keys(baekseuPatchPrimary).length > 0
-                ? stripBaekseuHarmfulEffectsForInvuln(card)
-                : card;
+                ? stripBaekseuHarmfulEffectsForInvuln(cardForCombatPrimary)
+                : cardForCombatPrimary;
             const wraithChainSkipsGangupMark = startingWraithChainFollowUpBypassesAntiGangup(
               isStartingWraithChainFollowUp,
               attackerCard,
@@ -2265,9 +2351,18 @@ export function useSimulationLogic(cards: CardRow[]) {
                 if (unit) {
                   const updatedUnit = { ...unit }; // ✨ 클론본 생성
                   if (fieldHealAmount > 0) {
-                    updatedUnit.currentHp = Math.min(Number(updatedUnit.hp), updatedUnit.currentHp + fieldHealAmount);
+                    Object.assign(
+                      updatedUnit,
+                      applyFieldAllyHealToUnit(
+                        updatedUnit,
+                        fieldHealAmount,
+                        attackerCard,
+                        attackerSlotName,
+                        s as "is" | "m" | "os"
+                      )
+                    );
                   }
-                  if (fieldBuffKey) {
+                  if (fieldBuffKey && !suppressionBlocksExternalBuffEffects(updatedUnit)) {
                     (updatedUnit as any)[fieldBuffKey] = true;
                   }
                   activePlayer.field[s as "is"|"m"|"os"] = updatedUnit;
@@ -2281,10 +2376,7 @@ export function useSimulationLogic(cards: CardRow[]) {
                 (["is", "m", "os"] as const).forEach(s => {
                   const unit = deadSide.field[s];
                   if (!unit) return;
-                  deadSide.field[s] = {
-                    ...unit,
-                    currentHp: Math.min(Number(unit.hp), unit.currentHp + morningMoodDeathHeal),
-                  };
+                  deadSide.field[s] = healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" });
                 });
               }
                cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
@@ -2295,10 +2387,7 @@ export function useSimulationLogic(cards: CardRow[]) {
                 if (s === slot) return;
                 const unit = damagedSide.field[s];
                 if (!unit) return;
-                damagedSide.field[s] = {
-                  ...unit,
-                  currentHp: Math.min(Number(unit.hp), unit.currentHp + startingTreeAllyHeal),
-                };
+                damagedSide.field[s] = healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" });
               });
             }
 

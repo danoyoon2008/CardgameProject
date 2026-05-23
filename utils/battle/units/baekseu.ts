@@ -10,7 +10,7 @@ import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 import { STUN_STATUS } from "./elixir5";
 import { getMorningMoodDeathAllyHeal } from "./morningMood";
-
+import { healUnitCurrentHp } from "../hpSurvivalOnes";
 export const BAEKSEU_ID = UNIT.BAEKSEU;
 export const BAEKSEU_INVULN_BADGE = "[무적]" as const;
 
@@ -124,6 +124,7 @@ export function resolveBaekseuFatalDamage(
     patch: {
       baekseuLastStandUsed: true,
       baekseuInvulnerableEndTurnTicksRemaining: INVULN_INITIAL_END_TURN_TICKS,
+      hpSurvivalOnesMarker: true,
     },
   };
 }
@@ -217,7 +218,7 @@ export function applyBaekseuInvulnThresholdExecutePass<T extends SimulationPlaye
       for (const s2 of ["is", "m", "os"] as const) {
         const u = side.field[s2];
         if (!u) continue;
-        side.field[s2] = { ...u, currentHp: Math.min(Number(u.hp), u.currentHp + mmHeal) };
+        side.field[s2] = healUnitCurrentHp(u, mmHeal, { supportSource: "allyUnit" });
       }
     }
   }

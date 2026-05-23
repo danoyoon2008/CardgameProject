@@ -5,6 +5,8 @@
  */
 import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { normalizeSpellStack } from "../fieldSpellAccess";
+import { healUnitCurrentHp } from "../hpSurvivalOnes";
+import { isHealBlockedBySuppression } from "../debuffs/suppression";
 
 export const HYUGESOJAUI_ANSIK_SPELL_ID = "휴게소의 안식" as const;
 
@@ -58,7 +60,8 @@ export type HyugesojauiAnsikHealSlotResult = {
 };
 
 /**
- * 살아 있는 아군 유닛마다 회복 시도. `healed`는 0일 수 있으나 슬롯은 VFX 대상에 포함.
+ * 살아 있는 아군 유닛마다 회복 시도.
+ * [제압] 시 HP·연출 모두 스킵. 최대 체력이면 `healed: 0`으로 펄스만 재생.
  */
 export function applyHyugesojauiAnsikHealAttempt(
   field: SimulationPlayerField,
@@ -75,11 +78,14 @@ export function applyHyugesojauiAnsikHealAttempt(
   for (const slot of ["is", "m", "os"] as const) {
     const u = f[slot];
     if (!u || (u.currentHp ?? 0) <= 0) continue;
+    if (isHealBlockedBySuppression(u, "playerSpell")) continue;
+
     const headroom = Math.max(0, Number(u.hp) - u.currentHp);
     const healed = Math.min(amount, headroom);
     perSlot.push({ slot, healed });
+
     if (healed > 0) {
-      f[slot] = { ...u, currentHp: u.currentHp + healed };
+      f[slot] = healUnitCurrentHp(u, healed, { supportSource: "playerSpell" });
       if (u.statsInstanceId) {
         combatPatches.push({ id: u.statsInstanceId, delta: { selfHeal: healed } });
       }
@@ -139,7 +145,7 @@ export type HyugesojauiAnsikTurnStartVfx = {
 
 /**
  * `nextTurnOwner`의 턴이 막 시작될 때(상대가 턴 종료한 직후) 호출.
- * 맨 위 스펠이 활성 휴게소의 안식이면 아군 500 회복 시도(연출은 살아 있는 아군 전원).
+ * 스펠 스택 어디에든 활성 휴게소의 안식이 있으면 아군 500 회복 시도(연출은 살아 있는 아군 전원).
  */
 export function applyHyugesojauiAnsikTurnStartForOwner(args: {
   nextTurnOwner: "A" | "B";
@@ -163,8 +169,8 @@ export function applyHyugesojauiAnsikTurnStartForOwner(args: {
       vfx: null,
     };
   }
-  const top = stack[stack.length - 1]!;
-  if (!isHyugesojauiAnsikActiveOnSpell(top)) {
+  const anyHyugeActive = stack.some(c => isHyugesojauiAnsikActiveOnSpell(c));
+  if (!anyHyugeActive) {
     return {
       nextPlayerAField: pa,
       nextPlayerBField: pb,

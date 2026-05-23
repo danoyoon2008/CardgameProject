@@ -7,6 +7,7 @@ import { applyIncomingDefenseDamage } from "./mary";
 import { hpBarrierPatchFromRemaining, splitDamageThroughHpBarrier } from "../spells/orietChosang";
 import { isInvulnerableFromBaekseuOrCheolbyeok } from "../spells/cheolbyeok";
 import { resolveBaekseuFatalDamage } from "./baekseu";
+import { normalizeUnitHpSurvivalOnesForCombat } from "../hpSurvivalOnes";
 import { getMorningMoodDeathAllyHeal } from "./morningMood";
 import { getStartingTreeAllyHealOnDamaged } from "./startingTree";
 
@@ -62,11 +63,12 @@ export function resolveLegendarySwordStrikeOnUnit(args: {
     : defenseResult.finalDamage;
   let actualDamage = isInvulnerableFromBaekseuOrCheolbyeok(target, victimField) ? 0 : coreAfterDefense;
 
-  const barrierSplit = splitDamageThroughHpBarrier(target, actualDamage);
-  const hpAfterRaw = target.currentHp - barrierSplit.damageToCurrentHp;
+  const targetForCombat = normalizeUnitHpSurvivalOnesForCombat(target);
+  const barrierSplit = splitDamageThroughHpBarrier(targetForCombat, actualDamage);
+  const hpAfterRaw = targetForCombat.currentHp - barrierSplit.damageToCurrentHp;
   const oppFieldForFacing = targetPlayer === "A" ? playerBField : playerAField;
   const resolved = resolveBaekseuFatalDamage(
-    target,
+    targetForCombat,
     hpAfterRaw,
     barrierSplit.damageToCurrentHp,
     oppFieldForFacing[targetSlot] ?? null
