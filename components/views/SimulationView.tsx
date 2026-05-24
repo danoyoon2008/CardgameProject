@@ -220,6 +220,10 @@ import {
   isTauntSuppressedByRyeomhwaForUnitOwner,
   removeSpellFromStackAtIndex,
   superTeslaActivationTokenCost,
+  canMuhyohwaCounterFromHandSlot,
+  getMuhyohwaCounterCostForSpell,
+  isMuhyohwaSpellCard,
+  resolveMuhyohwaCounterOpportunity,
   areAllUnitSlotsFilledOnBothFields,
   findActivatableOneNightWagers,
   getPlayerUnitSlotCosts,
@@ -470,6 +474,8 @@ const OPENING_PEEK_HAND_FLY_MS = 280;
 
 /** 손패 스펠 사용 — 중앙 프리뷰·슈퍼 테슬라 카운터 연출 */
 const SPELL_USAGE_PREVIEW_MS = 1750;
+/** No.14 무효화 — 반격 성공 후 중앙 카드 소멸·플로팅 연출 */
+const MUHYOHWA_COUNTER_RESOLVE_MS = 780;
 const SPELL_USAGE_HAND_FLY_MS = 600;
 const SPELL_SLOT_PLACE_FLY_MS = 650;
 const SUPER_TESLA_COUNTER_AT_MS = 1000;
@@ -487,6 +493,23 @@ const WITCH_TAROT_COIN_DELAY_MS = 750;
 const WITCH_TAROT_COIN_FLIP_MS = 1400;
 const WITCH_TAROT_COIN_RESULT_MS = 900;
 const SPELL_USAGE_CENTER_KEY = "spell-usage-center";
+
+/** 무효화 드롭 — 중앙 발동 연출 카드 영역(부모 pointer-events-none 대응) */
+function isClientPointOverSpellUsageCenterCard(
+  clientX: number,
+  clientY: number,
+  measureEl: HTMLDivElement | null
+): boolean {
+  if (!measureEl) return false;
+  const r = measureEl.getBoundingClientRect();
+  const pad = 14;
+  return (
+    clientX >= r.left - pad &&
+    clientX <= r.right + pad &&
+    clientY >= r.top - pad &&
+    clientY <= r.bottom + pad
+  );
+}
 
 function patchWitchTarotPending(
   prev: SimulationState,
@@ -727,6 +750,12 @@ type SpellUsagePending = {
     teslaCard: FieldCard;
     teslaStackIndex: number;
   };
+  /** No.14 무효화 — 발동 연출 중 손패에서 드롭해 반격 성공 */
+  muhyohwaCounter?: {
+    counterPlayer: "A" | "B";
+    handIndex: number;
+    tokenCost: number;
+  };
 };
 
 function resolveSuperTeslaCounter(
@@ -774,6 +803,7 @@ function canHandDragPlaceSpellOnOwnSpellSlot(
   targetPlayer: "A" | "B"
 ): boolean {
   if (!isSpellCardRow(drag.card)) return false;
+  if (isMuhyohwaSpellCard(drag.card)) return false;
   if (snap.currentTurn !== drag.player) return false;
   if (targetPlayer !== drag.player) return false;
   if (isEnemyUnitDragTargetSpell(drag.card)) return false;
@@ -970,7 +1000,8 @@ type FlashOverlayKind =
   | "witchTarotSpellPulse"
   | "guihwanPlace"
   | "guihwanRevive"
-  | "kalliBuffBan";
+  | "kalliBuffBan"
+  | "muhyohwaCounterResolve";
 
 /** 플래시 오버레이 메타(슬롯당 1개) */
 type FlashOverlayEntry = {
@@ -1349,6 +1380,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   } | null>(null);
   const [spellUsageReveal, setSpellUsageReveal] = useState<SpellUsageRevealVisualState | null>(null);
   const [spellUsageRevealTick, setSpellUsageRevealTick] = useState(0);
+  /** No.14 무효화 반격 성공 — 중앙 스펠 흰 펄스 후 소멸 연출 */
+  const [spellUsageMuhyohwaCounterResolve, setSpellUsageMuhyohwaCounterResolve] = useState(false);
   const [spellUsageFly, setSpellUsageFly] = useState<SpellUsageFlyVisualState | null>(null);
   const [spellUsageTeslaHideOppCenterCard, setSpellUsageTeslaHideOppCenterCard] = useState(false);
   const [spellUsageTeslaFlipPlayer, setSpellUsageTeslaFlipPlayer] = useState<"A" | "B" | null>(null);
@@ -1400,6 +1433,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const witchTarotCoinStartScheduledRef = useRef(false);
   const spellUsageMotionActiveRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
+  const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
+  const playMuhyohwaCounterResolveSequenceRef = useRef<(() => void) | null>(null);
   const spellUsageTeslaCounterTimerRef = useRef<number | null>(null);
   const spellUsageTeslaBlackoutTimerRef = useRef<number | null>(null);
   const spellUsageCardMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -1479,6 +1514,47 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     });
   }, []);
 
+  const runMuhyohwaCounterCommit = useCallback(() => {
+    const pending = spellUsagePendingRef.current;
+    if (!pending?.muhyohwaCounter) return;
+    const { counterPlayer, handIndex, tokenCost } = pending.muhyohwaCounter;
+    const previewCard = pending.previewCard;
+    setState(prev => {
+      if (!prev) return prev;
+      const counterIsA = counterPlayer === "A";
+      const counterPs = counterIsA ? prev.playerA : prev.playerB;
+      if (counterPs.tokens < tokenCost) return prev;
+      const hand = [...counterPs.hand];
+      if (handIndex < 0 || handIndex >= hand.length) return prev;
+      const nullifyRow = hand[handIndex];
+      if (!nullifyRow || !isMuhyohwaSpellCard(nullifyRow)) return prev;
+      hand.splice(handIndex, 1);
+      const counterKey = counterIsA ? "playerA" : "playerB";
+      return {
+        ...prev,
+        rewindCards: [...prev.rewindCards, previewCard, nullifyRow],
+        [counterKey]: {
+          ...counterPs,
+          hand,
+          tokens: counterPs.tokens - tokenCost,
+        },
+      };
+    });
+  }, []);
+
+  const clearSpellUsageVisualState = useCallback(() => {
+    if (spellUsageMuhyohwaResolveTimerRef.current != null) {
+      window.clearTimeout(spellUsageMuhyohwaResolveTimerRef.current);
+      spellUsageMuhyohwaResolveTimerRef.current = null;
+    }
+    setSpellUsageMuhyohwaCounterResolve(false);
+    setSpellUsageFly(null);
+    setSpellUsageReveal(null);
+    setSpellUsageTeslaHideOppCenterCard(false);
+    setSpellUsageTeslaFlipPlayer(null);
+    setSpellUsageTeslaFieldCard(null);
+  }, []);
+
   const runSuperTeslaCounterCommit = useCallback(() => {
     const pending = spellUsagePendingRef.current;
     if (!pending?.superTeslaCounter) return;
@@ -1517,18 +1593,15 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   const finishSpellUsageSequence = useCallback(() => {
     const pending = spellUsagePendingRef.current;
-    const clearSpellUsageVisuals = () => {
-      setSpellUsageFly(null);
-      setSpellUsageReveal(null);
-      setSpellUsageTeslaHideOppCenterCard(false);
-      setSpellUsageTeslaFlipPlayer(null);
-      setSpellUsageTeslaFieldCard(null);
-    };
 
     if (!pending) {
       spellUsageMotionActiveRef.current = false;
       applySpellUsagePending(null);
-      clearSpellUsageVisuals();
+      clearSpellUsageVisualState();
+      return;
+    }
+    if (pending.muhyohwaCounter) {
+      playMuhyohwaCounterResolveSequenceRef.current?.();
       return;
     }
     if (pending.superTeslaCounter) {
@@ -1536,12 +1609,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
       spellUsagePendingRef.current = null;
       spellUsageMotionActiveRef.current = false;
       applySpellUsagePending(null);
-      clearSpellUsageVisuals();
+      clearSpellUsageVisualState();
       return;
     }
     /* 플라이 직후 reveal만 남으면 중앙에 카드가 한 프레임 다시 보임 — commit 전에 연출 상태 제거 */
     flushSync(() => {
-      clearSpellUsageVisuals();
+      clearSpellUsageVisualState();
     });
     /* 플라이 종료 등 setTimeout 경로에서는 commit 업데이터가 afterCommitVfx보다 늦게 돌 수 있음 */
     flushSync(() => {
@@ -1554,7 +1627,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     spellUsagePendingRef.current = null;
     spellUsageMotionActiveRef.current = false;
     applySpellUsagePending(null);
-  }, [runSuperTeslaCounterCommit, applySpellUsagePending]);
+  }, [runSuperTeslaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState]);
 
   const scheduleSpellHandUsageSequence = useCallback(
     (
@@ -1612,6 +1685,17 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     const drag = activeHandDragRef.current;
     const snap = simulationStateRef.current;
     if (!drag || !snap || winnerStateRef.current) return null;
+
+    const spellPending = snap.spellUsagePending;
+    if (isMuhyohwaSpellCard(drag.card) && spellPending?.phase === "centerReveal") {
+      if (
+        canMuhyohwaCounterFromHandSlot(snap, drag.player, drag.cardIndex, drag.card) &&
+        isClientPointOverSpellUsageCenterCard(clientX, clientY, spellUsageCardMeasureRef.current)
+      ) {
+        return "spell-usage-counter";
+      }
+      return null;
+    }
 
     const under = document.elementFromPoint(clientX, clientY);
     const drop = under?.closest("[data-field-drop]") as HTMLElement | null | undefined;
@@ -1929,6 +2013,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     guihwanPlace: 920,
     guihwanRevive: 980,
     kalliBuffBan: 820,
+    muhyohwaCounterResolve: 820,
   };
 
   const triggerCardFlash = (slotKey: string, kind: FlashOverlayKind) => {
@@ -2897,6 +2982,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
     }, durationMs);
   };
+
+  const playMuhyohwaCounterResolveSequence = useCallback(() => {
+    runMuhyohwaCounterCommit();
+    setSpellUsageMuhyohwaCounterResolve(true);
+    triggerCardFlash(SPELL_USAGE_CENTER_KEY, "muhyohwaCounterResolve");
+    pushInfoFloat(SPELL_USAGE_CENTER_KEY, "[무효화]", INFO_FLOAT_MS);
+    if (spellUsageMuhyohwaResolveTimerRef.current != null) {
+      window.clearTimeout(spellUsageMuhyohwaResolveTimerRef.current);
+    }
+    spellUsageMuhyohwaResolveTimerRef.current = window.setTimeout(() => {
+      spellUsageMuhyohwaResolveTimerRef.current = null;
+      spellUsagePendingRef.current = null;
+      spellUsageMotionActiveRef.current = false;
+      applySpellUsagePending(null);
+      clearSpellUsageVisualState();
+    }, MUHYOHWA_COUNTER_RESOLVE_MS);
+  }, [runMuhyohwaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState]);
+  playMuhyohwaCounterResolveSequenceRef.current = playMuhyohwaCounterResolveSequence;
 
   /** 엘 윙 [마법 면역] — 단일 대상 공격 스펠(언덕!/번개/하이퍼 빔/소멸) 적용 시도 시 녹색 이펙트 + 플로팅 */
   const showElWingMagicImmunityBlockOnUnit = (slotKey: string) => {
@@ -4174,6 +4277,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-kalli-buff-ban-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--kalli-buff-ban`}
+          />
+        </div>
+      );
+    }
+    /* No.14 무효화 — 반격 성공 시 중앙 스펠 흰 펄스 후 소멸 */
+    if (snap.kind === "muhyohwaCounterResolve") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-muhyohwa-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[28] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-muhyohwa-aura`}
+            className={`pp-combat-flash-layer--muhyohwa-counter-resolve-aura pointer-events-none absolute -inset-10 z-[27] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-muhyohwa-inner`}
+            className={`pointer-events-none absolute inset-0 z-[28] ${roundedClass} pp-combat-flash-layer--muhyohwa-counter-resolve`}
           />
         </div>
       );
@@ -6891,6 +7013,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const handCard = hand.slice(cardIndex, cardIndex + 1).pop();
     if (!handCard) return;
 
+    if (isMuhyohwaSpellCard(handCard)) {
+      pushInfoFloat(
+        `${sourcePlayer}-spell`,
+        "상대 스펠 발동 연출 중 필드 중앙에 놓아 사용하세요",
+        INFO_FLOAT_MS
+      );
+      return;
+    }
+
     if (isEnemyUnitDragTargetSpell(handCard)) {
       pushInfoFloat(`${sourcePlayer}-spell`, "적 유닛 위에 드래그하여 사용하세요", INFO_FLOAT_MS);
       return;
@@ -7745,9 +7876,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
     if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return;
+
+    const muhyohwaCounterDrag =
+      !spellUsageFly &&
+      canMuhyohwaCounterFromHandSlot(state, player, cardIndex, card);
+
     if (witchTarotDiscardPlayer) {
       if (witchTarotDiscardPlayer !== player) return;
-    } else if (state.currentTurn !== player) {
+    } else if (state.currentTurn !== player && !muhyohwaCounterDrag) {
       return;
     }
     if (state.simpanHandChoice?.player === player) {
@@ -7757,17 +7893,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       state.simpanPeekReveal?.player === player ||
       simpanPeekFly?.player === player ||
       danhaStealFly ||
-      spellUsageReveal ||
-      spellUsageFly ||
-      spellUsageMotionActiveRef.current ||
+      (!muhyohwaCounterDrag && spellUsageReveal) ||
+      (!muhyohwaCounterDrag && spellUsageFly) ||
+      (!muhyohwaCounterDrag && spellUsageMotionActiveRef.current) ||
       oneNightWagerModal ||
-      state.oneNightWagerPending ||
-      state.spellUsagePending ||
+      (!muhyohwaCounterDrag && state.oneNightWagerPending) ||
+      (!muhyohwaCounterDrag && state.spellUsagePending) ||
       witchTarotCoin
     ) {
       return;
     }
-    if (state.currentTurn !== player && witchTarotDiscardPlayer !== player) {
+    if (state.currentTurn !== player && witchTarotDiscardPlayer !== player && !muhyohwaCounterDrag) {
       return;
     }
     e.preventDefault();
@@ -8408,6 +8544,58 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return true;
   };
 
+  const attemptMuhyohwaCounterDrop = (
+    snap: SimulationState,
+    saved: HandDragState,
+    clientX: number,
+    clientY: number
+  ): boolean => {
+    if (!isMuhyohwaSpellCard(saved.card)) return false;
+    const pending = spellUsagePendingRef.current;
+    const spellSave = snap.spellUsagePending;
+    if (
+      !pending ||
+      !spellSave ||
+      spellSave.phase !== "centerReveal" ||
+      pending.casterPlayer === saved.player
+    ) {
+      return false;
+    }
+    if (!isClientPointOverSpellUsageCenterCard(clientX, clientY, spellUsageCardMeasureRef.current)) {
+      return false;
+    }
+    if (
+      !canMuhyohwaCounterFromHandSlot(snap, saved.player, saved.cardIndex, saved.card)
+    ) {
+      pushInfoFloat(SPELL_USAGE_CENTER_KEY, "무효화할 수 없습니다", INFO_FLOAT_MS);
+      return true;
+    }
+    const tokenCost = getMuhyohwaCounterCostForSpell(pending.previewCard);
+    if (spellUsageRevealTimerRef.current != null) {
+      window.clearTimeout(spellUsageRevealTimerRef.current);
+      spellUsageRevealTimerRef.current = null;
+    }
+    if (spellUsageTeslaCounterTimerRef.current != null) {
+      window.clearTimeout(spellUsageTeslaCounterTimerRef.current);
+      spellUsageTeslaCounterTimerRef.current = null;
+    }
+    if (spellUsageTeslaBlackoutTimerRef.current != null) {
+      window.clearTimeout(spellUsageTeslaBlackoutTimerRef.current);
+      spellUsageTeslaBlackoutTimerRef.current = null;
+    }
+    spellUsagePendingRef.current = {
+      ...pending,
+      superTeslaCounter: undefined,
+      muhyohwaCounter: {
+        counterPlayer: saved.player,
+        handIndex: saved.cardIndex,
+        tokenCost,
+      },
+    };
+    finishSpellUsageSequence();
+    return true;
+  };
+
   const finishHandDrag = (e: React.PointerEvent) => {
     const d = activeHandDragRef.current;
     if (!d || d.pointerId !== e.pointerId) return;
@@ -8423,6 +8611,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const snap = state;
     if (!snap) return;
+    if (attemptMuhyohwaCounterDrop(snap, saved, e.clientX, e.clientY)) return;
     if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
     if (snap.guihwanPending) return;
 
@@ -14309,6 +14498,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   /** 단하 갈고리 탈취 카드 패 도착 — 시안 외곽(이동 중 비행 카드에는 미적용) */
   const handDanhaStealArrivalGlowOverlayClass =
     "pointer-events-none absolute -inset-[3px] z-[1] rounded-[10px] border-2 border-sky-400/90 shadow-[0_0_22px_6px_rgba(56,189,248,0.55),0_0_8px_2px_rgba(125,211,252,0.85)] animate-pulse";
+  /** No.14 무효화 — 상대 스펠 발동 중 손패·중앙 카드 동형 흰 윤곽 명멸 */
+  const handMuhyohwaCounterGlowOverlayClass = "pp-muhyohwa-counter-outline";
   /** 심판 패 6장 교체 모드 — 공격 가능 유닛과 동형의 흰색 맥박 */
   const simpanHandReplaceSelectableClass =
     "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-[30]";
@@ -14346,6 +14537,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             card: state.simpanPeekReveal.pendingCard,
           }
         : null;
+
+  /** No.14 무효화 — 상대 액티브 스펠 발동 연출 중 반격 가능 시 중앙 카드·손패 무효화 흰 윤곽 */
+  const spellUsageMuhyohwaCounterGlow =
+    !spellUsageMuhyohwaCounterResolve &&
+    !!spellUsageReveal &&
+    !spellUsageFly &&
+    !!state.spellUsagePending &&
+    state.spellUsagePending.phase === "centerReveal" &&
+    !!resolveMuhyohwaCounterOpportunity(
+      state,
+      state.spellUsagePending.casterPlayer,
+      state.spellUsagePending.previewCard
+    );
 
   const activePlayerState = state.currentTurn === 'A' ? state.playerA : state.playerB;
   const isDrawDisabled =
@@ -15514,19 +15718,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   >
                   <div
                     ref={spellUsageCenterFlashRef}
-                    className="relative h-full w-full overflow-hidden rounded-[8px]"
+                    className={`relative h-full w-full overflow-visible rounded-[8px] ${spellUsageMuhyohwaCounterGlow ? "ring-0" : "overflow-hidden"}`}
                   >
+                    {spellUsageMuhyohwaCounterGlow ? (
+                      <div className="pp-muhyohwa-counter-outline" aria-hidden />
+                    ) : null}
                     {spellUsageReveal.centerShowsCardBack ? (
-                      <HiddenSpellCardBackFace />
+                      <div className={spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish h-full w-full" : "h-full w-full"}>
+                        <HiddenSpellCardBackFace />
+                      </div>
                     ) : spellUsageReveal.previewCard.image_url ? (
                       <img
                         src={spellUsageReveal.previewCard.image_url}
                         alt={spellUsageReveal.previewCard.name}
-                        className={`h-full w-full object-cover ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""}`}
+                        className={`h-full w-full object-cover ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
                       />
                     ) : (
                       <div
-                        className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold ${spellUsageReveal.casterPlayer === "A" ? "text-sky-100" : "text-rose-100"} ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""}`}
+                        className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold ${spellUsageReveal.casterPlayer === "A" ? "text-sky-100" : "text-rose-100"} ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
                       >
                         {spellUsageReveal.previewCard.name}
                       </div>
@@ -15938,13 +16147,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 const simpanPeekBlockDragB = state.simpanPeekReveal?.player === "B";
                 const witchTarotDiscardHandB = witchTarotDiscardPlayer === "B" && !!card;
                 const canPointerDragB =
-                  state.currentTurn === "B" &&
                   !!card &&
                   !pendingSkill &&
                   !simpanPickHandB &&
                   !simpanPeekBlockDragB &&
                   !witchTarotDiscardHandB &&
-                  !witchTarotFlowActive;
+                  !witchTarotFlowActive &&
+                  (state.currentTurn === "B" ||
+                    canMuhyohwaCounterFromHandSlot(state, "B", i, card));
+                const muhyohwaHandGlowB =
+                  spellUsageMuhyohwaCounterGlow &&
+                  !!card &&
+                  canMuhyohwaCounterFromHandSlot(state, "B", i, card);
                 const isDragSourceB = handDrag?.player === "B" && handDrag.cardIndex === i;
                 const isDanhaStealFlySourceB =
                   danhaStealFly?.victimPlayer === "B" && danhaStealFly.victimHandIndex === i;
@@ -15981,6 +16195,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   >
                     {card && ppSimHandDanhaStealArrivalToken(card) ? (
                       <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
+                    ) : muhyohwaHandGlowB ? (
+                      <div className={handMuhyohwaCounterGlowOverlayClass} aria-hidden />
                     ) : card && ppSimHandNewGlowToken(card) ? (
                       <div className={handNewDrawGlowOverlayClass} aria-hidden />
                     ) : null}
@@ -16132,13 +16348,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 const simpanPeekBlockDragA = state.simpanPeekReveal?.player === "A";
                 const witchTarotDiscardHandA = witchTarotDiscardPlayer === "A" && !!card;
                 const canPointerDragA =
-                  state.currentTurn === "A" &&
                   !!card &&
                   !pendingSkill &&
                   !simpanPickHandA &&
                   !simpanPeekBlockDragA &&
                   !witchTarotDiscardHandA &&
-                  !witchTarotFlowActive;
+                  !witchTarotFlowActive &&
+                  (state.currentTurn === "A" ||
+                    canMuhyohwaCounterFromHandSlot(state, "A", i, card));
+                const muhyohwaHandGlowA =
+                  spellUsageMuhyohwaCounterGlow &&
+                  !!card &&
+                  canMuhyohwaCounterFromHandSlot(state, "A", i, card);
                 const isDragSourceA = handDrag?.player === "A" && handDrag.cardIndex === i;
                 const isDanhaStealFlySourceA =
                   danhaStealFly?.victimPlayer === "A" && danhaStealFly.victimHandIndex === i;
@@ -16175,6 +16396,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   >
                     {card && ppSimHandDanhaStealArrivalToken(card) ? (
                       <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
+                    ) : muhyohwaHandGlowA ? (
+                      <div className={handMuhyohwaCounterGlowOverlayClass} aria-hidden />
                     ) : card && ppSimHandNewGlowToken(card) ? (
                       <div className={handNewDrawGlowOverlayClass} aria-hidden />
                     ) : null}

@@ -1075,6 +1075,146 @@
   border-radius: 8px;
 }
 
+/* No.14 무효화 — 상대 액티브 스펠 발동 연출 중 반격 가능 표시(카드 규격 흰 윤곽 명멸 + 얇은 글로우) */
+@keyframes pp-muhyohwa-outline-flicker {
+  0%,
+  100% {
+    border-color: rgba(255, 255, 255, 0.68);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.42),
+      0 0 5px 1px rgba(255, 255, 255, 0.38),
+      0 0 10px 2px rgba(255, 255, 255, 0.22),
+      inset 0 0 10px rgba(255, 255, 255, 0.06);
+    opacity: 0.78;
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 1);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.92),
+      0 0 7px 1px rgba(255, 255, 255, 0.82),
+      0 0 14px 3px rgba(255, 255, 255, 0.52),
+      0 0 24px 4px rgba(255, 255, 255, 0.28),
+      inset 0 0 14px rgba(255, 255, 255, 0.14);
+    opacity: 1;
+  }
+}
+
+@keyframes pp-muhyohwa-outline-thin-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+    box-shadow:
+      0 0 2px 0 rgba(255, 255, 255, 0.55),
+      0 0 6px 1px rgba(255, 255, 255, 0.32),
+      0 0 12px 2px rgba(255, 255, 255, 0.16);
+  }
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 3px 0 rgba(255, 255, 255, 0.95),
+      0 0 8px 1px rgba(255, 255, 255, 0.72),
+      0 0 16px 3px rgba(255, 255, 255, 0.42);
+  }
+}
+
+.pp-muhyohwa-counter-outline {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border-radius: 8px;
+  box-sizing: border-box;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  background: transparent;
+  animation: pp-muhyohwa-outline-flicker 0.58s ease-in-out infinite;
+  overflow: visible;
+}
+
+/* 카드 바깥 — 얇은 흰 글로우(윤곽선과 동기 명멸) */
+.pp-muhyohwa-counter-outline::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: transparent;
+  animation: pp-muhyohwa-outline-thin-glow 0.58s ease-in-out infinite;
+}
+
+/* 카드 안쪽 — 얇은 내부 글로우 */
+.pp-muhyohwa-counter-outline::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 2px;
+  z-index: 1;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 8px 1px rgba(255, 255, 255, 0.12);
+  animation: pp-muhyohwa-outline-thin-glow 0.58s ease-in-out infinite;
+  animation-delay: 0.08s;
+}
+
+/* No.14 무효화 — 반격 성공 시 중앙 스펠 흰 펄스 소멸 */
+.pp-combat-flash-layer--muhyohwa-counter-resolve {
+  animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
+  background: radial-gradient(
+    ellipse 118% 105% at 50% 46%,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(255, 255, 255, 0.72) 30%,
+    rgba(255, 255, 255, 0.28) 54%,
+    rgba(255, 255, 255, 0.08) 70%,
+    transparent 84%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, 0.72),
+    inset 0 0 48px rgba(255, 255, 255, 0.58),
+    inset 0 0 96px rgba(255, 255, 255, 0.32);
+}
+
+.pp-combat-flash-layer--muhyohwa-counter-resolve-aura {
+  animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
+  background: radial-gradient(
+    ellipse 100% 95% at 50% 50%,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.32) 36%,
+    rgba(255, 255, 255, 0.14) 58%,
+    rgba(255, 255, 255, 0.05) 74%,
+    transparent 84%
+  );
+  box-shadow:
+    0 0 42px 22px rgba(255, 255, 255, 0.48),
+    0 0 72px 44px rgba(255, 255, 255, 0.34),
+    0 0 110px 64px rgba(255, 255, 255, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
+  filter: blur(0.8px);
+  mix-blend-mode: screen;
+}
+
+@keyframes pp-muhyohwa-counter-vanish {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.04);
+    filter: brightness(2.4);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+    filter: brightness(3);
+  }
+}
+
+.pp-muhyohwa-counter-vanish {
+  animation: pp-muhyohwa-counter-vanish 0.72s ease-out forwards;
+}
+
 .pp-super-tesla-counter-outline--spell-land {
   inset: -22px -28px;
   border-radius: 14px;
