@@ -242,6 +242,25 @@ import {
   isWitchTarotSpellCard,
   isBefpkkiriSpellCard,
   applyBefpkkiriSpellCommit,
+  isBubbleStationSpellCard,
+  applyBubbleStationInitialCommit,
+  applyBubbleStationDiscardWipeEnd,
+  applyBubbleStationCommitTypeSelection,
+  applyBubbleStationTypeSelectDeadline,
+  applyBubbleStationFlashEnd,
+  handleBubbleStationCardArrived,
+  finishBubbleStationSequence,
+  parseBubbleStationPendingSave,
+  reconcileBubbleStationPendingFromSnapshot,
+  patchBubbleStationPendingOnState,
+  hasBubbleStationHandDiscardFlashMark,
+  BUBBLE_STATION_SPELL_ID,
+  BUBBLE_STATION_DISCARD_WIPE_MS,
+  BUBBLE_STATION_TYPE_SELECT_MS,
+  BUBBLE_STATION_SELECTION_FLASH_MS,
+  BUBBLE_STATION_UNIT_TYPES,
+  type BubbleStationPendingSave,
+  type BubbleStationUnitTypeId,
   type SimpanPeekQueueEntry,
   WITCH_TAROT_SPELL_ID,
   WITCH_TAROT_TOTAL_STEPS,
@@ -352,8 +371,15 @@ interface SimulationState {
   simpanPeekReveal: {
     player: "A" | "B";
     pendingCard: CardRow;
-    /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장, "teslaDrawRewind" = 슈퍼 테슬라 보상 드로우(손패) */
-    peekKind?: "simpan" | "draw" | "opening" | "teslaDrawRewind" | "witchTarot" | "befpkkiri";
+    /** "simpan" = 심판, "draw" = 턴 드로우, "opening" = 게임 시작 초기 4장, "teslaDrawRewind" = 슈퍼 테슬라 보상 드로우(손패), "bubbleStation" = No.56 보글보글 스테이션 재드로우 */
+    peekKind?:
+      | "simpan"
+      | "draw"
+      | "opening"
+      | "teslaDrawRewind"
+      | "witchTarot"
+      | "befpkkiri"
+      | "bubbleStation";
   } | null;
   simpanPeekQueue: SimpanPeekQueueEntry[];
   /** `simpanPeekReveal`이 바뀔 때마다 증가 — 프리뷰 타이머 1회 트리거용 */
@@ -370,6 +396,8 @@ interface SimulationState {
   spellUsagePending: SpellUsagePendingSave | null;
   /** No.28 귀환 — 리와인드에서 아군 유닛 선택 대기 */
   guihwanPending: GuihwanPendingSave | null;
+  /** No.56 보글보글 스테이션 — 유닛 타입 선택·재드로우 시퀀스(저장·복귀 시 재개) */
+  bubbleStationPending: BubbleStationPendingSave | null;
 }
 
 interface SimulationViewProps {
@@ -804,6 +832,7 @@ function canHandDragPlaceSpellOnOwnSpellSlot(
 ): boolean {
   if (!isSpellCardRow(drag.card)) return false;
   if (isMuhyohwaSpellCard(drag.card)) return false;
+  if (snap.bubbleStationPending) return false;
   if (snap.currentTurn !== drag.player) return false;
   if (targetPlayer !== drag.player) return false;
   if (isEnemyUnitDragTargetSpell(drag.card)) return false;
@@ -994,6 +1023,7 @@ type FlashOverlayKind =
   | "gonchungHiddenPeek"
   | "superTeslaSpellTrigger"
   | "befpkkiriSpellTrigger"
+  | "bubbleStationSpellTrigger"
   | "elWingMagicImmunityBlock"
   | "oneNightWagerSpellTrigger"
   | "oneNightWagerTokenWipe"
@@ -1490,6 +1520,15 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     }
     if (peekKind === "witchTarot") return merged;
     if (peekKind === "draw") return merged;
+    if (peekKind === "bubbleStation") {
+      const advanced = handleBubbleStationCardArrived(
+        merged,
+        player,
+        cardForHand
+      );
+      if (!advanced.bubbleStationPending) return advanced;
+      return primeSimpanPeekReveal(advanced);
+    }
     return primeSimpanPeekReveal(merged);
   };
 
@@ -2006,6 +2045,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     gonchungHiddenPeek: 820,
     superTeslaSpellTrigger: 980,
     befpkkiriSpellTrigger: 980,
+    bubbleStationSpellTrigger: 980,
     elWingMagicImmunityBlock: 820,
     oneNightWagerSpellTrigger: 980,
     oneNightWagerTokenWipe: 900,
@@ -3101,6 +3141,150 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return () => window.clearInterval(id);
   }, [pendingElWingSinseokDefense]);
 
+  /** 보글보글 스테이션 — 유닛 타입 선택 5초 카운트다운 게이지 시각화 */
+  const [bubbleStationTypeSelectSecondsLeft, setBubbleStationTypeSelectSecondsLeft] =
+    useState(0);
+  const [bubbleStationTypeSelectTimeRatio, setBubbleStationTypeSelectTimeRatio] =
+    useState(0);
+  const bubbleStationRestoreOnMountDoneRef = useRef(false);
+
+  const commitBubbleStationUnitType = useCallback((typeId: BubbleStationUnitTypeId) => {
+    setState(prev => {
+      if (!prev?.bubbleStationPending) return prev;
+      if (prev.bubbleStationPending.phase !== "typeSelect") return prev;
+      return applyBubbleStationCommitTypeSelection(prev, typeId);
+    });
+  }, []);
+
+  const commitRandomBubbleStationUnitType = useCallback(() => {
+    const idx = Math.floor(Math.random() * BUBBLE_STATION_UNIT_TYPES.length);
+    const pick = BUBBLE_STATION_UNIT_TYPES[idx] ?? BUBBLE_STATION_UNIT_TYPES[0]!;
+    commitBubbleStationUnitType(pick.id);
+  }, [commitBubbleStationUnitType]);
+
+  /** discardWipe 단계 — 양측 패 흰색 wipe 0.7초 후 자동으로 typeSelect로 전이(hand → rewindCards) */
+  useEffect(() => {
+    const p = state?.bubbleStationPending;
+    if (!p || p.phase !== "discardWipe") return;
+    const endAt = p.discardWipeEndAt ?? Date.now() + BUBBLE_STATION_DISCARD_WIPE_MS;
+    const remaining = Math.max(0, endAt - Date.now());
+    const tid = window.setTimeout(() => {
+      setState(prev =>
+        prev?.bubbleStationPending && prev.bubbleStationPending.phase === "discardWipe"
+          ? applyBubbleStationDiscardWipeEnd(prev)
+          : prev
+      );
+    }, remaining);
+    return () => window.clearTimeout(tid);
+  }, [state?.bubbleStationPending]);
+
+  /** typeSelect 단계 — spellUsage 연출이 끝난 직후 deadline 설정(연출이 길어 5초가 시작 전에 흐르지 않도록) */
+  useEffect(() => {
+    const p = state?.bubbleStationPending;
+    if (!p || p.phase !== "typeSelect") return;
+    if (p.typeSelectDeadlineAt != null && p.typeSelectDeadlineAt > 0) return;
+    if (state?.spellUsagePending) return;
+    if (spellUsageReveal || spellUsageFly) return;
+    setState(prev =>
+      prev?.bubbleStationPending && prev.bubbleStationPending.phase === "typeSelect"
+        ? applyBubbleStationTypeSelectDeadline(
+            prev,
+            Date.now() + BUBBLE_STATION_TYPE_SELECT_MS
+          )
+        : prev
+    );
+  }, [state?.bubbleStationPending, state?.spellUsagePending, spellUsageReveal, spellUsageFly]);
+
+  /** 보글보글 종료 감지 — pending이 truthy → null로 전이 시 시전자 스펠 칸에 카키 펄스 */
+  const bubbleStationLastCasterRef = useRef<"A" | "B" | null>(null);
+  useEffect(() => {
+    const p = state?.bubbleStationPending ?? null;
+    if (p) {
+      bubbleStationLastCasterRef.current = p.casterPlayer;
+      return;
+    }
+    const lastCaster = bubbleStationLastCasterRef.current;
+    if (!lastCaster) return;
+    bubbleStationLastCasterRef.current = null;
+    triggerCardFlash(`${lastCaster}-spell`, "bubbleStationSpellTrigger");
+  }, [state?.bubbleStationPending]);
+
+  /** typeSelect 단계 — 5초 카운트다운 + 종료 시 자동 랜덤 선택 */
+  useEffect(() => {
+    const p = state?.bubbleStationPending;
+    if (!p || p.phase !== "typeSelect") {
+      setBubbleStationTypeSelectTimeRatio(0);
+      setBubbleStationTypeSelectSecondsLeft(0);
+      return;
+    }
+    if (p.typeSelectDeadlineAt == null || p.typeSelectDeadlineAt <= 0) {
+      setBubbleStationTypeSelectTimeRatio(1);
+      setBubbleStationTypeSelectSecondsLeft(
+        Math.ceil(BUBBLE_STATION_TYPE_SELECT_MS / 1000)
+      );
+      return;
+    }
+    const deadline = p.typeSelectDeadlineAt;
+    const tick = () => {
+      const remainingMs = Math.max(0, deadline - Date.now());
+      setBubbleStationTypeSelectTimeRatio(
+        remainingMs / BUBBLE_STATION_TYPE_SELECT_MS
+      );
+      setBubbleStationTypeSelectSecondsLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+    };
+    tick();
+    const tickId = window.setInterval(tick, 50);
+    const remaining = Math.max(0, deadline - Date.now());
+    const timeoutId = window.setTimeout(() => {
+      commitRandomBubbleStationUnitType();
+    }, remaining);
+    return () => {
+      window.clearInterval(tickId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [state?.bubbleStationPending, commitRandomBubbleStationUnitType]);
+
+  /** selectionFlash 단계 — 1.5초 후 자동으로 drawing 단계로 전이(deck에서 N장 enqueue) */
+  useEffect(() => {
+    const p = state?.bubbleStationPending;
+    if (!p || p.phase !== "selectionFlash") return;
+    const endAt = p.selectionFlashEndAt ?? Date.now() + BUBBLE_STATION_SELECTION_FLASH_MS;
+    const remaining = Math.max(0, endAt - Date.now());
+    const tid = window.setTimeout(() => {
+      setState(prev =>
+        prev?.bubbleStationPending && prev.bubbleStationPending.phase === "selectionFlash"
+          ? applyBubbleStationFlashEnd(prev, c =>
+              markPpSimHandNewGlow(c, `pp-hng-${++ppSimHandGlowSeqRef.current}`)
+            )
+          : prev
+      );
+    }, remaining);
+    return () => window.clearTimeout(tid);
+  }, [state?.bubbleStationPending]);
+
+  /** drawing 단계 — 새로고침 직후 reveal이 비어있는데 queue에 카드가 있으면 자동 prime, 모두 합류했으면 finish */
+  useEffect(() => {
+    if (bubbleStationRestoreOnMountDoneRef.current) return;
+    const snap = state;
+    const p = snap?.bubbleStationPending;
+    if (!snap || isInitializing || !p) return;
+    bubbleStationRestoreOnMountDoneRef.current = true;
+    if (p.phase !== "drawing") return;
+    if (p.arrivedDrawCount >= p.enqueuedDrawCount) {
+      setState(prev =>
+        prev?.bubbleStationPending ? finishBubbleStationSequence(prev) : prev
+      );
+      return;
+    }
+    if (!snap.simpanPeekReveal && (snap.simpanPeekQueue?.length ?? 0) > 0) {
+      setState(prev =>
+        prev && !prev.simpanPeekReveal && (prev.simpanPeekQueue?.length ?? 0) > 0
+          ? primeSimpanPeekReveal(prev)
+          : prev
+      );
+    }
+  }, [state, isInitializing]);
+
   /** 로누 패시브 — 액티브 스펠 차단 시 로누 슬롯 하늘색 능력 발동 + 시스템 플로팅 */
   const blockRonuActiveSpellHandPlay = (
     snap: SimulationState,
@@ -3379,6 +3563,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             ),
           afterCommitVfx: () => {
             triggerCardFlash(`${tp}-spell`, "befpkkiriSpellTrigger");
+          },
+        };
+      }
+
+      if (save.mode === "placeSpellSlot" && isBubbleStationSpellCard(previewCard) && save.fieldCard) {
+        const fieldCard = save.fieldCard;
+        const sourcePlayer = casterPlayer;
+        return {
+          ...basePending,
+          preApply: noopPreApply,
+          commit: prev => applyBubbleStationInitialCommit(prev, sourcePlayer, fieldCard),
+          afterCommitVfx: () => {
+            triggerCardFlash(`${sourcePlayer}-spell`, "bubbleStationSpellTrigger");
           },
         };
       }
@@ -4456,6 +4653,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       );
     }
+    /* 능력 발동 이펙트 — 보글보글 스테이션(스펠 칸 배치 — 베프끼리 동형·시안) */
+    if (snap.kind === "bubbleStationSpellTrigger") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-bubble-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-bubble-aura`}
+            className={`pp-combat-flash-layer--bubble-station-spell-trigger-aura--spell-land pointer-events-none absolute -inset-[4.75rem] z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-bubble-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--bubble-station-spell-trigger--spell-land`}
+          />
+        </div>
+      );
+    }
     /* 능력 발동 이펙트 — 곤충 전문가「A) 탐색」(슈퍼 그린킹 스펠 칸 동형·연두) */
     if (snap.kind === "gonchungHiddenPeek") {
       const isSpellSlot = slotKey === "A-spell" || slotKey === "B-spell";
@@ -5195,6 +5411,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setSpellUsageFly(null);
     setIsGuihwanRewindOpen(false);
     guihwanRestoreOnMountDoneRef.current = false;
+    bubbleStationRestoreOnMountDoneRef.current = false;
     witchTarotSequenceRef.current = null;
     witchTarotSequenceActiveRef.current = false;
     setWitchTarotFlowActive(false);
@@ -5263,6 +5480,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       oneNightWagerPending: null,
       spellUsagePending: null,
       guihwanPending: null,
+      bubbleStationPending: null,
       playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
       playerB: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
     });
@@ -5919,6 +6137,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     startingWraithRestoreOnMountDoneRef.current = false;
     oneNightWagerRestoreOnMountDoneRef.current = false;
     spellUsageRestoreOnMountDoneRef.current = false;
+    bubbleStationRestoreOnMountDoneRef.current = false;
     return () => {
       const snap = simulationStateRef.current;
       if (!snap || snap.currentTurn == null) return;
@@ -6133,15 +6352,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             : null;
         parsed.spellUsagePending = parseSpellUsagePendingSave(parsed.spellUsagePending);
         parsed.guihwanPending = parseGuihwanPendingSave(parsed.guihwanPending);
+        parsed.bubbleStationPending = parseBubbleStationPendingSave(parsed.bubbleStationPending);
         parsed.playerA = { ...parsed.playerA, field: migratePlayerFieldSpellStack(parsed.playerA.field) };
         parsed.playerB = { ...parsed.playerB, field: migratePlayerFieldSpellStack(parsed.playerB.field) };
 
-        const reconciled = reconcileGuihwanPendingFromSnapshot(
-          reconcileSpellUsagePendingFromSnapshot(
-            reconcileOneNightWagerPendingFromSnapshot(
-              reconcileStartingWraithChainPendingFromSnapshot(
-                reconcileLegendarySwordPendingFromSnapshot(
-                  reconcileWitchTarotPendingFromSnapshot(parsed)
+        const reconciled = reconcileBubbleStationPendingFromSnapshot(
+          reconcileGuihwanPendingFromSnapshot(
+            reconcileSpellUsagePendingFromSnapshot(
+              reconcileOneNightWagerPendingFromSnapshot(
+                reconcileStartingWraithChainPendingFromSnapshot(
+                  reconcileLegendarySwordPendingFromSnapshot(
+                    reconcileWitchTarotPendingFromSnapshot(parsed)
+                  )
                 )
               )
             )
@@ -7298,6 +7520,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             ),
           afterCommitVfx: () => {
             triggerCardFlash(`${sourcePlayer}-spell`, "befpkkiriSpellTrigger");
+          },
+        });
+        return;
+      }
+
+      if (isBubbleStationSpellCard(handCard)) {
+        const statsId = createSimulationStatsInstanceId();
+        const fieldCard: FieldCard = {
+          ...handCardForField,
+          statsInstanceId: statsId,
+          currentHp: Number(handCard.hp) || 0,
+          hasAttacked: false,
+          hasBeenAttackedThisTurn: false,
+          summonedTurn: `${gameState.turnCount}-${gameState.currentTurn}`,
+        };
+        bubbleStationRestoreOnMountDoneRef.current = true;
+        scheduleSpellHandUsageSequence(gameState, {
+          casterPlayer: sourcePlayer,
+          previewCard: handCard,
+          mode: "placeSpellSlot",
+          targetPlayer,
+          fieldCard,
+          flyToSpellSlotAfterReveal: true,
+          centerShowsCardBack: isHiddenSpellCard(handCard),
+          preApply: prev => {
+            const h = [...(isPlayerA ? prev.playerA.hand : prev.playerB.hand)];
+            if (cardIndex < 0 || cardIndex >= h.length) return prev;
+            const row = h[cardIndex];
+            if (!row || !isBubbleStationSpellCard(row)) return prev;
+            h.splice(cardIndex, 1);
+            const key = isPlayerA ? "playerA" : "playerB";
+            const ps = isPlayerA ? prev.playerA : prev.playerB;
+            return {
+              ...prev,
+              [key]: { ...ps, hand: h, tokens: ps.tokens - placementCost },
+            };
+          },
+          commit: prev =>
+            applyBubbleStationInitialCommit(prev, sourcePlayer, fieldCard),
+          afterCommitVfx: () => {
+            triggerCardFlash(`${sourcePlayer}-spell`, "bubbleStationSpellTrigger");
           },
         });
         return;
@@ -12281,6 +12544,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const eondeokDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
       if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
+      if (state.bubbleStationPending) return "off";
       if (!isEnemyUnitDragTargetSpell(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -12312,6 +12576,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const orietDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
       if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
+      if (state.bubbleStationPending) return "off";
       if (!isSpellCardRow(handDrag.card) || !isOrietChosangSpellCard(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
       if (slotName === "spell") return "no";
@@ -12631,6 +12896,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const field = player === "A" ? state.playerA.field : state.playerB.field;
     if (normalizeSpellStack(field).length > 0) return "";
     return "border-[3px] border-blue-400/95 bg-gradient-to-br from-blue-600/35 to-sky-500/22 shadow-[0_0_26px_rgba(96,165,250,0.55),0_0_42px_rgba(59,130,246,0.38)] animate-pulse z-[18]";
+  };
+
+  /** 스펠 No.56 보글보글 스테이션 — 자기 스펠칸에 드래그 중일 때 슬롯 펄스(시안). 겹침 시 공통 스택 펄스 */
+  const getHandDragBubbleStationSpellSlotPulseClass = (player: "A" | "B"): string => {
+    if (!handDrag || !state || winner) return "";
+    if (!canHandDragPlaceSpellOnOwnSpellSlot(handDrag, state, player)) return "";
+    if (!isBubbleStationSpellCard(handDrag.card)) return "";
+    const field = player === "A" ? state.playerA.field : state.playerB.field;
+    if (normalizeSpellStack(field).length > 0) return "";
+    return "border-[3px] border-cyan-400/95 bg-gradient-to-br from-cyan-600/35 to-sky-500/22 shadow-[0_0_26px_rgba(34,211,238,0.55),0_0_42px_rgba(8,145,178,0.38)] animate-pulse z-[18]";
   };
 
   /** 스펠 칸 맨 위 카드 — 지속 스펠 남은 ×턴(B: 왼쪽 아래, A: 오른쪽 위) */
@@ -14566,6 +14841,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !!state.oneNightWagerPending ||
     !!state.spellUsagePending ||
     !!state.guihwanPending ||
+    !!state.bubbleStationPending ||
     witchTarotFlowActive ||
     !!witchTarotCoin;
   const isDrawHighlight =
@@ -14583,6 +14859,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !state.oneNightWagerPending &&
     !state.spellUsagePending &&
     !state.guihwanPending &&
+    !state.bubbleStationPending &&
     !witchTarotFlowActive &&
     !witchTarotCoin;
 
@@ -15477,6 +15754,75 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
+      {state.bubbleStationPending &&
+        (state.bubbleStationPending.phase === "typeSelect" ||
+          state.bubbleStationPending.phase === "selectionFlash") &&
+        !state.spellUsagePending &&
+        !spellUsageReveal &&
+        !spellUsageFly && (
+          <div
+            className="fixed inset-0 z-[112] flex items-center justify-center bg-black/45 backdrop-blur-[2px]"
+            onClick={() => {
+              /* 외부 클릭 무시 — 7개 버튼 또는 5초 자동 선택만 처리 */
+            }}
+          >
+            <div
+              className="mx-3 w-full max-w-2xl rounded-2xl border-2 border-cyan-400 bg-[#0a1628] p-5 shadow-[0_0_48px_rgba(34,211,238,0.65)] animate-[scaleIn_0.15s_ease-out]"
+              onClick={ev => ev.stopPropagation()}
+            >
+              <p className="mb-1 text-center text-sm font-black tracking-wide text-cyan-300">
+                {BUBBLE_STATION_SPELL_ID}
+              </p>
+              <p className="mb-3 text-center text-xs text-slate-300">
+                {state.bubbleStationPending.phase === "typeSelect"
+                  ? `유닛 타입을 선택하세요 (${bubbleStationTypeSelectSecondsLeft}초)`
+                  : "유닛 타입이 선택되었습니다"}
+              </p>
+              <div
+                className="mb-4 h-2.5 w-full overflow-hidden rounded-full border border-slate-400/80 bg-white shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]"
+                aria-hidden
+              >
+                <div
+                  className="h-full max-w-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-500 to-sky-700 shadow-[0_0_8px_rgba(34,211,238,0.45)] transition-[width] duration-75 ease-linear"
+                  style={{
+                    width:
+                      state.bubbleStationPending.phase === "typeSelect"
+                        ? `${Math.round(bubbleStationTypeSelectTimeRatio * 10000) / 100}%`
+                        : "0%",
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {BUBBLE_STATION_UNIT_TYPES.map(t => {
+                  const isSelected =
+                    state.bubbleStationPending?.selectedUnitType === t.id;
+                  const isFlashing =
+                    state.bubbleStationPending?.phase === "selectionFlash" && isSelected;
+                  const isDisabled =
+                    state.bubbleStationPending?.phase !== "typeSelect";
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => commitBubbleStationUnitType(t.id)}
+                      className={`rounded-xl border px-2 py-3 text-xs font-black transition-all sm:text-sm ${
+                        isFlashing
+                          ? "border-cyan-200 bg-cyan-400 text-[#0a1628] shadow-[0_0_24px_rgba(34,211,238,0.95)] pp-bubble-station-button-flash"
+                          : isDisabled && !isSelected
+                            ? "cursor-not-allowed border-cyan-300/20 bg-cyan-950/40 text-cyan-100/40"
+                            : "border-cyan-300/40 bg-cyan-950/80 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.35)] hover:border-cyan-200 hover:bg-cyan-800/80 active:scale-95"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
       {pendingLibutyAllEnemiesAttack && (
         <div
           className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[1px]"
@@ -15924,7 +16270,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <div className="flex justify-start w-full mt-2">
                 <div className="flex flex-row items-center gap-1">
                   <div
-                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="B"
                     data-field-slot="spell"
@@ -15970,7 +16316,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     </button>
                   ) : null}
                   <div
-                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
+                    className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}${getTopSpellFromField(state.playerA.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "A" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
                     data-field-drop
                     data-field-player="A"
                     data-field-slot="spell"
@@ -16193,7 +16539,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       setHandDragHoverSlotKey(null);
                     } : undefined}
                   >
-                    {card && ppSimHandDanhaStealArrivalToken(card) ? (
+                    {card && hasBubbleStationHandDiscardFlashMark(card) ? (
+                      <div className="absolute inset-0 z-[6] rounded-[8px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
+                    ) : card && ppSimHandDanhaStealArrivalToken(card) ? (
                       <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
                     ) : muhyohwaHandGlowB ? (
                       <div className={handMuhyohwaCounterGlowOverlayClass} aria-hidden />
@@ -16394,7 +16742,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       setHandDragHoverSlotKey(null);
                     } : undefined}
                   >
-                    {card && ppSimHandDanhaStealArrivalToken(card) ? (
+                    {card && hasBubbleStationHandDiscardFlashMark(card) ? (
+                      <div className="absolute inset-0 z-[6] rounded-[8px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
+                    ) : card && ppSimHandDanhaStealArrivalToken(card) ? (
                       <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
                     ) : muhyohwaHandGlowA ? (
                       <div className={handMuhyohwaCounterGlowOverlayClass} aria-hidden />

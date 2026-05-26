@@ -1007,6 +1007,99 @@
   mix-blend-mode: screen;
 }
 
+/* 능력 발동 이펙트 — 스펠 No.56 보글보글 스테이션(스펠 칸 배치·제거 — 베프끼리 동형·카키) */
+.pp-combat-flash-layer--bubble-station-spell-trigger--spell-land {
+  animation: pp-combat-flash-pulse-ghostone 0.88s ease-out forwards;
+  background: radial-gradient(
+    ellipse 150% 88% at 50% 50%,
+    rgba(230, 215, 175, 0.98) 0%,
+    rgba(195, 176, 145, 0.82) 22%,
+    rgba(150, 130, 100, 0.5) 44%,
+    rgba(101, 87, 65, 0.2) 64%,
+    transparent 86%
+  );
+  box-shadow:
+    inset 0 0 0 4px rgba(245, 235, 210, 0.78),
+    inset 0 0 0 2px rgba(230, 215, 175, 0.48),
+    inset 0 0 60px rgba(195, 176, 145, 0.62),
+    inset 0 0 115px rgba(150, 130, 100, 0.44);
+}
+
+.pp-combat-flash-layer--bubble-station-spell-trigger-aura--spell-land {
+  animation: pp-combat-flash-aura-ghostone 0.62s ease-out forwards;
+  background: radial-gradient(
+    ellipse 145% 78% at 50% 50%,
+    rgba(230, 215, 175, 0.52) 0%,
+    rgba(195, 176, 145, 0.34) 28%,
+    rgba(150, 130, 100, 0.22) 50%,
+    rgba(101, 87, 65, 0.1) 70%,
+    transparent 88%
+  );
+  box-shadow:
+    0 0 64px 32px rgba(195, 176, 145, 0.5),
+    0 0 108px 56px rgba(150, 130, 100, 0.38),
+    0 0 150px 72px rgba(101, 87, 65, 0.26),
+    0 0 190px 96px rgba(85, 70, 50, 0.14),
+    0 0 0 1px rgba(245, 235, 210, 0.26);
+  filter: blur(1px);
+  mix-blend-mode: screen;
+}
+
+/* 보글보글 스테이션 발동 직후 — 양측 손패가 흰색 빛으로 번쩍이며 사라지는 wipe(0.7초) */
+@keyframes pp-bubble-station-hand-wipe {
+  0% {
+    opacity: 0;
+    background: rgba(255, 255, 255, 0);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    transform: scale(1);
+  }
+  18% {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow:
+      0 0 32px 12px rgba(255, 255, 255, 0.85),
+      inset 0 0 36px rgba(255, 255, 255, 0.9);
+    transform: scale(1.04);
+  }
+  55% {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow:
+      0 0 50px 18px rgba(255, 255, 255, 0.75),
+      inset 0 0 48px rgba(255, 255, 255, 0.7);
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    background: rgba(255, 255, 255, 0);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    transform: scale(1.15);
+  }
+}
+
+.pp-bubble-station-hand-wipe {
+  animation: pp-bubble-station-hand-wipe 0.7s ease-out forwards;
+  background: rgba(255, 255, 255, 0.9);
+  mix-blend-mode: screen;
+}
+
+/* 능력 발동 이펙트 — 보글보글 스테이션 유닛 타입 선택 확정(1.5초 깜빡임) */
+@keyframes pp-bubble-station-button-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.9);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 48px rgba(165, 243, 252, 1), 0 0 80px rgba(34, 211, 238, 0.75);
+    transform: scale(1.08);
+  }
+}
+
+.pp-bubble-station-button-flash {
+  animation: pp-bubble-station-button-flash 0.5s ease-in-out infinite;
+}
+
 /* 슈퍼 테슬라 반격 후 — 필드에 남아 있는 테슬라 윤곽 시안 광채 */
 @keyframes pp-super-tesla-counter-outline-pulse {
   0%,

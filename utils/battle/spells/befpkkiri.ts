@@ -11,7 +11,8 @@ export type SimpanPeekKind =
   | "opening"
   | "teslaDrawRewind"
   | "witchTarot"
-  | "befpkkiri";
+  | "befpkkiri"
+  | "bubbleStation";
 
 export type SimpanPeekQueueEntry = {
   player: "A" | "B";
