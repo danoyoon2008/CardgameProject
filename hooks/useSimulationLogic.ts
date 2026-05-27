@@ -89,7 +89,7 @@ import {
   normalizeUnitHpSurvivalOnesForCombat,
 } from "../utils/battle";
 
-const ATTACK_DISABLED_UNITS: Set<string> = new Set(["모닝 무드", "시작의 나무", "전설의 검"]);
+const ATTACK_DISABLED_UNITS: Set<string> = new Set(["모닝 무드", "시작의 나무", "전설의 검", "애벌레킹"]);
 const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   !!card && ATTACK_DISABLED_UNITS.has(String(card.name ?? ""));
 

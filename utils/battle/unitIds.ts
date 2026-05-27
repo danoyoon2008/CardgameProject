@@ -54,6 +54,12 @@ export const UNIT = {
   LEGENDARY_SWORD: "전설의 검",
   /** No.15 — 액티브「A) 탐색」(상대 스펠 칸 히든 스펠 1회 엿보기) */
   GONCHUNG_JEONMOGA: "곤충 전문가",
+  /**
+   * No.37 — 적 유닛 위에 부착되는 기생형 라이더. 빈 슬롯이 아닌 적 유닛 위에만 소환 가능.
+   * 공격 버튼 없음. 매 턴 종료(누구의 턴이든) 시 host에게 자동 300 피해, host 사망 시 동반 리와인드.
+   * 위치 감지 효과(디너·필립·캘리 등)·슬롯 enumerate에서 자동 제외, 모든 스펠 대상이 될 수 있음.
+   */
+  AEBEOLAEKING: "애벌레킹",
 } as const;
 
 export type ImplementedUnitName = (typeof UNIT)[keyof typeof UNIT];

@@ -126,6 +126,20 @@ export interface FieldCard extends CardRow {
   legendarySwordArmed?: boolean;
   /** 충전 중 시전자가 턴 종료를 누르면 후광·윤곽 깜빡임 2배 */
   legendarySwordChargeFastBlink?: boolean;
+
+  /**
+   * No.37 애벌레킹 — 적 유닛 위에 기생 부착된 라이더(W 슬롯). null/undefined면 부착 없음.
+   * 위치 감지 효과(디너·필립·캘리 등) 및 슬롯 enumerate에서 자동 제외(부착물이므로 슬롯이 아님).
+   * 매 턴 종료 시 host에게 300 자동 피해(소환 턴 제외), host 사망 시 동반 리와인드.
+   * 라이더는 그 자체로 currentHp/statsInstanceId/summonedTurn을 가지나 unitCombatStats에는 등재하지 않음.
+   */
+  parasiteRider?: FieldCard | null;
+
+  /** 애벌레킹 라이더 전용 — 부착 시점의 globalTurnCount. 다음 턴 종료부터 자동 피해 발동. */
+  parasiteSummonGlobalTurn?: number;
+
+  /** 애벌레킹 라이더 전용 — 부착된 host의 소속 진영("A" | "B"). 매 턴 데미지/사망 정리 시 빠른 식별용. */
+  parasiteHostPlayer?: "A" | "B" | null;
 }
 
 /** 시뮬레이션 한쪽 필드 — 유닛 슬롯 + 스펠 겹침(맨 끝이 스펠 칸에 보이는 카드) */

@@ -52,4 +52,5 @@ export * from "./ronu";
 export * from "./ryeomhwa";
 export * from "./legendarySword";
 export * from "./legendarySwordStrikeResolve";
+export * from "./aebeolaeking";
 export { passiveStatusRegistry, postAttackRegistry, damageModRegistry, onSummonRegistry } from "./registry";

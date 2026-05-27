@@ -131,6 +131,7 @@ import {
   HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER,
   HYUGESOJAUI_ANSIK_INITIAL_END_TURN_TICKS,
   applyHyugesojauiAnsikHealAttempt,
+  applyHyugesojauiAnsikHealToOwnAebeolaekingRiders,
   applyHyugesojauiAnsikTurnStartForOwner,
   isHyugesojauiAnsikActiveOnSpell,
   type HyugesojauiAnsikHealSlotResult,
@@ -176,6 +177,7 @@ import {
   suppressionBlocksExternalBuffEffects,
   isSuppressionActive,
   HYPER_BEAM_SPELL_ID,
+  HYPER_BEAM_DAMAGE,
   isHyperBeamSpellCard,
   applyHyperBeamDamageToEnemyUnit,
   BUFF_BAN_BADGE,
@@ -295,6 +297,30 @@ import {
   shouldOfferElWingSinseokOnBasicAttackHit,
   elWingSinseokGaugeFilled,
   clampElWingSinseokGauge,
+  AEBEOLAEKING_ID,
+  AEBEOLAEKING_PARASITE_TURN_END_DAMAGE,
+  AEBEOLAEKING_DAMAGE_SHARE_RATIO,
+  isAebeolaekingCard,
+  hasAebeolaekingRider,
+  buildAebeolaekingRider,
+  attachAebeolaekingRider,
+  detachAebeolaekingRiderFromHost,
+  stripAebeolaekingRiderMeta,
+  shouldTriggerAebeolaekingParasiteThisEndTurn,
+  applyDamageToAebeolaekingRiderInHost,
+  applyAebeolaekingParasiteEndTurnDamageToHost,
+  applyAebeolaekingDamageShareFromHostToRider,
+  applyAebeolaekingDamageShareFromHostToRiderWithProtection,
+  applyAebeolaekingDamageToRiderAndShareToHost,
+  applyAebeolaekingDamageToRiderAndShareToHostWithProtection,
+  getAebeolaekingRiderOwnerFromHostOwner,
+  getAebeolaekingRiderTrueOwner,
+  appendDeadHostWithRiderToRewindCards,
+  canHandDragAttachAebeolaekingTo,
+  isAebeolaekingNoAttackUnit,
+  aebeolaekingRiderSlotKey,
+  isAebeolaekingRiderSlotKey,
+  parseAebeolaekingRiderSlotKey,
 } from "../../utils/battle";
 import {
   GonchungSpellStackTopFace,
@@ -1031,7 +1057,10 @@ type FlashOverlayKind =
   | "guihwanPlace"
   | "guihwanRevive"
   | "kalliBuffBan"
-  | "muhyohwaCounterResolve";
+  | "muhyohwaCounterResolve"
+  | "aebeolaekingAttach"
+  | "aebeolaekingAttachAura"
+  | "aebeolaekingParasiteTick";
 
 /** 플래시 오버레이 메타(슬롯당 1개) */
 type FlashOverlayEntry = {
@@ -1737,11 +1766,75 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     }
 
     const under = document.elementFromPoint(clientX, clientY);
+
+    /* 애벌레킹(W) 라이더 hit-test — host slot보다 우선. 부착된 W 위로 드래그 시 별도 처리.
+     * - 손패의 애벌레킹 카드: W가 부착된 host 위에는 부착 불가(이중 부착 금지) → host 분기로 fall-through하면 빈 host hover 검사에 막힘.
+     * - 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼빔): 적의 W(=내 host에 부착된 W)를 직접 타깃.
+     *   ※ host의 ownerStr가 시전자(drag.player)와 동일 → W는 적의 카드(상대가 시전자의 host에 기생시킨 것).
+     * - 단일 자기 타깃 지원 스펠(오리에트의 초상): 자기 W(=적 host에 부착된 W)에 보호막 부여.
+     *   ※ host의 ownerStr가 시전자와 반대 → W는 시전자의 자기 카드(자기가 적의 host에 기생시킨 것).
+     */
+    const riderEl = under?.closest("[data-aebeolaeking-rider-target]") as HTMLElement | null;
+    if (riderEl) {
+      const riderKey = riderEl.dataset.aebeolaekingRiderTarget;
+      const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
+      const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
+      if (
+        riderKey &&
+        (ownerStr === "A" || ownerStr === "B") &&
+        (hostSlotStr === "is" || hostSlotStr === "m" || hostSlotStr === "os") &&
+        snap.currentTurn === drag.player
+      ) {
+        const hostField = ownerStr === "A" ? snap.playerA.field : snap.playerB.field;
+        const host = hostField[hostSlotStr];
+        const rider = host?.parasiteRider;
+        if (host && rider && isAebeolaekingCard(rider) && (rider.currentHp ?? 0) > 0) {
+          const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+          const cost = Number(drag.card.cost) || 0;
+          const tokenOk = tokens >= cost;
+          const ronuFree = !isRonuBlockingSpellHandPlayAt(snap, drag);
+          /* 적의 W에 단일 타깃 공격 스펠 */
+          if (isEnemyUnitDragTargetSpell(drag.card) && drag.player === ownerStr && tokenOk && ronuFree) {
+            if (drag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(rider)) {
+              /* 번개는 W cost ≤ 5 제한도 충족해야 함 — 미달이면 W hover 차단 */
+            } else {
+              return riderKey;
+            }
+          }
+          /* 자기 W에 단일 자기 타깃 지원 스펠(오리에트의 초상) */
+          if (
+            isSpellCardRow(drag.card) &&
+            isOrietChosangSpellCard(drag.card) &&
+            drag.player !== ownerStr &&
+            tokenOk &&
+            ronuFree
+          ) {
+            return riderKey;
+          }
+        }
+      }
+    }
+
     const drop = under?.closest("[data-field-drop]") as HTMLElement | null | undefined;
     if (!drop) return null;
     const targetPlayer = drop.dataset.fieldPlayer as "A" | "B" | undefined;
     const slot = drop.dataset.fieldSlot as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return null;
+
+    /* 애벌레킹(W) 손패 부착 — 적의 점유된 유닛 슬롯에만 드롭 가능 */
+    if (isAebeolaekingCard(drag.card)) {
+      if (slot === "spell" || snap.currentTurn !== drag.player) return null;
+      const opp = drag.player === "A" ? "B" : "A";
+      if (targetPlayer !== opp) return null;
+      const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+      const u = field[slot as "is" | "m" | "os"];
+      const can = canHandDragAttachAebeolaekingTo(drag.player, targetPlayer, u);
+      if (!can.ok) return null;
+      const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+      const cost = Number(drag.card.cost) || 0;
+      if (tokens < cost) return null;
+      return `${targetPlayer}-${slot}`;
+    }
 
     if (isEnemyUnitDragTargetSpell(drag.card)) {
       if (slot === "spell" || snap.currentTurn !== drag.player) return null;
@@ -1836,6 +1929,8 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     if (isSpellCardRow(drag.card)) return null;
     if (slot === "spell") return null;
     if (targetPlayer !== drag.player) return null;
+    /* 애벌레킹(W)은 자기 진영 빈 슬롯 부착 불가(위에서 차단됐지만 안전망) */
+    if (isAebeolaekingCard(drag.card)) return null;
 
     const field = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
     if (field[slot as "is" | "m" | "os"] !== null) return null;
@@ -2054,6 +2149,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     guihwanRevive: 980,
     kalliBuffBan: 820,
     muhyohwaCounterResolve: 820,
+    aebeolaekingAttach: 900,
+    aebeolaekingAttachAura: 600,
+    aebeolaekingParasiteTick: 700,
   };
 
   const triggerCardFlash = (slotKey: string, kind: FlashOverlayKind) => {
@@ -3477,22 +3575,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 Object.keys(resolved.baekseuPatch).length > 0
                   ? stripBaekseuHarmfulEffectsForInvuln(unit)
                   : unit;
-              const updatedTarget: FieldCard = {
+              let updatedTarget: FieldCard = {
                 ...baseTarget,
                 ...resolved.baekseuPatch,
                 ...resolved.barrierPatch,
                 currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
               };
 
+              /**
+               * 애벌레킹(W) 데미지 공유 — host가 받은 hpLoss의 50%를 W에 공유.
+               * - W 진영(host 반대편)의 광역 자기 지원 스펠(방어막·철벽) + 보호막(오리에트의 초상)을 거쳐 차감.
+               * - W가 죽으면 stripped rider를 별개 카드로 rewindCards에 push.
+               * - host 사망 시 appendDeadHostWithRiderToRewindCards가 host+남은 rider 처리.
+               */
+              let riderRewindEntry: CardRow | null = null;
+              if (hasAebeolaekingRider(updatedTarget) && resolved.hpLoss > 0) {
+                const share = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
+                  updatedTarget,
+                  resolved.hpLoss,
+                  {
+                    hostOwner: enemyPlayer,
+                    playerAField: newPlayerA.field,
+                    playerBField: newPlayerB.field,
+                  }
+                );
+                updatedTarget = share.updatedHost;
+                if (share.deadRider) {
+                  riderRewindEntry = stripAebeolaekingRiderMeta(share.deadRider);
+                }
+              }
+
               if (resolved.isDestroyed) {
                 enemySide.field[slotName] = null;
                 cleanupSimulationUnitDeath(
-                  unit,
+                  updatedTarget,
                   { field: newPlayerA.field },
                   { field: newPlayerB.field },
                   prev.globalTurnCount
                 );
-                rewindCards = [...rewindCards, unit];
+                rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, updatedTarget);
+                if (riderRewindEntry && !hasAebeolaekingRider(updatedTarget)) {
+                  rewindCards.push(riderRewindEntry);
+                }
                 const sid = unit.statsInstanceId;
                 if (sid) {
                   const { [sid]: _removed, ...restStats } = unitCombatStats;
@@ -3501,6 +3625,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }
               } else {
                 enemySide.field[slotName] = updatedTarget;
+                if (riderRewindEntry) rewindCards = [...rewindCards, riderRewindEntry];
               }
 
               if (resolved.morningMoodDeathHeal > 0) {
@@ -3690,6 +3815,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               r = {
                 ...r,
                 unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
+              };
+            }
+            /* 휴게소의 안식 — 자기 W(적 host에 부착) 회복도 동반 처리 */
+            if (previewCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+              const enemyKey = casterPlayer === "A" ? "playerB" : "playerA";
+              const riderHeal = applyHyugesojauiAnsikHealToOwnAebeolaekingRiders(
+                r[enemyKey].field,
+                casterPlayer,
+                HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER
+              );
+              r = {
+                ...r,
+                [enemyKey]: { ...r[enemyKey], field: riderHeal.nextEnemyField },
+                unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, riderHeal.combatPatches),
               };
             }
             if (isAntHellSpellCard(previewCard)) {
@@ -4474,6 +4613,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-kalli-buff-ban-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--kalli-buff-ban`}
+          />
+        </div>
+      );
+    }
+    /* 능력 발동 이펙트 — 유닛 No.37 애벌레킹(부착·기생 펄스 — 황갈색/갈색 형광) */
+    if (snap.kind === "aebeolaekingAttach" || snap.kind === "aebeolaekingParasiteTick") {
+      const auraK = snap.kind === "aebeolaekingAttach" ? "aebeolaeking-attach" : "aebeolaeking-parasite-tick";
+      const innerCls =
+        snap.kind === "aebeolaekingAttach"
+          ? "pp-combat-flash-layer--aebeolaeking-attach"
+          : "pp-combat-flash-layer--aebeolaeking-parasite-tick";
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-${auraK}-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          {snap.kind === "aebeolaekingAttach" && (
+            <div
+              key={`${slotKey}-${snap.id}-${auraK}-aura`}
+              className={`pp-combat-flash-layer--aebeolaeking-attach-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+            />
+          )}
+          <div
+            key={`${slotKey}-${snap.id}-${auraK}-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} ${innerCls}`}
           />
         </div>
       );
@@ -6450,6 +6615,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       applied: [],
       elWing: [],
     };
+    /**
+     * 애벌레킹(W) 매 턴 종료 자동 기본 공격 — 호스트 슬롯 키 + 데미지 표시용 VFX bag.
+     * - tickKeys: 호스트 슬롯 키(데미지 숫자 + 갈색 펄스)
+     * - damages: host가 실제로 받은 hp 손실(banjit·방어·무적·보호막 적용 후 결과).
+     * - reflectDamages: 리부티 등 host의 기본 공격 반사 패시브로 W가 받은 데미지(있을 때만).
+     * - startingTreeAllyHeals: host가 시작의 나무이고 hp 손실 시 모든 아군에 회복 — 슬롯 키별 회복량.
+     */
+    const aebeolaekingTickVfxBag: {
+      tickKeys: string[];
+      damages: Record<string, number>;
+      reflectDamages: Record<string, number>;
+      startingTreeAllyHeals: Record<string, number>;
+    } = {
+      tickKeys: [],
+      damages: {},
+      reflectDamages: {},
+      startingTreeAllyHeals: {},
+    };
     flushSync(() => {
       setState(prev => {
       if (!prev) return prev;
@@ -6473,16 +6656,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               ),
             ),
           );
+        /**
+         * 호스트 reset 시 W 라이더의 hasAttacked(true 유지) / hasBeenAttackedThisTurn(false) 동기화.
+         * - W는 공격하지 않으므로 hasAttacked=true 영구 유지.
+         * - hasBeenAttackedThisTurn은 매 턴 reset(다음 응답에서 공격 부합 시 필요).
+         */
+        const resetWithRider = (u: FieldCard): FieldCard => {
+          const t = tickUnit(u);
+          const rider = t.parasiteRider;
+          if (!rider) return { ...t, hasAttacked: false, hasBeenAttackedThisTurn: false };
+          return {
+            ...t,
+            hasAttacked: false,
+            hasBeenAttackedThisTurn: false,
+            parasiteRider: { ...rider, hasAttacked: true, hasBeenAttackedThisTurn: false },
+          };
+        };
         return {
-          is: ticked.is
-            ? { ...tickUnit(ticked.is), hasAttacked: false, hasBeenAttackedThisTurn: false }
-            : null,
-          m: ticked.m
-            ? { ...tickUnit(ticked.m), hasAttacked: false, hasBeenAttackedThisTurn: false }
-            : null,
-          os: ticked.os
-            ? { ...tickUnit(ticked.os), hasAttacked: false, hasBeenAttackedThisTurn: false }
-            : null,
+          is: ticked.is ? resetWithRider(ticked.is) : null,
+          m: ticked.m ? resetWithRider(ticked.m) : null,
+          os: ticked.os ? resetWithRider(ticked.os) : null,
         };
       };
 
@@ -6528,6 +6721,179 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       let fieldA = { ...resetFieldUnits(prev.playerA.field, "A"), spellStack: ta.nextStack };
       let fieldB = { ...resetFieldUnits(prev.playerB.field, "B"), spellStack: tb.nextStack };
 
+      let nextUnitCombatStats = prev.unitCombatStats;
+      let nextUnitStatsOrder = prev.unitStatsOrder;
+
+      /**
+       * 애벌레킹(W) 매 턴 종료 자동 기본 공격 — host에 부착된 모든 W가 host에게 W.atk 기준 단발 공격.
+       * - W.atk를 parseAttack으로 primary damage로 추출 — 일반 유닛 기본 공격과 동일.
+       * - host 측 victim 룰 적용: banjit ×0.75floor, applyIncomingDefenseDamage(방어/감소),
+       *   isInvulnerableFromBaekseuOrCheolbyeok([무적]), splitDamageThroughHpBarrier(보호막), resolveBaekseuFatalDamage(백스 처형).
+       * - 리부티 등 host의 '기본 공격 반사' 패시브 → attacker(W)에 반사 데미지 적용.
+       * - host 사망 시 host+W를 각각 별개 카드로 rewindCards에 push + cleanupSimulationUnitDeath.
+       * - 반사로 W 사망 시 host에서 분리 후 W만 rewind.
+       * - hasBeenAttackedThisTurn 마킹은 생략(자동 패시브 → 다음 턴 다굴 룰에 영향 X).
+       * - 부착한 그 턴의 종료부터 발동 — shouldTriggerAebeolaekingParasiteThisEndTurn에서 판정.
+       */
+      const applyAebeolaekingTurnEndParasiteDamageToSide = (
+        side: "A" | "B",
+        field: PlayerState["field"],
+        oppField: PlayerState["field"]
+      ): PlayerState["field"] => {
+        const next: PlayerState["field"] = { ...field };
+        (["is", "m", "os"] as const).forEach(s => {
+          const host = next[s];
+          if (!host || (host.currentHp ?? 0) <= 0) return;
+          const rider = host.parasiteRider;
+          if (!rider || !isAebeolaekingCard(rider)) return;
+          if (!shouldTriggerAebeolaekingParasiteThisEndTurn(rider, prev.globalTurnCount)) return;
+
+          /* (1) W.atk → primaryDamage(일반 유닛 기본 공격과 동일 파서). */
+          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(rider, null);
+          const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
+          const rawDmg = Math.max(0, parsed.primaryDamage);
+          if (rawDmg <= 0) return;
+
+          const playerAField = side === "A" ? next : oppField;
+          const playerBField = side === "B" ? next : oppField;
+          const victimField = side === "A" ? playerAField : playerBField;
+          const facingOpp = oppField[s] ?? null;
+
+          /* (2) host 측 victim 룰 — 반짓고리, 방어/감소, [무적], 보호막, 백스 처형. */
+          let afterBanjit = rawDmg;
+          if (
+            (host as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori &&
+            !callieBuffBanSuppressesBuffsForVictim(side, s, playerAField, playerBField)
+          ) {
+            afterBanjit = Math.floor((rawDmg * 0.75) / 50) * 50;
+          }
+          const defenseRes = applyIncomingDefenseDamage(
+            afterBanjit,
+            host,
+            playerAField,
+            playerBField,
+            `${side}-${s}`
+          );
+          const invuln = isInvulnerableFromBaekseuOrCheolbyeok(host, victimField);
+          const coreAfterDefense = invuln ? afterBanjit : defenseRes.finalDamage;
+          const actualDmg = invuln ? 0 : coreAfterDefense;
+          const cardForCombat = normalizeUnitHpSurvivalOnesForCombat(host);
+          const barrierSplit = splitDamageThroughHpBarrier(cardForCombat, actualDmg);
+          const hpAfterRaw = cardForCombat.currentHp - barrierSplit.damageToCurrentHp;
+          const resolved = resolveBaekseuFatalDamage(
+            cardForCombat,
+            hpAfterRaw,
+            barrierSplit.damageToCurrentHp,
+            facingOpp
+          );
+          const newHp = resolved.finalHp;
+          const hpLoss = Math.max(0, cardForCombat.currentHp - newHp);
+          const isDestroyed = resolved.isDestroyed;
+          const baekseuPatch = resolved.patch;
+
+          /* (3) host 갱신 — parasiteRider는 (4)에서 갱신. hasBeenAttackedThisTurn은 마킹 안 함(자동 패시브). */
+          const baseTarget =
+            Object.keys(baekseuPatch).length > 0
+              ? stripBaekseuHarmfulEffectsForInvuln(cardForCombat)
+              : cardForCombat;
+          let updatedHost: FieldCard = {
+            ...baseTarget,
+            ...baekseuPatch,
+            ...hpBarrierPatchFromRemaining(barrierSplit.nextBarrierRemaining),
+            currentHp: newHp,
+            parasiteRider: rider,
+          };
+
+          /**
+           * (3.5) 시작의 나무 패시브 — host가 시작의 나무이고 실제로 hp 손실이 발생하면
+           * 모든 아군에 50%(50단위 내림) 회복. 데미지 종류(스펠/공격/기생 등)와 무관하게 hp 감소가 트리거.
+           */
+          const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(host, hpLoss, facingOpp);
+          if (startingTreeAllyHeal > 0) {
+            (["is", "m", "os"] as const).forEach(otherS => {
+              if (otherS === s) return;
+              const unit = next[otherS];
+              if (!unit) return;
+              const healed = Math.min(
+                Math.max(0, Number(unit.hp) - unit.currentHp),
+                startingTreeAllyHeal
+              );
+              next[otherS] = {
+                ...unit,
+                ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
+              };
+              if (healed > 0) {
+                /**
+                 * StrictMode에서 setState 업데이터가 두 번 호출되어도 같은 (host→ally) 쌍에는
+                 * 같은 값이 들어가므로, 누적(+=)이 아닌 덮어쓰기(=)로 두 배 합산을 방지.
+                 * VFX 발동 시점에 ally 슬롯 단위로 합산.
+                 */
+                const dedupKey = `${side}-${s}->${otherS}`;
+                aebeolaekingTickVfxBag.startingTreeAllyHeals[dedupKey] = healed;
+              }
+            });
+          }
+
+          /* (4) 리부티 등 host의 '기본 공격 반사' → attacker(W)에 반사 데미지. */
+          let updatedRider: FieldCard | null = rider;
+          let riderKilledByReflect = false;
+          let reflectDmgShown = 0;
+          if (shouldApplyLibutyBasicAttackReflect(host, facingOpp, hpLoss)) {
+            const reflectRes = computeLibutyReflectPureDamageOnAggressor(
+              updatedRider,
+              undefined,
+              facingOpp
+            );
+            if (reflectRes && reflectRes.hpLoss > 0) {
+              updatedRider = applyLibutyReflectPatchToAggressorCard(updatedRider, reflectRes);
+              reflectDmgShown = reflectRes.hpLoss;
+              if (reflectRes.isDestroyed) riderKilledByReflect = true;
+            }
+          }
+
+          /* (5) 사망 처리. */
+          if (isDestroyed) {
+            cleanupSimulationUnitDeath(
+              updatedHost,
+              { field: fieldA },
+              { field: fieldB },
+              prev.globalTurnCount
+            );
+            rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, updatedHost);
+            const sid = updatedHost.statsInstanceId;
+            if (sid) {
+              const { [sid]: _r, ...rest } = nextUnitCombatStats;
+              nextUnitCombatStats = rest;
+              nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+            }
+            next[s] = null;
+          } else {
+            if (riderKilledByReflect && updatedRider) {
+              const deadRider = updatedRider;
+              updatedHost = { ...updatedHost, parasiteRider: null };
+              rewindCards = [...rewindCards, stripAebeolaekingRiderMeta(deadRider)];
+            } else if (updatedRider) {
+              updatedHost = { ...updatedHost, parasiteRider: updatedRider };
+            }
+            next[s] = updatedHost;
+          }
+
+          /* (6) VFX bag — host 데미지 숫자 + W 반사 데미지. */
+          const slotKey = `${side}-${s}`;
+          if (!aebeolaekingTickVfxBag.tickKeys.includes(slotKey)) {
+            aebeolaekingTickVfxBag.tickKeys.push(slotKey);
+          }
+          aebeolaekingTickVfxBag.damages[slotKey] = hpLoss;
+          if (reflectDmgShown > 0) {
+            aebeolaekingTickVfxBag.reflectDamages[slotKey] = reflectDmgShown;
+          }
+        });
+        return next;
+      };
+
+      fieldA = { ...fieldA, ...applyAebeolaekingTurnEndParasiteDamageToSide("A", fieldA, fieldB) };
+      fieldB = { ...fieldB, ...applyAebeolaekingTurnEndParasiteDamageToSide("B", fieldB, fieldA) };
+
       const hyu = applyHyugesojauiAnsikTurnStartForOwner({
         nextTurnOwner: nextTurn,
         playerAField: fieldA,
@@ -6548,6 +6914,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       let nextState: typeof prev = {
         ...prev,
         rewindCards,
+        unitCombatStats: nextUnitCombatStats,
+        unitStatsOrder: nextUnitStatsOrder,
         currentTurn: nextTurn,
         turnCount: !isA ? prev.turnCount + 1 : prev.turnCount,
         globalTurnCount: prev.globalTurnCount + 1,
@@ -6605,6 +6973,46 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     for (const slotKey of antHellTurnSyncVfxBag.applied) {
       window.setTimeout(() => showAntHellSpellHitOnTarget(slotKey), 0);
+    }
+
+    /* 애벌레킹(W) 매 턴 자동 기본 공격 VFX — host에 데미지 숫자 + 갈색 펄스, W에는 리부티 반사 데미지(있을 시). */
+    for (const slotKey of aebeolaekingTickVfxBag.tickKeys) {
+      const dmg = aebeolaekingTickVfxBag.damages[slotKey] ?? 0;
+      const reflectDmg = aebeolaekingTickVfxBag.reflectDamages[slotKey] ?? 0;
+      window.setTimeout(() => {
+        triggerCardFlash(slotKey, "aebeolaekingParasiteTick");
+        if (dmg > 0) showDamageNumber(slotKey, dmg);
+      }, 0);
+      if (reflectDmg > 0) {
+        const parts = slotKey.split("-") as ["A" | "B", "is" | "m" | "os"];
+        const riderKey = aebeolaekingRiderSlotKey(parts[0], parts[1]);
+        window.setTimeout(() => {
+          showDamageNumber(riderKey, reflectDmg, mergeKalliPureDamageFloat(reflectDmg));
+        }, 0);
+      }
+    }
+    /**
+     * 시작의 나무 패시브 — host가 시작의 나무이고 hp 손실 발생 시 아군 회복 플로팅 텍스트 + 회복 플래시.
+     * dedup 키(`${side}-${hostSlot}->${otherS}`)를 ally 슬롯 단위로 합산해 표시.
+     */
+    {
+      const aggregated: Record<string, number> = {};
+      for (const [dedupKey, healAmount] of Object.entries(
+        aebeolaekingTickVfxBag.startingTreeAllyHeals
+      )) {
+        if (healAmount <= 0) continue;
+        const arrow = dedupKey.indexOf("->");
+        if (arrow < 0) continue;
+        const targetPart = dedupKey.substring(arrow + 2);
+        const sideMatch = dedupKey.substring(0, dedupKey.indexOf("-"));
+        const allyKey = `${sideMatch}-${targetPart}`;
+        aggregated[allyKey] = (aggregated[allyKey] ?? 0) + healAmount;
+      }
+      for (const [allyKey, healAmount] of Object.entries(aggregated)) {
+        if (healAmount > 0) {
+          window.setTimeout(() => showHealNumber(allyKey, healAmount), 0);
+        }
+      }
     }
   };
 
@@ -7414,22 +7822,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 Object.keys(resolved.baekseuPatch).length > 0
                   ? stripBaekseuHarmfulEffectsForInvuln(unit)
                   : unit;
-              const updatedTarget: FieldCard = {
+              let updatedTarget: FieldCard = {
                 ...baseTarget,
                 ...resolved.baekseuPatch,
                 ...resolved.barrierPatch,
                 currentHp: resolved.isDestroyed ? 0 : resolved.newHp,
               };
 
+              /**
+               * 애벌레킹(W) 데미지 공유 — host가 받은 hpLoss의 50%를 W에 공유.
+               * - W 진영(host 반대편)의 광역 자기 지원 스펠(방어막·철벽) + 보호막(오리에트의 초상)을 거쳐 차감.
+               * - W가 죽으면 stripped rider를 별개 카드로 rewindCards에 push.
+               * - host 사망 시 appendDeadHostWithRiderToRewindCards가 host+남은 rider 처리.
+               */
+              let riderRewindEntry: CardRow | null = null;
+              if (hasAebeolaekingRider(updatedTarget) && resolved.hpLoss > 0) {
+                const share = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
+                  updatedTarget,
+                  resolved.hpLoss,
+                  {
+                    hostOwner: enemyPlayer,
+                    playerAField: newPlayerA.field,
+                    playerBField: newPlayerB.field,
+                  }
+                );
+                updatedTarget = share.updatedHost;
+                if (share.deadRider) {
+                  riderRewindEntry = stripAebeolaekingRiderMeta(share.deadRider);
+                }
+              }
+
               if (resolved.isDestroyed) {
                 enemySide.field[slotName] = null;
                 cleanupSimulationUnitDeath(
-                  unit,
+                  updatedTarget,
                   { field: newPlayerA.field },
                   { field: newPlayerB.field },
                   prev.globalTurnCount
                 );
-                rewindCards = [...rewindCards, unit];
+                rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, updatedTarget);
+                if (riderRewindEntry && !hasAebeolaekingRider(updatedTarget)) {
+                  rewindCards.push(riderRewindEntry);
+                }
                 const sid = unit.statsInstanceId;
                 if (sid) {
                   const { [sid]: _removed, ...restStats } = unitCombatStats;
@@ -7438,6 +7872,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }
               } else {
                 enemySide.field[slotName] = updatedTarget;
+                if (riderRewindEntry) rewindCards = [...rewindCards, riderRewindEntry];
               }
 
               if (resolved.morningMoodDeathHeal > 0) {
@@ -7735,6 +8170,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, hyuPlaceCombatPatches),
             };
           }
+          /* 휴게소의 안식 — 자기 W(적 host에 부착) 회복도 동반 처리 */
+          if (handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+            const enemyKey = sourcePlayer === "A" ? "playerB" : "playerA";
+            const riderHeal = applyHyugesojauiAnsikHealToOwnAebeolaekingRiders(
+              r[enemyKey].field,
+              sourcePlayer,
+              HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER
+            );
+            r = {
+              ...r,
+              [enemyKey]: { ...r[enemyKey], field: riderHeal.nextEnemyField },
+              unitCombatStats: patchManyUnitCombatStats(r.unitCombatStats, riderHeal.combatPatches),
+            };
+          }
           if (isAntHellSpellCard(handCard)) {
             antHellHandPlaceVfx.applied = [];
             antHellHandPlaceVfx.elWing = [];
@@ -7911,6 +8360,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             nextState.unitCombatStats,
             hyuDirectCombatPatches
           ),
+        };
+      }
+      /* 휴게소의 안식 — 자기 W(적 host에 부착) 회복도 동반 처리 */
+      if (isSpellSlot && handCard.name === HYUGESOJAUI_ANSIK_SPELL_ID) {
+        const enemyKey = targetPlayer === "A" ? "playerB" : "playerA";
+        const riderHeal = applyHyugesojauiAnsikHealToOwnAebeolaekingRiders(
+          nextState[enemyKey].field,
+          targetPlayer,
+          HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER
+        );
+        nextState = {
+          ...nextState,
+          [enemyKey]: { ...nextState[enemyKey], field: riderHeal.nextEnemyField },
+          unitCombatStats: patchManyUnitCombatStats(nextState.unitCombatStats, riderHeal.combatPatches),
         };
       }
       return isSpellSlot ? finalizeSpellWithSimpan(nextState) : nextState;
@@ -8879,6 +9342,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (snap.guihwanPending) return;
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
+
+    /**
+     * 애벌레킹(W) 라이더 hit-test — host slot보다 우선.
+     * - 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼빔)을 W에 직접 사용한 경우 별도 라우터로 위임.
+     * - 매칭되지 않으면 (다른 스펠/유닛) host slot 일반 분기로 fall-through.
+     */
+    const riderEl = under?.closest("[data-aebeolaeking-rider-target]") as HTMLElement | null;
+    if (riderEl) {
+      if (attemptCastSingleTargetSpellOnAebeolaekingRider(snap, saved, riderEl)) return;
+      if (attemptCastOrietChosangSpellOnAebeolaekingRider(snap, saved, riderEl)) return;
+    }
+
     const drop = under?.closest("[data-field-drop]");
     if (!drop) return;
 
@@ -8892,8 +9367,620 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
     if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
     if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) return;
 
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
+  };
+
+  /**
+   * 유닛 No.37 애벌레킹 — 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼 빔)을 적의 W 라이더에 직접 적용.
+   * - finishHandDrag에서 W rider hit-test가 우선되어 매칭 시 본 라우터로 위임.
+   * - 사용 주체: host의 소유자(=시전자) — 적이 시전자의 host에 기생시킨 W를 시전자가 공격.
+   * - 4종 스펠별 효과를 W rider 본체(host.parasiteRider)에 적용:
+   *   • 번개: rider.currentHp = 1 (cost ≤ 5 자격 필요, 공격 행위가 아니므로 host 공유 X)
+   *   • 언덕: rider에 침묵 마커 부착(시각적 효과 — W는 공격 안 함)
+   *   • 소멸: rider 제거(host는 그대로) + rider를 rewindCards에 push
+   *   • 하이퍼 빔: rider에 2000 데미지(공격 유형 룰 미적용 — W는 일반 카드 룰만 따름) + host에 50% 공유 피해
+   * - W는 unitCombatStats에 등재되지 않으므로 stats 정리 불요.
+   * - 마법 면역(엘 윙) 검사는 host에만 적용되어 있으므로 W에는 별도 검사 없음(W는 일반 카드 룰만).
+   * - 무적/방어막 검사 또한 host에만 적용. W는 단순 hp 카드로 취급.
+   * - 반환 true: 라우팅 성공(에러 안내 포함). false: 4종 스펠이 아니거나 시전자가 host 소유자가 아닌 경우 등.
+   */
+  const attemptCastSingleTargetSpellOnAebeolaekingRider = (
+    snap: SimulationState,
+    saved: HandDragState,
+    riderEl: HTMLElement
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || !isEnemyUnitDragTargetSpell(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
+    const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
+    if (ownerStr !== "A" && ownerStr !== "B") return false;
+    if (hostSlotStr !== "is" && hostSlotStr !== "m" && hostSlotStr !== "os") return false;
+    const hostOwner = ownerStr as "A" | "B";
+    const hostSlot = hostSlotStr as "is" | "m" | "os";
+    /* 단일 공격 스펠은 host 소유자(=시전자)가 적의 W를 공격하는 경우에만 라우팅. */
+    if (saved.player !== hostOwner) return false;
+    const targetPlayer = hostOwner;
+
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, hostSlot)) return true;
+
+    const hostField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const host = hostField[hostSlot];
+    const rider = host?.parasiteRider;
+    if (!host || !rider || !isAebeolaekingCard(rider) || (rider.currentHp ?? 0) <= 0) {
+      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    /* 번개 사용 자격 — W의 cost ≤ 5 */
+    if (spellRow.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(rider)) {
+      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const riderSlotKey = aebeolaekingRiderSlotKey(targetPlayer, hostSlot);
+    const hostSlotKey = `${targetPlayer}-${hostSlot}`;
+    /* afterCommitVfx 단계에서 사용할 부수 정보(host 공유 피해 등). */
+    const vfxBag: { hostShareDamage: number; hostDied: boolean; riderDied: boolean; spellKind: FlashOverlayKind } = {
+      hostShareDamage: 0,
+      hostDied: false,
+      riderDied: false,
+      spellKind: "beonggaeSpell",
+    };
+    if (spellRow.name === EONDEOK_SPELL_ID) vfxBag.spellKind = "eondeokSpell";
+    else if (spellRow.name === SOMYEOL_SPELL_ID) vfxBag.spellKind = "somyeolSpellErase";
+    else if (isHyperBeamSpellCard(spellRow)) vfxBag.spellKind = "hyperBeamSpellHit";
+
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer,
+      unitSlot: hostSlot,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        vfxBag.hostShareDamage = 0;
+        vfxBag.hostDied = false;
+        vfxBag.riderDied = false;
+        const c = spellRow;
+        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
+        const victim = { ...prev[victimKey], field: { ...prev[victimKey].field } };
+        const u = victim.field[hostSlot];
+        if (!u || !hasAebeolaekingRider(u)) return prev;
+        const liveRider = u.parasiteRider!;
+        if ((liveRider.currentHp ?? 0) <= 0) return prev;
+
+        let rewindCards: CardRow[] = [...prev.rewindCards, c];
+        let newHost: FieldCard = u;
+        let riderRewindEntry: CardRow | null = null;
+
+        if (c.name === BEONGGAE_SPELL_ID) {
+          /* 번개: rider hp 1로 설정. host 공유 X. cost 자격 재검증. */
+          if (!isBeonggaeValidTargetUnit(liveRider)) return prev;
+          newHost = {
+            ...u,
+            parasiteRider: { ...liveRider, currentHp: 1 },
+          };
+        } else if (c.name === EONDEOK_SPELL_ID) {
+          /* 언덕: rider에 침묵 마커. 효과 자체는 W가 공격 안 하므로 무용지만, "온전히 영향" 사양 충족 시각화. */
+          newHost = {
+            ...u,
+            parasiteRider: {
+              ...liveRider,
+              eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
+            },
+          };
+        } else if (c.name === SOMYEOL_SPELL_ID) {
+          /* 소멸: rider 제거. host는 그대로. rider는 메타 제거 후 rewind. */
+          const detached = detachAebeolaekingRiderFromHost(u);
+          newHost = detached.strippedHost;
+          if (detached.rider) {
+            riderRewindEntry = stripAebeolaekingRiderMeta(detached.rider);
+            vfxBag.riderDied = true;
+          }
+        } else if (isHyperBeamSpellCard(c)) {
+          /* 하이퍼 빔: rider에 2000 데미지 + host에 50% 공유.
+           * - W 진영(host 반대편) 광역 자기 지원(방어막·철벽) + 보호막(오리에트의 초상) 통과.
+           * - rider [무적]/방어막/보호막으로 실제 적용 데미지가 줄면 host 공유도 그만큼 감소.
+           */
+          const dmg = HYPER_BEAM_DAMAGE;
+          const result = applyAebeolaekingDamageToRiderAndShareToHostWithProtection(u, dmg, {
+            hostOwner: targetPlayer,
+            playerAField: prev.playerA.field,
+            playerBField: prev.playerB.field,
+          });
+          newHost = result.updatedHost;
+          vfxBag.hostShareDamage = result.hostShareDamage;
+          if (result.deadRider) {
+            riderRewindEntry = stripAebeolaekingRiderMeta(result.deadRider);
+            vfxBag.riderDied = true;
+          }
+        } else {
+          return prev;
+        }
+
+        let nextUnitCombatStats = prev.unitCombatStats;
+        let nextUnitStatsOrder = prev.unitStatsOrder;
+
+        /* host가 공유 피해로 사망한 경우 cleanup + rewind(host+남은 rider). */
+        const hostHpAfter = newHost.currentHp ?? 0;
+        if (hostHpAfter <= 0) {
+          vfxBag.hostDied = true;
+          const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+          const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+          if (targetPlayer === "A") {
+            newPlayerA.field[hostSlot] = null;
+          } else {
+            newPlayerB.field[hostSlot] = null;
+          }
+          cleanupSimulationUnitDeath(
+            newHost,
+            { field: newPlayerA.field },
+            { field: newPlayerB.field },
+            prev.globalTurnCount
+          );
+          rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, newHost);
+          if (riderRewindEntry) rewindCards.push(riderRewindEntry);
+          const hsid = newHost.statsInstanceId;
+          if (hsid) {
+            const { [hsid]: _r, ...rest } = nextUnitCombatStats;
+            nextUnitCombatStats = rest;
+            nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== hsid);
+          }
+          return finalizeSpellWithSimpan({
+            ...prev,
+            unitCombatStats: nextUnitCombatStats,
+            unitStatsOrder: nextUnitStatsOrder,
+            playerA: newPlayerA,
+            playerB: newPlayerB,
+            rewindCards,
+          });
+        }
+
+        if (riderRewindEntry) rewindCards.push(riderRewindEntry);
+        victim.field[hostSlot] = newHost;
+        return finalizeSpellWithSimpan({
+          ...prev,
+          [victimKey]: victim,
+          rewindCards,
+        });
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => {
+          triggerCardFlash(riderSlotKey, vfxBag.spellKind);
+          if (vfxBag.hostShareDamage > 0) {
+            triggerCardFlash(hostSlotKey, vfxBag.spellKind);
+            showDamageNumber(hostSlotKey, vfxBag.hostShareDamage);
+          }
+        }, 0);
+      },
+    });
+    return true;
+  };
+
+  /**
+   * 유닛 No.37 애벌레킹 — 단일 자기 타깃 지원 스펠(오리에트의 초상)을 자기 W 라이더에 적용.
+   * - 사용 주체: 자기 W의 진정한 소유자 = host의 반대편(시전자). 적이 자기 host에 기생시킨 W는 자기 W가 아님.
+   * - 효과: rider.hpBarrierAbsorptionRemaining = ORIET_CHOSANG_HP_BARRIER_AMOUNT(1000) 부착.
+   * - 데미지 공유 시스템과 함께 작동: rider가 데미지를 받을 때 보호막이 먼저 소진(일반 룰).
+   *   ※ 현재 applyDamageToAebeolaekingRiderInHost는 보호막 소진 룰을 적용하지 않으므로, 데미지 공유 경로에서는 단순 hp 차감.
+   *      보호막은 직접 hyperBeam 적용 시 W가 데미지 받기 전 흡수해야 일관성 — 별도 작업 분리.
+   * - 반환 true: 라우팅 성공. false: 오리에트의 초상이 아니거나 자기 W가 아닌 경우.
+   */
+  const attemptCastOrietChosangSpellOnAebeolaekingRider = (
+    snap: SimulationState,
+    saved: HandDragState,
+    riderEl: HTMLElement
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const spellRow = hand[saved.cardIndex];
+    if (!spellRow || !isSpellCardRow(spellRow) || !isOrietChosangSpellCard(spellRow)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+
+    const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
+    const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
+    if (ownerStr !== "A" && ownerStr !== "B") return false;
+    if (hostSlotStr !== "is" && hostSlotStr !== "m" && hostSlotStr !== "os") return false;
+    const hostOwner = ownerStr as "A" | "B";
+    const hostSlot = hostSlotStr as "is" | "m" | "os";
+    /* 자기 W = host의 반대편이 시전자 */
+    if (saved.player === hostOwner) return false;
+
+    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, hostOwner, hostSlot)) return true;
+
+    const hostField = hostOwner === "A" ? snap.playerA.field : snap.playerB.field;
+    const host = hostField[hostSlot];
+    const rider = host?.parasiteRider;
+    if (!host || !rider || !isAebeolaekingCard(rider) || (rider.currentHp ?? 0) <= 0) {
+      pushInfoFloat(`${hostOwner}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(spellRow.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${hostOwner}-${hostSlot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    const riderSlotKey = aebeolaekingRiderSlotKey(hostOwner, hostSlot);
+    scheduleSpellHandUsageSequence(snap, {
+      casterPlayer: saved.player,
+      previewCard: spellRow,
+      targetPlayer: hostOwner,
+      unitSlot: hostSlot,
+      mode: "handUnitTarget",
+      flyToUnitAfterReveal: true,
+      preApply: prev => {
+        const casterIsA = saved.player === "A";
+        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
+        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
+        const c = h[saved.cardIndex];
+        if (!c || !isOrietChosangSpellCard(c) || !isSpellCardRow(c)) return prev;
+        const cst = Number(c.cost) || 0;
+        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
+        h.splice(saved.cardIndex, 1);
+        const key = casterIsA ? "playerA" : "playerB";
+        const ps = casterIsA ? prev.playerA : prev.playerB;
+        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
+      },
+      commit: prev => {
+        const c = spellRow;
+        const hostKey = hostOwner === "A" ? "playerA" : "playerB";
+        const hostSide = { ...prev[hostKey], field: { ...prev[hostKey].field } };
+        const u = hostSide.field[hostSlot];
+        if (!u || !hasAebeolaekingRider(u)) return prev;
+        const liveRider = u.parasiteRider!;
+        if ((liveRider.currentHp ?? 0) <= 0) return prev;
+        const newRider: FieldCard = {
+          ...liveRider,
+          hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
+        };
+        hostSide.field[hostSlot] = { ...u, parasiteRider: newRider };
+        return finalizeSpellWithSimpan({
+          ...prev,
+          [hostKey]: hostSide,
+          rewindCards: [...prev.rewindCards, c],
+        });
+      },
+      afterCommitVfx: () => {
+        window.setTimeout(() => triggerCardFlash(riderSlotKey, "orietShieldAllyPulse"), 0);
+      },
+    });
+    return true;
+  };
+
+  /**
+   * 유닛 No.37 애벌레킹 — 손패에서 적의 점유된 is/m/os에 드롭 시 host에 W로 부착.
+   * - 자기 진영/빈 슬롯/이미 부착된 host에는 거부(정보 메시지)
+   * - 토큰 부족 거부
+   * - 손패에서 제거 + host.parasiteRider 부착 + 부착 펄스 VFX
+   * - 별도 unitCombatStats 등재 없음(W는 슬롯이 아니라 호스트의 부착물)
+   */
+  const attemptAttachAebeolaeking = (
+    snap: SimulationState,
+    saved: HandDragState,
+    targetPlayer: "A" | "B",
+    slot: "is" | "m" | "os" | "spell"
+  ): boolean => {
+    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
+    const card = hand[saved.cardIndex];
+    if (!card || !isAebeolaekingCard(card)) return false;
+    if (snap.currentTurn !== saved.player) return false;
+    if (slot === "spell") {
+      pushInfoFloat(`${saved.player}-spell`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+    if (targetPlayer === saved.player) {
+      pushInfoFloat(`${targetPlayer}-${slot}`, "적 유닛 위에 놓아 주세요", INFO_FLOAT_MS);
+      return true;
+    }
+    const skCommit = slot as "is" | "m" | "os";
+    const enemyField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
+    const host = enemyField[skCommit];
+    const can = canHandDragAttachAebeolaekingTo(saved.player, targetPlayer, host);
+    if (!can.ok) {
+      pushInfoFloat(`${targetPlayer}-${skCommit}`, can.reason ?? "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
+      return true;
+    }
+    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
+    const cost = Number(card.cost) || 0;
+    if (tokens < cost) {
+      pushInfoFloat(`${targetPlayer}-${skCommit}`, "토큰이 부족합니다", INFO_FLOAT_MS);
+      return true;
+    }
+
+    setState(prev => {
+      if (!prev) return prev;
+      const casterIsA = saved.player === "A";
+      const casterPS = casterIsA ? prev.playerA : prev.playerB;
+      const newHand = [...casterPS.hand];
+      if (saved.cardIndex < 0 || saved.cardIndex >= newHand.length) return prev;
+      const handCard = newHand[saved.cardIndex];
+      if (!handCard || !isAebeolaekingCard(handCard)) return prev;
+      const cst = Number(handCard.cost) || 0;
+      if (casterPS.tokens < cst) return prev;
+      newHand.splice(saved.cardIndex, 1);
+      const enemyKey = targetPlayer === "A" ? "playerA" : "playerB";
+      const enemyPS = targetPlayer === "A" ? prev.playerA : prev.playerB;
+      const liveHost = enemyPS.field[skCommit];
+      if (!liveHost || (liveHost.currentHp ?? 0) <= 0) return prev;
+      if (hasAebeolaekingRider(liveHost)) return prev;
+      const summonedTurn = `${prev.globalTurnCount}-${saved.player}`;
+      const rider = buildAebeolaekingRider(handCard, {
+        hostPlayer: targetPlayer,
+        summonGlobalTurn: prev.globalTurnCount,
+        statsInstanceId: createSimulationStatsInstanceId(),
+        summonedTurn,
+      });
+      const newHost = attachAebeolaekingRider(liveHost, rider);
+      const newEnemySide = {
+        ...enemyPS,
+        field: { ...enemyPS.field, [skCommit]: newHost },
+      };
+      const casterKey = casterIsA ? "playerA" : "playerB";
+      const newCasterSide = { ...casterPS, hand: newHand, tokens: casterPS.tokens - cst };
+      return {
+        ...prev,
+        [casterKey]: newCasterSide,
+        [enemyKey]: newEnemySide,
+      } as SimulationState;
+    });
+
+    /* 부착 VFX — 갈색 펄스 + 외곽 오라 */
+    const targetSlotKey = `${targetPlayer}-${skCommit}`;
+    window.setTimeout(() => {
+      triggerCardFlash(targetSlotKey, "aebeolaekingAttach");
+      triggerCardFlash(`${targetSlotKey}-aura`, "aebeolaekingAttachAura");
+    }, 0);
+
+    return true;
+  };
+
+  /**
+   * 적 host에 부착된 W를 공격하는 commit 헬퍼(1차 공격만).
+   * - 공격자 = host 진영의 모든 아군 유닛(host 본인 포함). attacker.player === host owner.
+   * - 일반 유닛 1차 공격과 동일하게 validateAttack + isAttackDisabledUnit + 다굴 금지 룰(W.hasBeenAttackedThisTurn).
+   * - W에 데미지 적용 + host에 50% 공유 — [무적]·방어막·보호막 통과.
+   * - W 사망 시 host에서 분리 후 rewindCards push.
+   * - 공유로 host도 사망하면 host(+W if any) 동반 rewind + cleanupSimulationUnitDeath.
+   * - 공격자 hasAttacked=true, attacksThisTurn +1. W에 hasBeenAttackedThisTurn=true.
+   * - 2차/3차 분기는 다음 단계.
+   */
+  const tryCommitAttackAgainstAebeolaekingRider = (
+    attackerPlayer: "A" | "B",
+    attackerSlot: "is" | "m" | "os",
+    hostOwnerPlayer: "A" | "B",
+    hostSlot: "is" | "m" | "os"
+  ): boolean => {
+    if (!state || winner) return false;
+    /* attacker = W의 host 진영(W의 적). 자기 진영 W(아군 호스트)만 공격 가능. */
+    if (attackerPlayer !== hostOwnerPlayer) return false;
+    const attackerField = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const hostField = hostOwnerPlayer === "A" ? state.playerA.field : state.playerB.field;
+    const attackerCard = attackerField[attackerSlot];
+    const host = hostField[hostSlot];
+    if (!attackerCard || !host || !hasAebeolaekingRider(host)) return false;
+    const rider = host.parasiteRider!;
+    if ((rider.currentHp ?? 0) <= 0) return false;
+    if (isAttackDisabledUnit(attackerCard)) return false;
+
+    /* 다굴 금지 룰 — 이미 이번 턴에 공격받은 W는 추가 공격 불가. */
+    if (rider.hasBeenAttackedThisTurn) {
+      alert("다른 유닛이 이미 이 유닛을 공격했습니다.\n(단, [도발] 효과를 가진 유닛은 한 턴에 여러 번 공격받을 수 있습니다.)");
+      return true;
+    }
+
+    const activeForAttack = attackerPlayer === "A" ? state.playerA : state.playerB;
+    const atkValidation = validateAttack({
+      attackerCard,
+      currentTurnKey: `${state.turnCount}-${state.currentTurn}`,
+      attacksUsedThisTurn: activeForAttack.attacksThisTurn || 0,
+      isSilenced: isSilenced(attackerCard, null),
+      isStunned: isStunned(attackerCard),
+    });
+    if (!atkValidation.canAttack) {
+      alert(atkValidation.reason);
+      return true;
+    }
+
+    const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRawWithFacing(
+      attackerCard,
+      attackOptionOverride,
+      null
+    );
+    const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
+    const rawDmg = Math.max(0, parsed.primaryDamage);
+    if (rawDmg <= 0) {
+      alert("공격력 데이터가 0이거나 유효하지 않습니다.");
+      return true;
+    }
+
+    let appliedRiderDamage = 0;
+    let appliedHostShare = 0;
+    let blockedByInvuln = false;
+    let absorbedByBarrier = 0;
+    let riderKilled = false;
+    let hostKilledByShare = false;
+    const startingTreeAllyHealVfx: Record<string, number> = {};
+
+    setState(prev => {
+      if (!prev) return prev;
+      const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
+      const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
+      const hostSide = hostOwnerPlayer === "A" ? newPlayerA : newPlayerB;
+      const atkSide = attackerPlayer === "A" ? newPlayerA : newPlayerB;
+      const liveHost = hostSide.field[hostSlot];
+      if (!liveHost || !hasAebeolaekingRider(liveHost)) return prev;
+
+      const result = applyAebeolaekingDamageToRiderAndShareToHostWithProtection(
+        liveHost,
+        rawDmg,
+        {
+          hostOwner: hostOwnerPlayer,
+          playerAField: newPlayerA.field,
+          playerBField: newPlayerB.field,
+        }
+      );
+      blockedByInvuln = result.blocked === "invuln";
+      absorbedByBarrier = result.absorbedByBarrier;
+      appliedRiderDamage = result.riderDamageApplied;
+      appliedHostShare = result.hostShareDamage;
+      riderKilled = !!result.deadRider;
+
+      let finalHost: FieldCard = result.updatedHost;
+      /* 공격받은 W에 hasBeenAttackedThisTurn=true 마킹(살아남았을 때만). */
+      if (!result.deadRider && hasAebeolaekingRider(finalHost)) {
+        finalHost = {
+          ...finalHost,
+          parasiteRider: {
+            ...finalHost.parasiteRider!,
+            hasBeenAttackedThisTurn: true,
+          },
+        };
+      }
+
+      /* 공격자 hasAttacked + attacksThisTurn(W 공격에는 시작깨비 체인 등 특수 룰 미적용) */
+      const liveAttacker = atkSide.field[attackerSlot];
+      if (liveAttacker) {
+        atkSide.field[attackerSlot] = { ...liveAttacker, hasAttacked: true };
+      }
+      atkSide.attacksThisTurn = (atkSide.attacksThisTurn || 0) + 1;
+
+      let newRewindCards = prev.rewindCards;
+      let nextUnitCombatStats = prev.unitCombatStats;
+      let nextUnitStatsOrder = prev.unitStatsOrder;
+
+      hostKilledByShare = (finalHost.currentHp ?? 0) <= 0;
+
+      /**
+       * 시작의 나무 패시브 — host가 시작의 나무이고 공유로 hp가 감소했으면(사망 여부 무관)
+       * 모든 아군에 50%(50단위 내림) 회복. 데미지 종류와 무관하게 hp 감소가 트리거.
+       */
+      if (appliedHostShare > 0) {
+        const hostFacingOpp =
+          (hostOwnerPlayer === "A" ? newPlayerB.field : newPlayerA.field)[hostSlot] ?? null;
+        const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(
+          liveHost,
+          appliedHostShare,
+          hostFacingOpp
+        );
+        if (startingTreeAllyHeal > 0) {
+          (["is", "m", "os"] as const).forEach(otherS => {
+            if (otherS === hostSlot) return;
+            const unit = hostSide.field[otherS];
+            if (!unit) return;
+            const healed = Math.min(
+              Math.max(0, Number(unit.hp) - unit.currentHp),
+              startingTreeAllyHeal
+            );
+            hostSide.field[otherS] = {
+              ...unit,
+              ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
+            };
+            if (healed > 0) {
+              /* StrictMode 더블 호출 안전 — 같은 ally 슬롯 키에는 같은 값이 들어가므로 덮어쓰기. */
+              const healKey = `${hostOwnerPlayer}-${otherS}`;
+              startingTreeAllyHealVfx[healKey] = healed;
+            }
+          });
+        }
+      }
+
+      if (hostKilledByShare) {
+        cleanupSimulationUnitDeath(finalHost, newPlayerA, newPlayerB, prev.globalTurnCount);
+        newRewindCards = appendDeadHostWithRiderToRewindCards(newRewindCards, finalHost);
+        const sid = finalHost.statsInstanceId;
+        if (sid) {
+          const { [sid]: _r, ...rest } = nextUnitCombatStats;
+          nextUnitCombatStats = rest;
+          nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+        }
+        hostSide.field[hostSlot] = null;
+      } else {
+        hostSide.field[hostSlot] = finalHost;
+        if (result.deadRider) {
+          newRewindCards = [...newRewindCards, stripAebeolaekingRiderMeta(result.deadRider)];
+        }
+      }
+
+      /* attacker 전투 통계 — 데미지 적용 합 = riderDamageApplied + hostShareDamage */
+      const totalDamageDealt = appliedRiderDamage + appliedHostShare;
+      const combatPatches: Array<{
+        id: string | undefined;
+        delta: Partial<Record<"damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated", number>>;
+      }> = [];
+      if (attackerCard.statsInstanceId && totalDamageDealt > 0) {
+        combatPatches.push({
+          id: attackerCard.statsInstanceId,
+          delta: { damageDealt: totalDamageDealt, kills: riderKilled ? 1 : 0 },
+        });
+      }
+      return {
+        ...prev,
+        unitCombatStats: patchManyUnitCombatStats(nextUnitCombatStats, combatPatches),
+        unitStatsOrder: nextUnitStatsOrder,
+        rewindCards: newRewindCards,
+        playerA: newPlayerA,
+        playerB: newPlayerB,
+      };
+    });
+
+    setAttackingSlot(null);
+    setAttackOptionOverride(null);
+    setPendingSecondaryAttack(null);
+    applyStartingWraithChainPending(null);
+    setSelectedSlot(null);
+
+    const riderKey = aebeolaekingRiderSlotKey(hostOwnerPlayer, hostSlot);
+    const hostKey = `${hostOwnerPlayer}-${hostSlot}`;
+    if (blockedByInvuln) {
+      /* [무적] 차단 — 일단 데미지 0 표시(보호 VFX는 후속). */
+      showDamageNumber(riderKey, 0);
+      return true;
+    }
+
+    const riderShownDmg = appliedRiderDamage + absorbedByBarrier;
+    if (riderShownDmg > 0) {
+      showDamageNumber(riderKey, riderShownDmg);
+      window.setTimeout(() => triggerCardFlash(riderKey, "aebeolaekingParasiteTick"), 0);
+    }
+    if (appliedHostShare > 0 && !hostKilledByShare) {
+      showDamageNumber(hostKey, appliedHostShare);
+    } else if (appliedHostShare > 0 && hostKilledByShare) {
+      showDamageNumber(hostKey, appliedHostShare);
+    }
+    /* 시작의 나무 패시브 회복 — 아군에 회복 플로팅 텍스트 + 회복 플래시. */
+    for (const [healKey, healAmount] of Object.entries(startingTreeAllyHealVfx)) {
+      if (healAmount > 0) {
+        showHealNumber(healKey, healAmount);
+      }
+    }
+    return true;
   };
 
   const cancelHandDrag = (e: React.PointerEvent) => {
@@ -9583,6 +10670,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       ...(anyPakkiDebuff ? { hasPakiAttackHalveDebuff: true } : {}),
     } as FieldCard;
 
+    /**
+     * 애벌레킹(W) 통합 — 리부티의 모든 적 공격 패시브에 W를 포함시킨다.
+     * - 각 host에 대해 (a) host→W 50% 공유 + (b) W에 직접 LIBUTY 데미지 + W→host 50% 공유 적용.
+     * - aebVfxByRow: row별 W slot VFX 데이터(riderShown=실제 적용+보호막 흡수, hostShareShown=W→host 공유량).
+     * - aebDeadHostFinalByRow: 공유 누적으로 host가 추가 사망한 경우의 finalTarget(rewind용, W 동반).
+     */
+    const aebVfxByRow: Record<string, { riderShown: number; hostShareShown: number; blockedInvuln: boolean }> = {};
+    const aebDeadHostFinalByRow: Record<string, FieldCard | null> = {};
+    const aebDeadRiderByRow: Record<string, FieldCard | null> = {};
+    /* W→host 공유로 host(=시작의 나무)가 추가 데미지를 입을 때, 같은 진영 아군에 회복 — 슬롯 키별 회복량. */
+    const aebStartingTreeAllyHealVfx: Record<string, number> = {};
+
     setState(prev => {
       if (!prev) return prev;
       const cleanupSkillLinksOnDeath = (deadCard: FieldCard, newPA: PlayerState, newPB: PlayerState, gt: number) => {
@@ -9621,7 +10720,89 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           currentHp: r.newHp,
           hasBeenAttackedThisTurn: true,
         };
-        defSide.field[r.slot] = r.isDestroyed ? null : updatedTarget;
+
+        let finalTarget: FieldCard = updatedTarget;
+        let hostKilledByAebShare = false;
+        let riderShownVfx = 0;
+        let hostShareVfx = 0;
+        let blockedInvuln = false;
+        let deadRiderRow: FieldCard | null = null;
+
+        /* (a) host→W 50% 공유 — host 살아남고 W 부착 시. */
+        if (!r.isDestroyed && hasAebeolaekingRider(finalTarget) && r.hpLossPrimary > 0) {
+          const sa = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
+            finalTarget,
+            r.hpLossPrimary,
+            {
+              hostOwner: defenderPlayer,
+              playerAField: newPlayerA.field,
+              playerBField: newPlayerB.field,
+            }
+          );
+          finalTarget = sa.updatedHost;
+          riderShownVfx += sa.sharedToRider + sa.absorbedByBarrier;
+          if (sa.deadRider) deadRiderRow = sa.deadRider;
+        }
+
+        /* (b) W에 별도 LIBUTY 데미지 + W→host 50% 공유 — W 생존 시. */
+        if (!r.isDestroyed && hasAebeolaekingRider(finalTarget) && (finalTarget.currentHp ?? 0) > 0) {
+          const sb = applyAebeolaekingDamageToRiderAndShareToHostWithProtection(
+            finalTarget,
+            LIBUTY_BASIC_AOE_DAMAGE,
+            {
+              hostOwner: defenderPlayer,
+              playerAField: newPlayerA.field,
+              playerBField: newPlayerB.field,
+            }
+          );
+          finalTarget = sb.updatedHost;
+          riderShownVfx += sb.riderDamageApplied + sb.absorbedByBarrier;
+          hostShareVfx += sb.hostShareDamage;
+          blockedInvuln = sb.blocked === "invuln";
+          if (sb.deadRider) deadRiderRow = sb.deadRider;
+          if ((finalTarget.currentHp ?? 0) <= 0) hostKilledByAebShare = true;
+        }
+
+        /**
+         * 시작의 나무 패시브 — host가 시작의 나무이고 W→host 공유로 추가 hp 손실이 발생했으면
+         * 모든 아군에 50%(50단위 내림) 회복. 데미지 종류와 무관하게 hp 감소가 트리거.
+         * (r.hpLossPrimary 부분은 일반 1차 commit과 동일하게 별도 startingTreeAllyHeal에서 이미 처리됨.)
+         */
+        if (hostShareVfx > 0) {
+          const hostFacingOpp =
+            (defenderPlayer === "A" ? newPlayerB.field : newPlayerA.field)[r.slot] ?? null;
+          const stHealFromShare = getStartingTreeAllyHealOnDamaged(r.card, hostShareVfx, hostFacingOpp);
+          if (stHealFromShare > 0) {
+            (["is", "m", "os"] as const).forEach(otherS => {
+              if (otherS === r.slot) return;
+              const unit = defSide.field[otherS];
+              if (!unit) return;
+              const healed = Math.min(
+                Math.max(0, Number(unit.hp) - unit.currentHp),
+                stHealFromShare
+              );
+              defSide.field[otherS] = {
+                ...unit,
+                ...healUnitCurrentHp(unit, stHealFromShare, { supportSource: "allyUnit" }),
+              };
+              if (healed > 0) {
+                /* StrictMode 더블 호출 안전 — 같은 (host→ally) 쌍에는 같은 값이 들어가므로 덮어쓰기. */
+                const dedupKey = `${defenderPlayer}-${r.slot}->${otherS}`;
+                aebStartingTreeAllyHealVfx[dedupKey] = healed;
+              }
+            });
+          }
+        }
+
+        const hostDeadFinal = r.isDestroyed || hostKilledByAebShare;
+        defSide.field[r.slot] = hostDeadFinal ? null : finalTarget;
+        if (hostKilledByAebShare) {
+          cleanupSkillLinksOnDeath(finalTarget, newPlayerA, newPlayerB, prev.globalTurnCount);
+        }
+
+        aebVfxByRow[r.slot] = { riderShown: riderShownVfx, hostShareShown: hostShareVfx, blockedInvuln };
+        aebDeadHostFinalByRow[r.slot] = hostKilledByAebShare ? finalTarget : null;
+        aebDeadRiderByRow[r.slot] = hostDeadFinal ? null : deadRiderRow;
       }
 
       for (const r of rows) {
@@ -9680,18 +10861,74 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
 
       let rc = prev.rewindCards;
+      let nextUnitCombatStats = prev.unitCombatStats;
+      let nextUnitStatsOrder = prev.unitStatsOrder;
       for (const r of rows) {
-        if (r.isDestroyed) rc = [...rc, r.card];
+        if (r.isDestroyed) {
+          /* host 사망 시 부착된 W도 함께 리와인드(별개 카드). */
+          rc = appendDeadHostWithRiderToRewindCards(rc, r.card);
+        } else if (aebDeadHostFinalByRow[r.slot]) {
+          /* 공유 누적으로 host가 추가 사망 — host(+W)를 finalTarget 기준으로 동반 rewind + stats 정리. */
+          const deadFinal = aebDeadHostFinalByRow[r.slot]!;
+          rc = appendDeadHostWithRiderToRewindCards(rc, deadFinal);
+          const sid = deadFinal.statsInstanceId;
+          if (sid) {
+            const { [sid]: _r, ...rest } = nextUnitCombatStats;
+            nextUnitCombatStats = rest;
+            nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== sid);
+          }
+        } else if (aebDeadRiderByRow[r.slot]) {
+          /* host 생존 + W만 사망 — W를 별개 카드로 rewind. */
+          rc = [...rc, stripAebeolaekingRiderMeta(aebDeadRiderByRow[r.slot]!)];
+        }
       }
 
       return {
         ...prev,
-        unitCombatStats: patchManyUnitCombatStats(prev.unitCombatStats, combatPatchList),
+        unitCombatStats: patchManyUnitCombatStats(nextUnitCombatStats, combatPatchList),
+        unitStatsOrder: nextUnitStatsOrder,
         rewindCards: rc,
         playerA: newPlayerA,
         playerB: newPlayerB,
       };
     });
+
+    /* 애벌레킹(W) VFX — 각 row의 W slot에 데미지 숫자 + 갈색 펄스, host에 W→host 공유 데미지. */
+    for (const r of rows) {
+      const ax = aebVfxByRow[r.slot];
+      if (!ax) continue;
+      if (ax.blockedInvuln && ax.riderShown <= 0 && ax.hostShareShown <= 0) continue;
+      const aebRiderKey = aebeolaekingRiderSlotKey(defenderPlayer, r.slot);
+      const aebHostKey = `${defenderPlayer}-${r.slot}`;
+      if (ax.riderShown > 0) {
+        showDamageNumber(aebRiderKey, ax.riderShown);
+        window.setTimeout(() => triggerCardFlash(aebRiderKey, "aebeolaekingParasiteTick"), 0);
+      }
+      if (ax.hostShareShown > 0) {
+        showDamageNumber(aebHostKey, ax.hostShareShown);
+      }
+    }
+    /**
+     * 시작의 나무 패시브 — W→host 공유로 host가 추가 hp 손실 시, 아군 회복 플로팅 텍스트 + 회복 플래시.
+     * dedup 키(`${defenderPlayer}-${hostSlot}->${otherS}`)를 ally 슬롯 단위로 합산해 표시.
+     */
+    {
+      const aggregated: Record<string, number> = {};
+      for (const [dedupKey, healAmount] of Object.entries(aebStartingTreeAllyHealVfx)) {
+        if (healAmount <= 0) continue;
+        const arrow = dedupKey.indexOf("->");
+        if (arrow < 0) continue;
+        const targetPart = dedupKey.substring(arrow + 2);
+        const sideMatch = dedupKey.substring(0, dedupKey.indexOf("-"));
+        const allyKey = `${sideMatch}-${targetPart}`;
+        aggregated[allyKey] = (aggregated[allyKey] ?? 0) + healAmount;
+      }
+      for (const [allyKey, healAmount] of Object.entries(aggregated)) {
+        if (healAmount > 0) {
+          showHealNumber(allyKey, healAmount);
+        }
+      }
+    }
 
     const atkKey = `${attackerPlayer}-${attackerSlotName}`;
     for (const r of rows) {
@@ -12113,6 +13350,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           keepAttackingModeForStartingWraithChain =
             keepWraithChainForNextEnemy || wraithSeeksPlayerAfterClear;
 
+          /* 애벌레킹(W) 데미지 공유 — host가 살아남고 W가 부착돼 있으면 host의 실제 hp 손실의 50%를 W에 공유. */
+          let aebShareDmgPrimaryForRider = 0;
+          let aebShareAbsorbedPrimary = 0;
+          let aebShareBlockedByInvulnPrimary = false;
+          let aebDeadRiderPrimary: FieldCard | null = null;
+
           setState(prev => {
             if (!prev) return prev;
             
@@ -12133,7 +13376,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 prev.playerB.field
               )
             );
-            const updatedTarget = {
+            let updatedTarget: FieldCard = {
               ...baseTargetPrimary,
               ...elixir5StunTargetPatch(
                 attackerCard,
@@ -12146,6 +13389,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               currentHp: newHp,
               ...(wraithChainSkipsGangupMark ? {} : { hasBeenAttackedThisTurn: true }),
             };
+            /* host가 살아남고 W가 있으면 hpLossPrimary의 50%를 W에 공유([무적]·방어막·보호막 통과). */
+            if (!isDestroyed && hasAebeolaekingRider(updatedTarget) && hpLossPrimary > 0) {
+              const aebShareResult = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
+                updatedTarget,
+                hpLossPrimary,
+                {
+                  hostOwner: player as "A" | "B",
+                  playerAField: newPlayerA.field,
+                  playerBField: newPlayerB.field,
+                }
+              );
+              updatedTarget = aebShareResult.updatedHost;
+              aebShareDmgPrimaryForRider = aebShareResult.sharedToRider;
+              aebShareBlockedByInvulnPrimary = aebShareResult.blocked === "invuln";
+              aebShareAbsorbedPrimary = aebShareResult.absorbedByBarrier;
+              if (aebShareResult.deadRider) {
+                aebDeadRiderPrimary = aebShareResult.deadRider;
+              }
+            }
             const bumpKill = bumpMaxellandTenacityGaugeOnEnemyKill(
               attackerCard,
               isDestroyed,
@@ -12252,7 +13514,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }
 
             let newRewindCards = prev.rewindCards;
-            if (isDestroyed) newRewindCards = [...newRewindCards, card];
+            if (isDestroyed) {
+              /* host 사망 시 부착된 W도 함께 리와인드(별개 카드로 push). */
+              newRewindCards = appendDeadHostWithRiderToRewindCards(newRewindCards, card);
+            } else if (aebDeadRiderPrimary) {
+              newRewindCards = [...newRewindCards, stripAebeolaekingRiderMeta(aebDeadRiderPrimary)];
+            }
             if (attackerDestroyedByLibutyReflect) {
               newRewindCards = [...newRewindCards, attackerCard];
             }
@@ -12265,6 +13532,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               playerB: newPlayerB
             };
           });
+
+          /* 애벌레킹(W) 데미지 공유 VFX — W slot에 데미지 숫자 + 갈색 펄스(공격 1차 commit 후). */
+          if (!aebShareBlockedByInvulnPrimary && (aebShareDmgPrimaryForRider > 0 || aebShareAbsorbedPrimary > 0)) {
+            const aebRiderKey = aebeolaekingRiderSlotKey(player as "A" | "B", slot as "is" | "m" | "os");
+            const aebShownDmg = aebShareDmgPrimaryForRider + aebShareAbsorbedPrimary;
+            if (aebShownDmg > 0) {
+              showDamageNumber(aebRiderKey, aebShownDmg);
+              window.setTimeout(() => triggerCardFlash(aebRiderKey, "aebeolaekingParasiteTick"), 0);
+            }
+          }
 
           const tgt = `${player}-${slot}`;
           const atkKey = `${attackerPlayer}-${attackerSlotName}`;
@@ -12801,15 +14078,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return false;
   };
 
-  /** 손패에서 유닛 카드를 드래그 중일 때, 배치 가능한 빈 유닛 슬롯 — 공격 타겟과 동형 하이라이트 */
+  /**
+   * 손패에서 유닛 카드를 드래그 중일 때, 배치 가능한 유닛 슬롯에 펄스 하이라이트.
+   * - 일반 유닛: 자기 진영 빈 슬롯에 흰 펄스.
+   * - 애벌레킹(W): 적 진영 점유 슬롯(부착 가능 host)에 갈색 펄스.
+   * - 귀환: 자기 진영 빈 슬롯에 인디고 펄스.
+   */
   const getHandDragUnitPlacementPulseClass = (
     player: "A" | "B",
     slot: "is" | "m" | "os",
     fieldCard: FieldCard | null
   ): string => {
     if (!handDrag || !state || winner) return "";
-    if (handDrag.player !== player) return "";
     if (state.currentTurn !== handDrag.player) return "";
+
+    /* 애벌레킹(W) — 적 진영 점유 슬롯(부착 가능 host)에 갈색 펄스 */
+    if (isAebeolaekingCard(handDrag.card)) {
+      if (handDrag.player === player) return "";
+      if (!fieldCard || (fieldCard.currentHp ?? 0) <= 0) return "";
+      const can = canHandDragAttachAebeolaekingTo(handDrag.player, player, fieldCard);
+      if (!can.ok) return "";
+      const tokens = handDrag.player === "A" ? state.playerA.tokens : state.playerB.tokens;
+      const cost = Number(handDrag.card.cost) || 0;
+      if (tokens < cost) return "";
+      if (isRonuBlockingSpellHandPlayAt(state, handDrag)) return "";
+      return "border-[3px] border-amber-500/95 bg-amber-950/35 shadow-[0_0_28px_rgba(180,83,9,0.85),0_0_48px_rgba(217,119,6,0.55)] animate-pulse cursor-crosshair z-20";
+    }
+
+    if (handDrag.player !== player) return "";
     if (fieldCard !== null) return "";
 
     if (isGuihwanSpellCard(handDrag.card)) {
@@ -14095,6 +15391,160 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
         ryeomhwaSuppressedOutlineGlow={ryeomhwaSuppressedOutlineGlow}
       />
+    );
+  };
+
+  /**
+   * 유닛 No.37 애벌레킹 — host에 부착된 W를 host 카드 모서리 바깥에 작게 렌더링.
+   * - top 진영(B) host: host 우하단으로 살짝 튀어나오게 배치(체력바는 W의 아래).
+   * - bottom 진영(A) host: host 좌상단으로 살짝 튀어나오게 배치(체력바는 W의 위).
+   * - W는 host slot div 바깥(unitSlotOuterClass div의 자식)으로 그려져 host의 overflow-hidden 영향을 받지 않음.
+   * - 클릭 시 detail/✕ 메뉴(W 카드 본체 위에만 표시 — host를 덮지 않음).
+   * - cardBox에 data-aebeolaeking-rider-target 부여 → 단일 타깃 공격 스펠 hit-test/공격 hit-test 입구.
+   */
+  const renderAebeolaekingRiderOverlay = (
+    ownerPlayer: "A" | "B",
+    slot: "is" | "m" | "os",
+    host: FieldCard | null
+  ) => {
+    if (!host || !hasAebeolaekingRider(host)) return null;
+    const rider = host.parasiteRider!;
+    const isTopPlayer = ownerPlayer === "B";
+    const riderSlotKey = aebeolaekingRiderSlotKey(ownerPlayer, slot);
+    const menuOpen = selectedSlot === riderSlotKey;
+
+    /* host 모서리 바깥으로 살짝 튀어나옴: 위 진영은 우하단, 아래 진영은 좌상단 */
+    const wrapPos = isTopPlayer
+      ? "absolute -bottom-3 -right-3 md:-bottom-4 md:-right-4 z-[40]"
+      : "absolute -top-3 -left-3 md:-top-4 md:-left-4 z-[40]";
+    /* B host: 카드 위→체력바 아래(flex-col). A host: 카드 아래→체력바 위(flex-col-reverse). */
+    const stackDir = isTopPlayer ? "flex-col" : "flex-col-reverse";
+
+    /**
+     * 공격 가능 시각 글로우 — attackingSlot이 활성 + attacker가 host 진영(=W의 적, 아군 host의 진영)일 때.
+     * - W의 hasBeenAttackedThisTurn이 true면 이미 공격받았으니 글로우 X(다굴 금지 룰).
+     * - host의 trueOwner와 attacker가 같지 않으면(=W의 진영이 attacker와 같으면) 글로우 X.
+     */
+    const attackerInfo = attackingSlot ? attackingSlot.split("-") : null;
+    const canRiderBeAttackedNow =
+      !!attackerInfo &&
+      (attackerInfo[0] as "A" | "B") === ownerPlayer &&
+      !rider.hasBeenAttackedThisTurn &&
+      (rider.currentHp ?? 0) > 0;
+    const attackableGlow = canRiderBeAttackedNow
+      ? " ring-2 ring-red-400 animate-pulse"
+      : "";
+
+    const cardBoxBaseClass =
+      "border-2 border-yellow-400/90 shadow-[0_0_10px_rgba(250,204,21,0.85),0_0_20px_rgba(217,119,6,0.55)] cursor-pointer";
+
+    const cardBox = (
+      <div
+        data-aebeolaeking-rider-target={riderSlotKey}
+        data-aebeolaeking-rider-owner={ownerPlayer}
+        data-aebeolaeking-rider-host-slot={slot}
+        className={`relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto ${cardBoxBaseClass}${attackableGlow}`}
+        onClick={e => {
+          e.stopPropagation();
+          /* 공격 모드 — attacker가 host 진영이면 W에 1차 공격 commit. */
+          if (attackingSlot) {
+            const [atkPlayer, atkSlot] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+            if (atkPlayer === ownerPlayer) {
+              if (tryCommitAttackAgainstAebeolaekingRider(atkPlayer, atkSlot, ownerPlayer, slot)) {
+                return;
+              }
+            }
+          }
+          setSelectedSlot(prev => (prev === riderSlotKey ? null : riderSlotKey));
+        }}
+      >
+        {rider.image_url ? (
+          <img
+            src={rider.image_url}
+            alt={rider.name}
+            className={`w-full h-full object-cover ${
+              state?.settings.isOpponentCardFlipped && isTopPlayer ? "rotate-180" : ""
+            }`}
+          />
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center text-[8px] md:text-[9px] font-bold text-yellow-200 text-center leading-tight p-1">
+            {rider.name}
+          </span>
+        )}
+        {/* 액션 메뉴 — W 카드 본체 위에만 표시(호스트 카드를 덮지 않음) */}
+        {menuOpen && (
+          <div
+            className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-[45] backdrop-blur-[2px]"
+            onClick={e => {
+              e.stopPropagation();
+              setSelectedSlot(null);
+            }}
+          >
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                if (onOpenDetail) onOpenDetail(rider);
+                setSelectedSlot(null);
+              }}
+              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+            >
+              상세 보기
+            </button>
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                setSelectedSlot(null);
+              }}
+              className="absolute top-0 right-0.5 text-slate-300 hover:text-white text-[9px] font-bold leading-none z-[46]"
+              aria-label="메뉴 닫기"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+    );
+
+    /* 체력바 — W 본체와 동일 너비. 보호막(오리에트의 초상) 시 시안 영역 분할 표시. */
+    const maxHp = Math.max(1, Number(rider.hp) || 1);
+    const curHp = Math.max(0, rider.currentHp ?? maxHp);
+    const barrier = Math.max(0, rider.hpBarrierAbsorptionRemaining ?? 0);
+    const greenPct = Math.min(100, (curHp / maxHp) * 100);
+    const cyanPct = barrier > 0 ? Math.min(100, Math.max(0, (barrier / maxHp) * 100)) : 0;
+    const cyanLeft = Math.min(100, greenPct);
+    const cyanWidth = Math.min(100 - cyanLeft, cyanPct);
+    const barColor =
+      greenPct > 30
+        ? "bg-gradient-to-r from-green-500 to-green-400"
+        : "bg-gradient-to-r from-red-500 to-red-400";
+    const hpBar = (
+      <div className="relative h-1.5 md:h-2 w-full overflow-hidden rounded-[3px] border border-slate-700 bg-slate-900 shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+        <div
+          className={`absolute left-0 top-0 z-[1] h-full transition-all duration-200 ${barColor}`}
+          style={{ width: `${greenPct}%` }}
+        />
+        {cyanWidth > 0 ? (
+          <div
+            className="absolute top-0 z-[2] h-full bg-gradient-to-r from-sky-500 via-cyan-300 to-sky-200"
+            style={{ left: `${cyanLeft}%`, width: `${cyanWidth}%` }}
+            aria-hidden
+          />
+        ) : null}
+        <span className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center text-[6px] md:text-[7px] font-black tabular-nums leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]">
+          {curHp}
+          {barrier > 0 ? ` +${barrier}` : ""}
+        </span>
+      </div>
+    );
+
+    return (
+      <div
+        className={`${wrapPos} flex ${stackDir} items-stretch gap-0.5 w-[42px] md:w-[50px] lg:w-[60px]`}
+        aria-hidden={false}
+      >
+        {cardBox}
+        {hpBar}
+      </div>
     );
   };
 
@@ -16146,12 +17596,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "is", state.playerB.field.is)}
-                     <div className={getSlotClassName("B", "is", state.playerB.field.is)} data-field-drop data-field-player="B" data-field-slot="is" onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
-                     {state.playerB.field.is ? (
-                       state.playerB.field.is.image_url ? <img src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
-                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
-                     {renderActionMenu("B", "is", state.playerB.field.is)}
-                     </div>
+                    <div className={getSlotClassName("B", "is", state.playerB.field.is)} data-field-drop data-field-player="B" data-field-slot="is" onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
+                    {state.playerB.field.is ? (
+                      state.playerB.field.is.image_url ? <img src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
+                    ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
+                    {renderActionMenu("B", "is", state.playerB.field.is)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("B", "is", state.playerB.field.is)}
                      {renderFlashOverlay("B-is", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("B-is", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("B-is", "rounded-[8px]")}
@@ -16190,12 +17641,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "m", state.playerB.field.m)}
-                     <div className={getSlotClassName("B", "m", state.playerB.field.m)} data-field-drop data-field-player="B" data-field-slot="m" onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
-                     {state.playerB.field.m ? (
-                       state.playerB.field.m.image_url ? <img src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
-                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
-                     {renderActionMenu("B", "m", state.playerB.field.m)}
-                     </div>
+                    <div className={getSlotClassName("B", "m", state.playerB.field.m)} data-field-drop data-field-player="B" data-field-slot="m" onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
+                    {state.playerB.field.m ? (
+                      state.playerB.field.m.image_url ? <img src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
+                    ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
+                    {renderActionMenu("B", "m", state.playerB.field.m)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("B", "m", state.playerB.field.m)}
                      {renderFlashOverlay("B-m", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("B-m", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("B-m", "rounded-[8px]")}
@@ -16234,12 +17686,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "os", state.playerB.field.os)}
-                     <div className={getSlotClassName("B", "os", state.playerB.field.os)} data-field-drop data-field-player="B" data-field-slot="os" onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
-                     {state.playerB.field.os ? (
-                       state.playerB.field.os.image_url ? <img src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
-                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
-                     {renderActionMenu("B", "os", state.playerB.field.os)}
-                     </div>
+                    <div className={getSlotClassName("B", "os", state.playerB.field.os)} data-field-drop data-field-player="B" data-field-slot="os" onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
+                    {state.playerB.field.os ? (
+                      state.playerB.field.os.image_url ? <img src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
+                    ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
+                    {renderActionMenu("B", "os", state.playerB.field.os)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("B", "os", state.playerB.field.os)}
                      {renderFlashOverlay("B-os", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("B-os", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("B-os", "rounded-[8px]")}
@@ -16338,12 +17791,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "is", state.playerA.field.is)}
-                     <div className={getSlotClassName("A", "is", state.playerA.field.is)} data-field-drop data-field-player="A" data-field-slot="is" onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
-                     {state.playerA.field.is ? (
-                       state.playerA.field.is.image_url ? <img src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
-                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
-                     {renderActionMenu("A", "is", state.playerA.field.is)}
-                     </div>
+                    <div className={getSlotClassName("A", "is", state.playerA.field.is)} data-field-drop data-field-player="A" data-field-slot="is" onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
+                    {state.playerA.field.is ? (
+                      state.playerA.field.is.image_url ? <img src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
+                    ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
+                    {renderActionMenu("A", "is", state.playerA.field.is)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("A", "is", state.playerA.field.is)}
                      {renderFlashOverlay("A-is", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("A-is", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("A-is", "rounded-[8px]")}
@@ -16382,12 +17836,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "m", state.playerA.field.m)}
-                     <div className={getSlotClassName("A", "m", state.playerA.field.m)} data-field-drop data-field-player="A" data-field-slot="m" onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
-                     {state.playerA.field.m ? (
-                       state.playerA.field.m.image_url ? <img src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
-                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
-                     {renderActionMenu("A", "m", state.playerA.field.m)}
-                     </div>
+                    <div className={getSlotClassName("A", "m", state.playerA.field.m)} data-field-drop data-field-player="A" data-field-slot="m" onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
+                    {state.playerA.field.m ? (
+                      state.playerA.field.m.image_url ? <img src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
+                    ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
+                    {renderActionMenu("A", "m", state.playerA.field.m)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("A", "m", state.playerA.field.m)}
                      {renderFlashOverlay("A-m", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("A-m", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("A-m", "rounded-[8px]")}
@@ -16426,12 +17881,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "os", state.playerA.field.os)}
-                     <div className={getSlotClassName("A", "os", state.playerA.field.os)} data-field-drop data-field-player="A" data-field-slot="os" onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
-                     {state.playerA.field.os ? (
-                       state.playerA.field.os.image_url ? <img src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
-                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
-                     {renderActionMenu("A", "os", state.playerA.field.os)}
-                     </div>
+                    <div className={getSlotClassName("A", "os", state.playerA.field.os)} data-field-drop data-field-player="A" data-field-slot="os" onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
+                    {state.playerA.field.os ? (
+                      state.playerA.field.os.image_url ? <img src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
+                    ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
+                    {renderActionMenu("A", "os", state.playerA.field.os)}
+                    </div>
+                     {renderAebeolaekingRiderOverlay("A", "os", state.playerA.field.os)}
                      {renderFlashOverlay("A-os", "rounded-[8px]")}
                      {renderGeunyangMojaHitFlameOverlay("A-os", "rounded-[8px]")}
                      {renderDiagoHitFlameOverlay("A-os", "rounded-[8px]")}

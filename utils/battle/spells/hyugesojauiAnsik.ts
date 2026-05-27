@@ -7,6 +7,7 @@ import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import { normalizeSpellStack } from "../fieldSpellAccess";
 import { healUnitCurrentHp } from "../hpSurvivalOnes";
 import { isHealBlockedBySuppression } from "../debuffs/suppression";
+import { getAebeolaekingRiderTrueOwner, hasAebeolaekingRider } from "../units/aebeolaeking";
 
 export const HYUGESOJAUI_ANSIK_SPELL_ID = "휴게소의 안식" as const;
 
@@ -93,6 +94,47 @@ export function applyHyugesojauiAnsikHealAttempt(
   }
 
   return { nextField: f, combatPatches, perSlot };
+}
+
+/**
+ * 휴게소의 안식 회복 — 적 진영 host에 부착된 자기 W도 회복 시도.
+ * - 자기 W의 진정한 소유자 = host의 반대편. trueOwner와 일치하는 W만 회복.
+ * - [제압] 시 회복 차단. 최대 체력이면 healed=0(연출 펄스만 가능).
+ * - 반환: 갱신된 enemyField + statsInstanceId 패치 + 슬롯별 회복량.
+ */
+export function applyHyugesojauiAnsikHealToOwnAebeolaekingRiders(
+  enemyField: SimulationPlayerField,
+  trueOwner: "A" | "B",
+  amount: number
+): {
+  nextEnemyField: SimulationPlayerField;
+  combatPatches: HyugesojauiAnsikCombatPatch[];
+  perSlot: HyugesojauiAnsikHealSlotResult[];
+} {
+  const f = cloneSimulationPlayerField(enemyField);
+  const combatPatches: HyugesojauiAnsikCombatPatch[] = [];
+  const perSlot: HyugesojauiAnsikHealSlotResult[] = [];
+  for (const slot of ["is", "m", "os"] as const) {
+    const host = f[slot];
+    if (!host || (host.currentHp ?? 0) <= 0) continue;
+    if (!hasAebeolaekingRider(host)) continue;
+    const rider = host.parasiteRider!;
+    if ((rider.currentHp ?? 0) <= 0) continue;
+    const owner = getAebeolaekingRiderTrueOwner(rider);
+    if (owner !== trueOwner) continue;
+    if (isHealBlockedBySuppression(rider, "playerSpell")) continue;
+    const headroom = Math.max(0, Number(rider.hp) - (rider.currentHp ?? 0));
+    const healed = Math.min(amount, headroom);
+    perSlot.push({ slot, healed });
+    if (healed > 0) {
+      const next = healUnitCurrentHp(rider, healed, { supportSource: "playerSpell" });
+      f[slot] = { ...host, parasiteRider: { ...rider, ...next } };
+      if (rider.statsInstanceId) {
+        combatPatches.push({ id: rider.statsInstanceId, delta: { selfHeal: healed } });
+      }
+    }
+  }
+  return { nextEnemyField: f, combatPatches, perSlot };
 }
 
 /** @deprecated — `applyHyugesojauiAnsikHealAttempt` 사용 */
@@ -182,6 +224,22 @@ export function applyHyugesojauiAnsikTurnStartForOwner(args: {
   const healR = applyHyugesojauiAnsikHealAttempt(side, HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER);
   Object.assign(side, { is: healR.nextField.is, m: healR.nextField.m, os: healR.nextField.os });
 
+  /**
+   * 애벌레킹(W) 자기 진영 처리 — 적 진영 host에 부착된 자기 W도 회복 시도.
+   * - 자기 W의 진정한 소유자 = host의 반대편. nextTurnOwner와 일치하면 회복 대상.
+   */
+  const enemySide = args.nextTurnOwner === "A" ? pb : pa;
+  const riderResult = applyHyugesojauiAnsikHealToOwnAebeolaekingRiders(
+    enemySide,
+    args.nextTurnOwner,
+    HYUGESOJAUI_ANSIK_HEAL_PER_TRIGGER
+  );
+  Object.assign(enemySide, {
+    is: riderResult.nextEnemyField.is,
+    m: riderResult.nextEnemyField.m,
+    os: riderResult.nextEnemyField.os,
+  });
+
   const vfx: HyugesojauiAnsikTurnStartVfx | null =
     healR.perSlot.length > 0
       ? { allyPlayer: args.nextTurnOwner, perSlot: healR.perSlot }
@@ -190,7 +248,7 @@ export function applyHyugesojauiAnsikTurnStartForOwner(args: {
   return {
     nextPlayerAField: pa,
     nextPlayerBField: pb,
-    combatPatches: healR.combatPatches,
+    combatPatches: [...healR.combatPatches, ...riderResult.combatPatches],
     vfx,
   };
 }
