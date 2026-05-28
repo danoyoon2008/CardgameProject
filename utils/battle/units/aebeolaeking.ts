@@ -12,11 +12,25 @@
  */
 
 import type { CardRow, FieldCard, SimulationPlayerField } from "../../../types/game";
+import { parseAttack } from "../../combatEngine";
 import { UNIT } from "../unitIds";
 import { spellStackHasActiveBangEomak } from "../spells/bangeomak";
 import { spellStackHasActiveCheolbyeok } from "../spells/cheolbyeok";
-import { isBaekseuInvulnerable } from "../units/baekseu";
-import { isSuppressionActive } from "../debuffs/suppression";
+import {
+  isBaekseuInvulnerable,
+  resolveBaekseuFatalDamage,
+  stripBaekseuHarmfulEffectsForInvuln,
+} from "../units/baekseu";
+import { isSuppressionActive, isHealBlockedBySuppression, type HealSupportSource } from "../debuffs/suppression";
+import { healUnitCurrentHp, normalizeUnitHpSurvivalOnesForCombat } from "../hpSurvivalOnes";
+import { applyAttackerOutgoingBuffDamageModsUnlessCallieBanned, callieBuffBanSuppressesBuffsForVictim } from "./kalli";
+import { resolveFieldUnitSimulationBaseAtkRaw } from "./geomeunHwangje";
+import { applyIncomingDefenseDamage } from "./mary";
+import {
+  hpBarrierPatchFromRemaining,
+  splitDamageThroughHpBarrier,
+} from "../spells/orietChosang";
+import { isInvulnerableFromBaekseuOrCheolbyeok } from "../spells/cheolbyeok";
 
 /**
  * 방어막(W 진영 spell stack 활성 시) 데미지 감소 — 일반 유닛 룰과 동일(−200, 최소 100).
@@ -308,6 +322,298 @@ export function getAebeolaekingRiderTrueOwner(rider: FieldCard | null | undefine
 }
 
 /**
+ * 광역 아군 회복 보조 — `trueOwner` 진영의 모든 W(적의 host에 부착됨)에게 동일 회복 적용.
+ * - W의 진정한 소유자(true owner)가 trueOwner면 회복 대상.
+ * - enemyField 직접 in-place mutate(`Object.assign`). 반환은 슬롯별 실제 회복량.
+ * - [제압] 시 회복 차단(`isHealBlockedBySuppression`).
+ * - VFX는 미발동. 호출자가 perSlot.healed로 직접 처리.
+ */
+export function applyHealToOwnAebeolaekingRidersOnEnemyField(
+  enemyField: SimulationPlayerField,
+  trueOwner: "A" | "B",
+  amount: number,
+  source: HealSupportSource = "allyUnit"
+): { perSlot: Array<{ slot: AebeolaekingHostSlot; healed: number }> } {
+  const perSlot: Array<{ slot: AebeolaekingHostSlot; healed: number }> = [];
+  if (amount <= 0) return { perSlot };
+  for (const slot of ["is", "m", "os"] as const) {
+    const host = enemyField[slot];
+    if (!host || (host.currentHp ?? 0) <= 0) continue;
+    if (!hasAebeolaekingRider(host)) continue;
+    const rider = host.parasiteRider!;
+    if ((rider.currentHp ?? 0) <= 0) continue;
+    const owner = getAebeolaekingRiderTrueOwner(rider);
+    if (owner !== trueOwner) continue;
+    if (isHealBlockedBySuppression(rider, source)) continue;
+    const headroom = Math.max(0, Number(rider.hp) - (rider.currentHp ?? 0));
+    const healed = Math.min(amount, headroom);
+    if (healed > 0) {
+      const patch = healUnitCurrentHp(rider, healed, { supportSource: source });
+      enemyField[slot] = { ...host, parasiteRider: { ...rider, ...patch } };
+    }
+    perSlot.push({ slot, healed });
+  }
+  return { perSlot };
+}
+
+/**
+ * 모닝 무드 사망 회복 — 같은 진영 is/m/os 전원 + 적 host에 부착된 자기 W.
+ */
+export function applyMorningMoodDeathHealSpread(
+  allyPlayer: "A" | "B",
+  playerAField: SimulationPlayerField,
+  playerBField: SimulationPlayerField,
+  amount: number
+): void {
+  if (amount <= 0) return;
+  const allyField = allyPlayer === "A" ? playerAField : playerBField;
+  const enemyField = allyPlayer === "A" ? playerBField : playerAField;
+  for (const slot of ["is", "m", "os"] as const) {
+    const u = allyField[slot];
+    if (!u || (u.currentHp ?? 0) <= 0) continue;
+    if (isHealBlockedBySuppression(u, "allyUnit")) continue;
+    allyField[slot] = {
+      ...u,
+      ...healUnitCurrentHp(u, amount, { supportSource: "allyUnit" }),
+    };
+  }
+  applyHealToOwnAebeolaekingRidersOnEnemyField(enemyField, allyPlayer, amount, "allyUnit");
+}
+
+/**
+ * 시작의 나무 피격 분배 회복 — 피해자 제외 같은 진영 아군 + 적 host에 부착된 자기 W.
+ */
+export function applyStartingTreeDamagedHealSpread(
+  damagedPlayer: "A" | "B",
+  damagedSlot: AebeolaekingHostSlot,
+  playerAField: SimulationPlayerField,
+  playerBField: SimulationPlayerField,
+  amount: number
+): void {
+  if (amount <= 0) return;
+  const allyField = damagedPlayer === "A" ? playerAField : playerBField;
+  const enemyField = damagedPlayer === "A" ? playerBField : playerAField;
+  for (const slot of ["is", "m", "os"] as const) {
+    if (slot === damagedSlot) continue;
+    const u = allyField[slot];
+    if (!u || (u.currentHp ?? 0) <= 0) continue;
+    if (isHealBlockedBySuppression(u, "allyUnit")) continue;
+    allyField[slot] = {
+      ...u,
+      ...healUnitCurrentHp(u, amount, { supportSource: "allyUnit" }),
+    };
+  }
+  applyHealToOwnAebeolaekingRidersOnEnemyField(enemyField, damagedPlayer, amount, "allyUnit");
+}
+
+/**
+ * 스펠/패시브 피해 후 모닝 무드·시작의 나무 회복을 필드 유닛 + W에 일괄 적용.
+ */
+export function applyPostStrikeAllyHealsIncludingW(args: {
+  targetPlayer: "A" | "B";
+  targetSlot: AebeolaekingHostSlot;
+  playerAField: SimulationPlayerField;
+  playerBField: SimulationPlayerField;
+  morningMoodDeathHeal: number;
+  startingTreeAllyHeal: number;
+}): void {
+  const { targetPlayer, targetSlot, playerAField, playerBField, morningMoodDeathHeal, startingTreeAllyHeal } =
+    args;
+  if (morningMoodDeathHeal > 0) {
+    applyMorningMoodDeathHealSpread(targetPlayer, playerAField, playerBField, morningMoodDeathHeal);
+  }
+  if (startingTreeAllyHeal > 0) {
+    applyStartingTreeDamagedHealSpread(
+      targetPlayer,
+      targetSlot,
+      playerAField,
+      playerBField,
+      startingTreeAllyHeal
+    );
+  }
+}
+
+/**
+ * W 기본 공격(기생 틱 등) — atk 파싱 + 아군 광역 공격 오라(파이레드·모닝무드·시작의나무·검황 등).
+ * - W의 진정한 소유자 필드 기준으로 버프 오라 적용.
+ * - host 슬롯과 동일 index의 마주보는 유닛을 facingOpp로 사용.
+ */
+export function resolveAebeolaekingParasiteBasicAttackPrimaryDamage(args: {
+  rider: FieldCard;
+  riderTrueOwner: "A" | "B";
+  hostOwner: "A" | "B";
+  hostSlot: AebeolaekingHostSlot;
+  playerAField: SimulationPlayerField;
+  playerBField: SimulationPlayerField;
+  attackOptionOverride?: string | null;
+}): number {
+  const {
+    rider,
+    riderTrueOwner,
+    hostOwner,
+    hostSlot,
+    playerAField,
+    playerBField,
+    attackOptionOverride = null,
+  } = args;
+  const riderAllyField = riderTrueOwner === "A" ? playerAField : playerBField;
+  const hostField = hostOwner === "A" ? playerAField : playerBField;
+  const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(rider, attackOptionOverride);
+  const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
+  let primaryDamage = Math.max(0, parsed.primaryDamage);
+  if (primaryDamage <= 0) return 0;
+  ({ primaryDamage } = applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
+    riderTrueOwner,
+    hostSlot,
+    rider,
+    riderAllyField,
+    hostField,
+    playerAField,
+    playerBField,
+    primaryDamage,
+    0
+  ));
+  return primaryDamage;
+}
+
+/**
+ * 광역 적 대상 스펠(메테오 등) — W에 독립 직격. host 50% 공유 없음.
+ * - W 진영 방어막·철벽·보호막 적용.
+ */
+export function applyAebeolaekingAoeDamageToRiderOnly(
+  host: FieldCard,
+  damageToRider: number,
+  ctx: {
+    hostOwner: "A" | "B";
+    playerAField: SimulationPlayerField;
+    playerBField: SimulationPlayerField;
+  }
+): {
+  updatedHost: FieldCard;
+  deadRider: FieldCard | null;
+  riderDamageApplied: number;
+  blocked: "invuln" | null;
+  absorbedByBarrier: number;
+} {
+  if (damageToRider <= 0 || !hasAebeolaekingRider(host)) {
+    return {
+      updatedHost: host,
+      deadRider: null,
+      riderDamageApplied: 0,
+      blocked: null,
+      absorbedByBarrier: 0,
+    };
+  }
+  const rider = host.parasiteRider!;
+  const riderOwner = getAebeolaekingRiderOwnerFromHostOwner(ctx.hostOwner);
+  const riderSideField = riderOwner === "A" ? ctx.playerAField : ctx.playerBField;
+
+  if (isAebeolaekingRiderInvulnerable(rider, riderSideField)) {
+    return {
+      updatedHost: host,
+      deadRider: null,
+      riderDamageApplied: 0,
+      blocked: "invuln",
+      absorbedByBarrier: 0,
+    };
+  }
+
+  const afterBangEomak = reduceDamageByRiderSideBangEomak(rider, damageToRider, riderSideField);
+  const { riderAfter, damageAfter, absorbedByBarrier } = absorbRiderBarrier(rider, afterBangEomak);
+  const newRiderHp = Math.max(0, (riderAfter.currentHp ?? 0) - damageAfter);
+
+  if (newRiderHp <= 0 && damageAfter > 0) {
+    return {
+      updatedHost: { ...host, parasiteRider: null },
+      deadRider: { ...riderAfter, currentHp: 0 },
+      riderDamageApplied: damageAfter,
+      blocked: null,
+      absorbedByBarrier,
+    };
+  }
+  return {
+    updatedHost: { ...host, parasiteRider: { ...riderAfter, currentHp: newRiderHp } },
+    deadRider: null,
+    riderDamageApplied: damageAfter,
+    blocked: null,
+    absorbedByBarrier,
+  };
+}
+
+/**
+ * W→host 50% 공유 피해 — host 측 방어/피해감소·보호막·백스 처형 등 일반 피해 파이프라인 적용.
+ * - parasiteRider는 유지(호출자가 rider 상태를 먼저 반영한 host를 넘김).
+ */
+export function applyAebeolaekingShareDamageToHost(
+  host: FieldCard,
+  rawShareDamage: number,
+  ctx: {
+    hostOwner: "A" | "B";
+    hostSlot: AebeolaekingHostSlot;
+    playerAField: SimulationPlayerField;
+    playerBField: SimulationPlayerField;
+  }
+): {
+  updatedHost: FieldCard;
+  hpLoss: number;
+  isDestroyed: boolean;
+} {
+  if (rawShareDamage <= 0 || (host.currentHp ?? 0) <= 0) {
+    return { updatedHost: host, hpLoss: 0, isDestroyed: false };
+  }
+
+  const { hostOwner, hostSlot, playerAField, playerBField } = ctx;
+  const hostField = hostOwner === "A" ? playerAField : playerBField;
+  const facingOpp = (hostOwner === "A" ? playerBField : playerAField)[hostSlot] ?? null;
+  const slotKey = `${hostOwner}-${hostSlot}`;
+
+  let afterBanjit = rawShareDamage;
+  if (
+    (host as FieldCard & { hasBanjitgori?: boolean }).hasBanjitgori &&
+    !callieBuffBanSuppressesBuffsForVictim(hostOwner, hostSlot, playerAField, playerBField)
+  ) {
+    afterBanjit = Math.floor((rawShareDamage * 0.75) / 50) * 50;
+  }
+
+  const defenseRes = applyIncomingDefenseDamage(
+    afterBanjit,
+    host,
+    playerAField,
+    playerBField,
+    slotKey
+  );
+  const invuln = isInvulnerableFromBaekseuOrCheolbyeok(host, hostField);
+  const coreAfterDefense = invuln ? afterBanjit : defenseRes.finalDamage;
+  const actualDmg = invuln ? 0 : coreAfterDefense;
+
+  const cardForCombat = normalizeUnitHpSurvivalOnesForCombat(host);
+  const barrierSplit = splitDamageThroughHpBarrier(cardForCombat, actualDmg);
+  const hpAfterRaw = cardForCombat.currentHp - barrierSplit.damageToCurrentHp;
+  const resolved = resolveBaekseuFatalDamage(
+    cardForCombat,
+    hpAfterRaw,
+    barrierSplit.damageToCurrentHp,
+    facingOpp
+  );
+  const newHp = resolved.finalHp;
+  const hpLoss = Math.max(0, cardForCombat.currentHp - newHp);
+
+  const baseTarget =
+    Object.keys(resolved.patch).length > 0
+      ? stripBaekseuHarmfulEffectsForInvuln(cardForCombat)
+      : cardForCombat;
+  const updatedHost: FieldCard = {
+    ...baseTarget,
+    ...resolved.patch,
+    ...hpBarrierPatchFromRemaining(barrierSplit.nextBarrierRemaining),
+    currentHp: newHp,
+    parasiteRider: host.parasiteRider,
+  };
+
+  return { updatedHost, hpLoss, isDestroyed: resolved.isDestroyed };
+}
+
+/**
  * host가 피해를 받은 직후, rider에게 50% 공유 피해를 적용.
  * - rider가 없으면 no-op.
  * - rider 사망 시 host에서 분리, deadRider 반환.
@@ -404,16 +710,22 @@ export function applyAebeolaekingDamageShareFromHostToRiderWithProtection(
  */
 export function applyAebeolaekingDamageToRiderAndShareToHost(
   host: FieldCard,
-  damageToRider: number
+  damageToRider: number,
+  ctx: {
+    hostOwner: "A" | "B";
+    hostSlot: AebeolaekingHostSlot;
+    playerAField: SimulationPlayerField;
+    playerBField: SimulationPlayerField;
+  }
 ): { updatedHost: FieldCard; deadRider: FieldCard | null; hostShareDamage: number } {
   if (damageToRider <= 0) return { updatedHost: host, deadRider: null, hostShareDamage: 0 };
   const riderResult = applyDamageToAebeolaekingRiderInHost(host, damageToRider);
-  const share = Math.max(1, Math.floor(damageToRider * AEBEOLAEKING_DAMAGE_SHARE_RATIO));
-  const newHostHp = Math.max(0, (riderResult.updatedHost.currentHp ?? 0) - share);
+  const shareRaw = Math.max(1, Math.floor(damageToRider * AEBEOLAEKING_DAMAGE_SHARE_RATIO));
+  const hostShare = applyAebeolaekingShareDamageToHost(riderResult.updatedHost, shareRaw, ctx);
   return {
-    updatedHost: { ...riderResult.updatedHost, currentHp: newHostHp },
+    updatedHost: hostShare.updatedHost,
     deadRider: riderResult.deadRider,
-    hostShareDamage: share,
+    hostShareDamage: hostShare.hpLoss,
   };
 }
 
@@ -424,14 +736,15 @@ export function applyAebeolaekingDamageToRiderAndShareToHost(
  *  2. rider 진영 방어막 → −200(최소 100).
  *  3. rider 보호막 흡수.
  *  4. rider hp 차감.
- *  5. host 공유 = (실제로 rider에게 적용된 데미지) × 50% — host 측 보호는 호출자가 별도 적용.
- * - 반환: 갱신된 host(rider 보호막/hp 반영, host hp는 단순 50% 차감)·deadRider·hostShareDamage.
+ *  5. host 공유 = (실제로 rider에게 적용된 데미지) × 50% — host 측 방어/피해감소·보호막·백스 적용.
+ * - 반환: 갱신된 host·deadRider·hostShareDamage(실제 host hp 감소량).
  */
 export function applyAebeolaekingDamageToRiderAndShareToHostWithProtection(
   host: FieldCard,
   damageToRider: number,
   ctx: {
     hostOwner: "A" | "B";
+    hostSlot: AebeolaekingHostSlot;
     playerAField: SimulationPlayerField;
     playerBField: SimulationPlayerField;
   }
@@ -482,28 +795,41 @@ export function applyAebeolaekingDamageToRiderAndShareToHostWithProtection(
   const { riderAfter, damageAfter, absorbedByBarrier } = absorbRiderBarrier(rider, afterBangEomak);
 
   const newRiderHp = Math.max(0, (riderAfter.currentHp ?? 0) - damageAfter);
-  const share = damageAfter > 0 ? Math.max(1, Math.floor(damageAfter * AEBEOLAEKING_DAMAGE_SHARE_RATIO)) : 0;
-  const newHostHp = Math.max(0, (host.currentHp ?? 0) - share);
+  const shareRaw =
+    damageAfter > 0 ? Math.max(1, Math.floor(damageAfter * AEBEOLAEKING_DAMAGE_SHARE_RATIO)) : 0;
+
+  let hostAfterRider: FieldCard =
+    newRiderHp <= 0 && damageAfter > 0
+      ? { ...host, parasiteRider: null }
+      : { ...host, parasiteRider: { ...riderAfter, currentHp: newRiderHp } };
+
+  let hostShareDamage = 0;
+  if (shareRaw > 0 && (hostAfterRider.currentHp ?? 0) > 0) {
+    const hostShare = applyAebeolaekingShareDamageToHost(hostAfterRider, shareRaw, {
+      hostOwner: ctx.hostOwner,
+      hostSlot: ctx.hostSlot,
+      playerAField: ctx.playerAField,
+      playerBField: ctx.playerBField,
+    });
+    hostAfterRider = hostShare.updatedHost;
+    hostShareDamage = hostShare.hpLoss;
+  }
 
   if (newRiderHp <= 0 && damageAfter > 0) {
     return {
-      updatedHost: { ...host, parasiteRider: null, currentHp: newHostHp },
+      updatedHost: hostAfterRider,
       deadRider: { ...riderAfter, currentHp: 0 },
       riderDamageApplied: damageAfter,
-      hostShareDamage: share,
+      hostShareDamage,
       blocked: null,
       absorbedByBarrier,
     };
   }
   return {
-    updatedHost: {
-      ...host,
-      parasiteRider: { ...riderAfter, currentHp: newRiderHp },
-      currentHp: newHostHp,
-    },
+    updatedHost: hostAfterRider,
     deadRider: null,
     riderDamageApplied: damageAfter,
-    hostShareDamage: share,
+    hostShareDamage,
     blocked: null,
     absorbedByBarrier,
   };

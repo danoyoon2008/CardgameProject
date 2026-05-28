@@ -1,4 +1,4 @@
-import type { FieldCard } from "../../types/game";
+import type { FieldCard, SimulationPlayerField } from "../../types/game";
 import type { HealSupportSource } from "./debuffs/suppression";
 import {
   isHealBlockedBySuppression,
@@ -6,6 +6,11 @@ import {
 } from "./debuffs/suppression";
 import { healUnitCurrentHp } from "./hpSurvivalOnes";
 import { isDiago } from "./units/diago";
+import {
+  getAebeolaekingRiderTrueOwner,
+  hasAebeolaekingRider,
+  type AebeolaekingHostSlot,
+} from "./units/aebeolaeking";
 
 /** 필드 전체 아군 회복(다이아고 기본 공격 등) — 수혜자별 지원 출처 */
 export function getFieldAllyHealSupportSource(
@@ -60,4 +65,46 @@ export function computeFieldAllyHealApplied(
     applyFieldAllyHealToUnit(unit, healAmount, attacker, attackerSlot, recipientSlot).currentHp ??
     0;
   return Math.max(0, after - before);
+}
+
+/**
+ * 필드 광역 회복(다이아고 등) — 적 host에 부착된 자기 W에도 동일 규칙·동일 수치 적용.
+ * - `recipientSlot`은 W가 부착된 host 슬롯(제압·다이아고 self-heal 판정용).
+ */
+export function applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField(
+  enemyField: SimulationPlayerField,
+  trueOwner: "A" | "B",
+  healAmount: number,
+  attacker: FieldCard,
+  attackerSlot: "is" | "m" | "os"
+): { perSlot: Array<{ slot: AebeolaekingHostSlot; healed: number }> } {
+  const perSlot: Array<{ slot: AebeolaekingHostSlot; healed: number }> = [];
+  if (healAmount <= 0) return { perSlot };
+  for (const slot of ["is", "m", "os"] as const) {
+    const host = enemyField[slot];
+    if (!host || (host.currentHp ?? 0) <= 0) continue;
+    if (!hasAebeolaekingRider(host)) continue;
+    const rider = host.parasiteRider!;
+    if ((rider.currentHp ?? 0) <= 0) continue;
+    if (getAebeolaekingRiderTrueOwner(rider) !== trueOwner) continue;
+    const healed = computeFieldAllyHealApplied(
+      rider,
+      healAmount,
+      attacker,
+      attackerSlot,
+      slot
+    );
+    if (healed > 0) {
+      const patched = applyFieldAllyHealToUnit(
+        rider,
+        healAmount,
+        attacker,
+        attackerSlot,
+        slot
+      );
+      enemyField[slot] = { ...host, parasiteRider: patched };
+    }
+    perSlot.push({ slot, healed });
+  }
+  return { perSlot };
 }

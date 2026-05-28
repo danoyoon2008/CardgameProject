@@ -12,6 +12,11 @@ import {
   grantElWingSinseokGaugeFromMeteoSplash,
   isElWingBlockingEnemyAttackSpell,
 } from "../units/elWing";
+import {
+  aebeolaekingRiderSlotKey,
+  getAebeolaekingRiderTrueOwner,
+  hasAebeolaekingRider,
+} from "../units/aebeolaeking";
 
 /** No.43 마법 — 자기 스펠 칸에 4×턴 유지, 배치 시 모든 적에게 [제압] */
 export const ANT_HELL_SPELL_ID = "개미지옥" as const;
@@ -134,6 +139,8 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
   const enemyPlayer = args.casterPlayer === "A" ? "B" : "A";
   const enemySide =
     enemyPlayer === "A" ? args.playerA.field : args.playerB.field;
+  const casterSide =
+    args.casterPlayer === "A" ? args.playerA.field : args.playerB.field;
   const appliedSlotKeys: string[] = [];
   const elWingImmunitySlotKeys: string[] = [];
 
@@ -166,6 +173,40 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
     if (applied) {
       appliedSlotKeys.push(`${enemyPlayer}-${slotName}`);
     }
+  }
+
+  /**
+   * 애벌레킹(W) 적측 W 처리 — 시전자 본인의 host에 부착된 적의 W(true owner = enemyPlayer)에도 [제압] 부여.
+   * - W의 진정한 소유자(true owner)가 enemyPlayer면 적 W이므로 디버프 대상.
+   * - 디버프 면역 검사는 W의 진정한 소유자 필드(=enemySide) 기준.
+   * - 엘 윙은 host 카드에만 적용되므로 W에는 영향 없음.
+   */
+  for (const slotName of ["is", "m", "os"] as const) {
+    const host = casterSide[slotName];
+    if (!host || !hasAebeolaekingRider(host)) continue;
+    const rider = host.parasiteRider!;
+    if ((rider.currentHp ?? 0) <= 0) continue;
+    const trueOwner = getAebeolaekingRiderTrueOwner(rider);
+    if (trueOwner !== enemyPlayer) continue;
+    if (args.skipAlreadySuppressed && isSuppressionActive(rider)) continue;
+    /* W의 디버프 면역 검사 — W의 진정한 소유자 필드 기준(IronKiwi/StartingTree). */
+    const riderAllyField =
+      trueOwner === "A" ? args.playerA.field : args.playerB.field;
+    if (
+      !canApplySuppressionDebuffToUnit(riderAllyField, {
+        allyPlayer: trueOwner,
+        playerAField: args.playerA.field,
+        playerBField: args.playerB.field,
+      })
+    ) {
+      continue;
+    }
+    const newRider = applySuppressionDebuffToUnit(
+      rider,
+      SUPPRESSION_INITIAL_END_TURN_TICKS
+    );
+    casterSide[slotName] = { ...host, parasiteRider: newRider };
+    appliedSlotKeys.push(aebeolaekingRiderSlotKey(args.casterPlayer, slotName));
   }
 
   return { appliedSlotKeys, elWingImmunitySlotKeys };

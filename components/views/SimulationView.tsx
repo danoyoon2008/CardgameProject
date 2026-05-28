@@ -166,6 +166,7 @@ import {
   resolveLegendarySwordStrikeOnUnit,
   isJipjungSagyeokSpellCard,
   isMeteoSpellCard,
+  METEO_AOE_DAMAGE,
   applyMeteoDamageToEnemyUnit,
   isAntHellSpellCard,
   isAntHellActiveOnSpell,
@@ -284,6 +285,7 @@ import {
   type GuihwanPendingSave,
   healUnitCurrentHp,
   applyFieldAllyHealToUnit,
+  applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField,
   computeFieldAllyHealApplied,
   normalizeUnitHpSurvivalOnesForCombat,
   EL_WING_ID,
@@ -315,6 +317,12 @@ import {
   applyAebeolaekingDamageToRiderAndShareToHostWithProtection,
   getAebeolaekingRiderOwnerFromHostOwner,
   getAebeolaekingRiderTrueOwner,
+  resolveAebeolaekingParasiteBasicAttackPrimaryDamage,
+  applyAebeolaekingAoeDamageToRiderOnly,
+  applyPostStrikeAllyHealsIncludingW,
+  applyMorningMoodDeathHealSpread,
+  applyStartingTreeDamagedHealSpread,
+  applyHealToOwnAebeolaekingRidersOnEnemyField,
   appendDeadHostWithRiderToRewindCards,
   canHandDragAttachAebeolaekingTo,
   isAebeolaekingNoAttackUnit,
@@ -1766,54 +1774,6 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     }
 
     const under = document.elementFromPoint(clientX, clientY);
-
-    /* 애벌레킹(W) 라이더 hit-test — host slot보다 우선. 부착된 W 위로 드래그 시 별도 처리.
-     * - 손패의 애벌레킹 카드: W가 부착된 host 위에는 부착 불가(이중 부착 금지) → host 분기로 fall-through하면 빈 host hover 검사에 막힘.
-     * - 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼빔): 적의 W(=내 host에 부착된 W)를 직접 타깃.
-     *   ※ host의 ownerStr가 시전자(drag.player)와 동일 → W는 적의 카드(상대가 시전자의 host에 기생시킨 것).
-     * - 단일 자기 타깃 지원 스펠(오리에트의 초상): 자기 W(=적 host에 부착된 W)에 보호막 부여.
-     *   ※ host의 ownerStr가 시전자와 반대 → W는 시전자의 자기 카드(자기가 적의 host에 기생시킨 것).
-     */
-    const riderEl = under?.closest("[data-aebeolaeking-rider-target]") as HTMLElement | null;
-    if (riderEl) {
-      const riderKey = riderEl.dataset.aebeolaekingRiderTarget;
-      const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
-      const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
-      if (
-        riderKey &&
-        (ownerStr === "A" || ownerStr === "B") &&
-        (hostSlotStr === "is" || hostSlotStr === "m" || hostSlotStr === "os") &&
-        snap.currentTurn === drag.player
-      ) {
-        const hostField = ownerStr === "A" ? snap.playerA.field : snap.playerB.field;
-        const host = hostField[hostSlotStr];
-        const rider = host?.parasiteRider;
-        if (host && rider && isAebeolaekingCard(rider) && (rider.currentHp ?? 0) > 0) {
-          const tokens = drag.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
-          const cost = Number(drag.card.cost) || 0;
-          const tokenOk = tokens >= cost;
-          const ronuFree = !isRonuBlockingSpellHandPlayAt(snap, drag);
-          /* 적의 W에 단일 타깃 공격 스펠 */
-          if (isEnemyUnitDragTargetSpell(drag.card) && drag.player === ownerStr && tokenOk && ronuFree) {
-            if (drag.card.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(rider)) {
-              /* 번개는 W cost ≤ 5 제한도 충족해야 함 — 미달이면 W hover 차단 */
-            } else {
-              return riderKey;
-            }
-          }
-          /* 자기 W에 단일 자기 타깃 지원 스펠(오리에트의 초상) */
-          if (
-            isSpellCardRow(drag.card) &&
-            isOrietChosangSpellCard(drag.card) &&
-            drag.player !== ownerStr &&
-            tokenOk &&
-            ronuFree
-          ) {
-            return riderKey;
-          }
-        }
-      }
-    }
 
     const drop = under?.closest("[data-field-drop]") as HTMLElement | null | undefined;
     if (!drop) return null;
@@ -3583,25 +3543,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               };
 
               /**
-               * 애벌레킹(W) 데미지 공유 — host가 받은 hpLoss의 50%를 W에 공유.
-               * - W 진영(host 반대편)의 광역 자기 지원 스펠(방어막·철벽) + 보호막(오리에트의 초상)을 거쳐 차감.
-               * - W가 죽으면 stripped rider를 별개 카드로 rewindCards에 push.
-               * - host 사망 시 appendDeadHostWithRiderToRewindCards가 host+남은 rider 처리.
+               * 애벌레킹(W) — 메테오 광역은 host와 별도로 W에 독립 직격(50% 공유 아님).
                */
               let riderRewindEntry: CardRow | null = null;
-              if (hasAebeolaekingRider(updatedTarget) && resolved.hpLoss > 0) {
-                const share = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
-                  updatedTarget,
-                  resolved.hpLoss,
-                  {
-                    hostOwner: enemyPlayer,
-                    playerAField: newPlayerA.field,
-                    playerBField: newPlayerB.field,
-                  }
-                );
-                updatedTarget = share.updatedHost;
-                if (share.deadRider) {
-                  riderRewindEntry = stripAebeolaekingRiderMeta(share.deadRider);
+              if (hasAebeolaekingRider(updatedTarget)) {
+                const wMeteo = applyAebeolaekingAoeDamageToRiderOnly(updatedTarget, METEO_AOE_DAMAGE, {
+                  hostOwner: enemyPlayer,
+                  playerAField: newPlayerA.field,
+                  playerBField: newPlayerB.field,
+                });
+                updatedTarget = wMeteo.updatedHost;
+                if (wMeteo.deadRider) {
+                  riderRewindEntry = stripAebeolaekingRiderMeta(wMeteo.deadRider);
                 }
               }
 
@@ -3628,27 +3581,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (riderRewindEntry) rewindCards = [...rewindCards, riderRewindEntry];
               }
 
-              if (resolved.morningMoodDeathHeal > 0) {
-                (["is", "m", "os"] as const).forEach(s => {
-                  const ally = enemySide.field[s];
-                  if (!ally) return;
-                  enemySide.field[s] = {
-                    ...ally,
-                    ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-                  };
-                });
-              }
-              if (resolved.startingTreeAllyHeal > 0) {
-                (["is", "m", "os"] as const).forEach(s => {
-                  if (s === slotName) return;
-                  const ally = enemySide.field[s];
-                  if (!ally) return;
-                  enemySide.field[s] = {
-                    ...ally,
-                    ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-                  };
-                });
-              }
+              applyPostStrikeAllyHealsIncludingW({
+                targetPlayer: enemyPlayer,
+                targetSlot: slotName,
+                playerAField: newPlayerA.field,
+                playerBField: newPlayerB.field,
+                morningMoodDeathHeal: resolved.morningMoodDeathHeal,
+                startingTreeAllyHeal: resolved.startingTreeAllyHeal,
+              });
 
               if (resolved.hpLoss > 0) {
                 meteoVfxHits.push({ slotKey: `${enemyPlayer}-${slotName}`, hpLoss: resolved.hpLoss });
@@ -4096,27 +4036,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               enemySide.field[skCommit] = updatedTarget;
             }
 
-            if (resolved.morningMoodDeathHeal > 0) {
-              (["is", "m", "os"] as const).forEach(s => {
-                const ally = enemySide.field[s];
-                if (!ally) return;
-                enemySide.field[s] = {
-                  ...ally,
-                  ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-                };
-              });
-            }
-            if (resolved.startingTreeAllyHeal > 0) {
-              (["is", "m", "os"] as const).forEach(s => {
-                if (s === skCommit) return;
-                const ally = enemySide.field[s];
-                if (!ally) return;
-                enemySide.field[s] = {
-                  ...ally,
-                  ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-                };
-              });
-            }
+            applyPostStrikeAllyHealsIncludingW({
+              targetPlayer,
+              targetSlot: skCommit,
+              playerAField: newPlayerA.field,
+              playerBField: newPlayerB.field,
+              morningMoodDeathHeal: resolved.morningMoodDeathHeal,
+              startingTreeAllyHeal: resolved.startingTreeAllyHeal,
+            });
 
             if (resolved.hpLoss > 0) {
               hyperBeamVfx.slotKey = `${targetPlayer}-${skCommit}`;
@@ -4156,9 +4083,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           ...basePending,
           preApply: noopPreApply,
           commit: prev => {
+            /* 오리에트의 초상 — 아군 is/m/os만. (W·적 host 타깃 시도 시 무시) */
+            if (targetPlayer !== casterPlayer) return prev;
             const allySide = targetPlayer === "A" ? prev.playerA : prev.playerB;
             const u = allySide.field[skCommit];
-            if (!u) return prev;
+            if (!u || (u.currentHp ?? 0) <= 0) return prev;
+            if (suppressionBlocksExternalBuffEffects(u)) return prev;
             const updatedAlly: FieldCard = {
               ...u,
               hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
@@ -6748,14 +6678,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           if (!rider || !isAebeolaekingCard(rider)) return;
           if (!shouldTriggerAebeolaekingParasiteThisEndTurn(rider, prev.globalTurnCount)) return;
 
-          /* (1) W.atk → primaryDamage(일반 유닛 기본 공격과 동일 파서). */
-          const baseAtkRaw = resolveFieldUnitSimulationBaseAtkRaw(rider, null);
-          const parsed = parseAttack(baseAtkRaw.replace(/[\(\)]/g, ""));
-          const rawDmg = Math.max(0, parsed.primaryDamage);
-          if (rawDmg <= 0) return;
-
           const playerAField = side === "A" ? next : oppField;
           const playerBField = side === "B" ? next : oppField;
+          const riderTrueOwner = getAebeolaekingRiderTrueOwner(rider);
+          if (!riderTrueOwner) return;
+
+          /* (1) W.atk → primaryDamage — 파이레드·모닝무드·시작의나무·검황 등 아군 공격 오라 포함. */
+          const rawDmg = resolveAebeolaekingParasiteBasicAttackPrimaryDamage({
+            rider,
+            riderTrueOwner,
+            hostOwner: side,
+            hostSlot: s,
+            playerAField,
+            playerBField,
+          });
+          if (rawDmg <= 0) return;
           const victimField = side === "A" ? playerAField : playerBField;
           const facingOpp = oppField[s] ?? null;
 
@@ -6810,26 +6747,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
            */
           const startingTreeAllyHeal = getStartingTreeAllyHealOnDamaged(host, hpLoss, facingOpp);
           if (startingTreeAllyHeal > 0) {
+            const beforeHeal = { is: next.is, m: next.m, os: next.os };
+            applyStartingTreeDamagedHealSpread(side, s, playerAField, playerBField, startingTreeAllyHeal);
             (["is", "m", "os"] as const).forEach(otherS => {
               if (otherS === s) return;
-              const unit = next[otherS];
-              if (!unit) return;
-              const healed = Math.min(
-                Math.max(0, Number(unit.hp) - unit.currentHp),
-                startingTreeAllyHeal
-              );
-              next[otherS] = {
-                ...unit,
-                ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
-              };
+              const before = beforeHeal[otherS];
+              const after = next[otherS];
+              if (!before || !after) return;
+              const healed = Math.max(0, (after.currentHp ?? 0) - (before.currentHp ?? 0));
               if (healed > 0) {
-                /**
-                 * StrictMode에서 setState 업데이터가 두 번 호출되어도 같은 (host→ally) 쌍에는
-                 * 같은 값이 들어가므로, 누적(+=)이 아닌 덮어쓰기(=)로 두 배 합산을 방지.
-                 * VFX 발동 시점에 ally 슬롯 단위로 합산.
-                 */
                 const dedupKey = `${side}-${s}->${otherS}`;
                 aebeolaekingTickVfxBag.startingTreeAllyHeals[dedupKey] = healed;
+              }
+            });
+            const riderHeal = applyHealToOwnAebeolaekingRidersOnEnemyField(
+              oppField,
+              side,
+              startingTreeAllyHeal,
+              "allyUnit"
+            );
+            riderHeal.perSlot.forEach(({ slot: riderHostSlot, healed }) => {
+              if (healed > 0) {
+                aebeolaekingTickVfxBag.startingTreeAllyHeals[`${side}-${s}->w-${riderHostSlot}`] =
+                  healed;
               }
             });
           }
@@ -7830,25 +7770,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               };
 
               /**
-               * 애벌레킹(W) 데미지 공유 — host가 받은 hpLoss의 50%를 W에 공유.
-               * - W 진영(host 반대편)의 광역 자기 지원 스펠(방어막·철벽) + 보호막(오리에트의 초상)을 거쳐 차감.
-               * - W가 죽으면 stripped rider를 별개 카드로 rewindCards에 push.
-               * - host 사망 시 appendDeadHostWithRiderToRewindCards가 host+남은 rider 처리.
+               * 애벌레킹(W) — 메테오 광역은 host와 별도로 W에 독립 직격(50% 공유 아님).
                */
               let riderRewindEntry: CardRow | null = null;
-              if (hasAebeolaekingRider(updatedTarget) && resolved.hpLoss > 0) {
-                const share = applyAebeolaekingDamageShareFromHostToRiderWithProtection(
-                  updatedTarget,
-                  resolved.hpLoss,
-                  {
-                    hostOwner: enemyPlayer,
-                    playerAField: newPlayerA.field,
-                    playerBField: newPlayerB.field,
-                  }
-                );
-                updatedTarget = share.updatedHost;
-                if (share.deadRider) {
-                  riderRewindEntry = stripAebeolaekingRiderMeta(share.deadRider);
+              if (hasAebeolaekingRider(updatedTarget)) {
+                const wMeteo = applyAebeolaekingAoeDamageToRiderOnly(updatedTarget, METEO_AOE_DAMAGE, {
+                  hostOwner: enemyPlayer,
+                  playerAField: newPlayerA.field,
+                  playerBField: newPlayerB.field,
+                });
+                updatedTarget = wMeteo.updatedHost;
+                if (wMeteo.deadRider) {
+                  riderRewindEntry = stripAebeolaekingRiderMeta(wMeteo.deadRider);
                 }
               }
 
@@ -7875,27 +7808,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (riderRewindEntry) rewindCards = [...rewindCards, riderRewindEntry];
               }
 
-              if (resolved.morningMoodDeathHeal > 0) {
-                (["is", "m", "os"] as const).forEach(s => {
-                  const ally = enemySide.field[s];
-                  if (!ally) return;
-                  enemySide.field[s] = {
-                    ...ally,
-                    ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-                  };
-                });
-              }
-              if (resolved.startingTreeAllyHeal > 0) {
-                (["is", "m", "os"] as const).forEach(s => {
-                  if (s === slotName) return;
-                  const ally = enemySide.field[s];
-                  if (!ally) return;
-                  enemySide.field[s] = {
-                    ...ally,
-                    ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-                  };
-                });
-              }
+              applyPostStrikeAllyHealsIncludingW({
+                targetPlayer: enemyPlayer,
+                targetSlot: slotName,
+                playerAField: newPlayerA.field,
+                playerBField: newPlayerB.field,
+                morningMoodDeathHeal: resolved.morningMoodDeathHeal,
+                startingTreeAllyHeal: resolved.startingTreeAllyHeal,
+              });
 
               if (resolved.hpLoss > 0) {
                 meteoVfxHits.push({
@@ -9138,27 +9058,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           enemySide.field[skCommit] = updatedTarget;
         }
 
-        if (resolved.morningMoodDeathHeal > 0) {
-          (["is", "m", "os"] as const).forEach(s => {
-            const ally = enemySide.field[s];
-            if (!ally) return;
-            enemySide.field[s] = {
-              ...ally,
-              ...healUnitCurrentHp(ally, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-            };
-          });
-        }
-        if (resolved.startingTreeAllyHeal > 0) {
-          (["is", "m", "os"] as const).forEach(s => {
-            if (s === skCommit) return;
-            const ally = enemySide.field[s];
-            if (!ally) return;
-            enemySide.field[s] = {
-              ...ally,
-              ...healUnitCurrentHp(ally, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-            };
-          });
-        }
+        applyPostStrikeAllyHealsIncludingW({
+          targetPlayer,
+          targetSlot: skCommit,
+          playerAField: newPlayerA.field,
+          playerBField: newPlayerB.field,
+          morningMoodDeathHeal: resolved.morningMoodDeathHeal,
+          startingTreeAllyHeal: resolved.startingTreeAllyHeal,
+        });
 
         if (resolved.hpLoss > 0) {
           hyperBeamVfx.slotKey = `${targetPlayer}-${skCommit}`;
@@ -9343,17 +9250,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
 
-    /**
-     * 애벌레킹(W) 라이더 hit-test — host slot보다 우선.
-     * - 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼빔)을 W에 직접 사용한 경우 별도 라우터로 위임.
-     * - 매칭되지 않으면 (다른 스펠/유닛) host slot 일반 분기로 fall-through.
-     */
-    const riderEl = under?.closest("[data-aebeolaeking-rider-target]") as HTMLElement | null;
-    if (riderEl) {
-      if (attemptCastSingleTargetSpellOnAebeolaekingRider(snap, saved, riderEl)) return;
-      if (attemptCastOrietChosangSpellOnAebeolaekingRider(snap, saved, riderEl)) return;
-    }
-
     const drop = under?.closest("[data-field-drop]");
     if (!drop) return;
 
@@ -9370,308 +9266,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) return;
 
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
-  };
-
-  /**
-   * 유닛 No.37 애벌레킹 — 단일 타깃 공격 스펠(번개·언덕·소멸·하이퍼 빔)을 적의 W 라이더에 직접 적용.
-   * - finishHandDrag에서 W rider hit-test가 우선되어 매칭 시 본 라우터로 위임.
-   * - 사용 주체: host의 소유자(=시전자) — 적이 시전자의 host에 기생시킨 W를 시전자가 공격.
-   * - 4종 스펠별 효과를 W rider 본체(host.parasiteRider)에 적용:
-   *   • 번개: rider.currentHp = 1 (cost ≤ 5 자격 필요, 공격 행위가 아니므로 host 공유 X)
-   *   • 언덕: rider에 침묵 마커 부착(시각적 효과 — W는 공격 안 함)
-   *   • 소멸: rider 제거(host는 그대로) + rider를 rewindCards에 push
-   *   • 하이퍼 빔: rider에 2000 데미지(공격 유형 룰 미적용 — W는 일반 카드 룰만 따름) + host에 50% 공유 피해
-   * - W는 unitCombatStats에 등재되지 않으므로 stats 정리 불요.
-   * - 마법 면역(엘 윙) 검사는 host에만 적용되어 있으므로 W에는 별도 검사 없음(W는 일반 카드 룰만).
-   * - 무적/방어막 검사 또한 host에만 적용. W는 단순 hp 카드로 취급.
-   * - 반환 true: 라우팅 성공(에러 안내 포함). false: 4종 스펠이 아니거나 시전자가 host 소유자가 아닌 경우 등.
-   */
-  const attemptCastSingleTargetSpellOnAebeolaekingRider = (
-    snap: SimulationState,
-    saved: HandDragState,
-    riderEl: HTMLElement
-  ): boolean => {
-    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
-    const spellRow = hand[saved.cardIndex];
-    if (!spellRow || !isEnemyUnitDragTargetSpell(spellRow)) return false;
-    if (snap.currentTurn !== saved.player) return false;
-
-    const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
-    const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
-    if (ownerStr !== "A" && ownerStr !== "B") return false;
-    if (hostSlotStr !== "is" && hostSlotStr !== "m" && hostSlotStr !== "os") return false;
-    const hostOwner = ownerStr as "A" | "B";
-    const hostSlot = hostSlotStr as "is" | "m" | "os";
-    /* 단일 공격 스펠은 host 소유자(=시전자)가 적의 W를 공격하는 경우에만 라우팅. */
-    if (saved.player !== hostOwner) return false;
-    const targetPlayer = hostOwner;
-
-    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, targetPlayer, hostSlot)) return true;
-
-    const hostField = targetPlayer === "A" ? snap.playerA.field : snap.playerB.field;
-    const host = hostField[hostSlot];
-    const rider = host?.parasiteRider;
-    if (!host || !rider || !isAebeolaekingCard(rider) || (rider.currentHp ?? 0) <= 0) {
-      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
-      return true;
-    }
-
-    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
-    const cost = Number(spellRow.cost) || 0;
-    if (tokens < cost) {
-      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
-      return true;
-    }
-
-    /* 번개 사용 자격 — W의 cost ≤ 5 */
-    if (spellRow.name === BEONGGAE_SPELL_ID && !isBeonggaeValidTargetUnit(rider)) {
-      pushInfoFloat(`${targetPlayer}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
-      return true;
-    }
-
-    const riderSlotKey = aebeolaekingRiderSlotKey(targetPlayer, hostSlot);
-    const hostSlotKey = `${targetPlayer}-${hostSlot}`;
-    /* afterCommitVfx 단계에서 사용할 부수 정보(host 공유 피해 등). */
-    const vfxBag: { hostShareDamage: number; hostDied: boolean; riderDied: boolean; spellKind: FlashOverlayKind } = {
-      hostShareDamage: 0,
-      hostDied: false,
-      riderDied: false,
-      spellKind: "beonggaeSpell",
-    };
-    if (spellRow.name === EONDEOK_SPELL_ID) vfxBag.spellKind = "eondeokSpell";
-    else if (spellRow.name === SOMYEOL_SPELL_ID) vfxBag.spellKind = "somyeolSpellErase";
-    else if (isHyperBeamSpellCard(spellRow)) vfxBag.spellKind = "hyperBeamSpellHit";
-
-    scheduleSpellHandUsageSequence(snap, {
-      casterPlayer: saved.player,
-      previewCard: spellRow,
-      targetPlayer,
-      unitSlot: hostSlot,
-      mode: "handUnitTarget",
-      flyToUnitAfterReveal: true,
-      preApply: prev => {
-        const casterIsA = saved.player === "A";
-        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-        const c = h[saved.cardIndex];
-        if (!c) return prev;
-        const cst = Number(c.cost) || 0;
-        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-        h.splice(saved.cardIndex, 1);
-        const key = casterIsA ? "playerA" : "playerB";
-        const ps = casterIsA ? prev.playerA : prev.playerB;
-        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
-      },
-      commit: prev => {
-        vfxBag.hostShareDamage = 0;
-        vfxBag.hostDied = false;
-        vfxBag.riderDied = false;
-        const c = spellRow;
-        const victimKey = targetPlayer === "A" ? "playerA" : "playerB";
-        const victim = { ...prev[victimKey], field: { ...prev[victimKey].field } };
-        const u = victim.field[hostSlot];
-        if (!u || !hasAebeolaekingRider(u)) return prev;
-        const liveRider = u.parasiteRider!;
-        if ((liveRider.currentHp ?? 0) <= 0) return prev;
-
-        let rewindCards: CardRow[] = [...prev.rewindCards, c];
-        let newHost: FieldCard = u;
-        let riderRewindEntry: CardRow | null = null;
-
-        if (c.name === BEONGGAE_SPELL_ID) {
-          /* 번개: rider hp 1로 설정. host 공유 X. cost 자격 재검증. */
-          if (!isBeonggaeValidTargetUnit(liveRider)) return prev;
-          newHost = {
-            ...u,
-            parasiteRider: { ...liveRider, currentHp: 1 },
-          };
-        } else if (c.name === EONDEOK_SPELL_ID) {
-          /* 언덕: rider에 침묵 마커. 효과 자체는 W가 공격 안 하므로 무용지만, "온전히 영향" 사양 충족 시각화. */
-          newHost = {
-            ...u,
-            parasiteRider: {
-              ...liveRider,
-              eondeokSilenceEndTurnTicksRemaining: EONDEOK_SILENCE_INITIAL_END_TURN_TICKS,
-            },
-          };
-        } else if (c.name === SOMYEOL_SPELL_ID) {
-          /* 소멸: rider 제거. host는 그대로. rider는 메타 제거 후 rewind. */
-          const detached = detachAebeolaekingRiderFromHost(u);
-          newHost = detached.strippedHost;
-          if (detached.rider) {
-            riderRewindEntry = stripAebeolaekingRiderMeta(detached.rider);
-            vfxBag.riderDied = true;
-          }
-        } else if (isHyperBeamSpellCard(c)) {
-          /* 하이퍼 빔: rider에 2000 데미지 + host에 50% 공유.
-           * - W 진영(host 반대편) 광역 자기 지원(방어막·철벽) + 보호막(오리에트의 초상) 통과.
-           * - rider [무적]/방어막/보호막으로 실제 적용 데미지가 줄면 host 공유도 그만큼 감소.
-           */
-          const dmg = HYPER_BEAM_DAMAGE;
-          const result = applyAebeolaekingDamageToRiderAndShareToHostWithProtection(u, dmg, {
-            hostOwner: targetPlayer,
-            playerAField: prev.playerA.field,
-            playerBField: prev.playerB.field,
-          });
-          newHost = result.updatedHost;
-          vfxBag.hostShareDamage = result.hostShareDamage;
-          if (result.deadRider) {
-            riderRewindEntry = stripAebeolaekingRiderMeta(result.deadRider);
-            vfxBag.riderDied = true;
-          }
-        } else {
-          return prev;
-        }
-
-        let nextUnitCombatStats = prev.unitCombatStats;
-        let nextUnitStatsOrder = prev.unitStatsOrder;
-
-        /* host가 공유 피해로 사망한 경우 cleanup + rewind(host+남은 rider). */
-        const hostHpAfter = newHost.currentHp ?? 0;
-        if (hostHpAfter <= 0) {
-          vfxBag.hostDied = true;
-          const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
-          const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
-          if (targetPlayer === "A") {
-            newPlayerA.field[hostSlot] = null;
-          } else {
-            newPlayerB.field[hostSlot] = null;
-          }
-          cleanupSimulationUnitDeath(
-            newHost,
-            { field: newPlayerA.field },
-            { field: newPlayerB.field },
-            prev.globalTurnCount
-          );
-          rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, newHost);
-          if (riderRewindEntry) rewindCards.push(riderRewindEntry);
-          const hsid = newHost.statsInstanceId;
-          if (hsid) {
-            const { [hsid]: _r, ...rest } = nextUnitCombatStats;
-            nextUnitCombatStats = rest;
-            nextUnitStatsOrder = nextUnitStatsOrder.filter(x => x !== hsid);
-          }
-          return finalizeSpellWithSimpan({
-            ...prev,
-            unitCombatStats: nextUnitCombatStats,
-            unitStatsOrder: nextUnitStatsOrder,
-            playerA: newPlayerA,
-            playerB: newPlayerB,
-            rewindCards,
-          });
-        }
-
-        if (riderRewindEntry) rewindCards.push(riderRewindEntry);
-        victim.field[hostSlot] = newHost;
-        return finalizeSpellWithSimpan({
-          ...prev,
-          [victimKey]: victim,
-          rewindCards,
-        });
-      },
-      afterCommitVfx: () => {
-        window.setTimeout(() => {
-          triggerCardFlash(riderSlotKey, vfxBag.spellKind);
-          if (vfxBag.hostShareDamage > 0) {
-            triggerCardFlash(hostSlotKey, vfxBag.spellKind);
-            showDamageNumber(hostSlotKey, vfxBag.hostShareDamage);
-          }
-        }, 0);
-      },
-    });
-    return true;
-  };
-
-  /**
-   * 유닛 No.37 애벌레킹 — 단일 자기 타깃 지원 스펠(오리에트의 초상)을 자기 W 라이더에 적용.
-   * - 사용 주체: 자기 W의 진정한 소유자 = host의 반대편(시전자). 적이 자기 host에 기생시킨 W는 자기 W가 아님.
-   * - 효과: rider.hpBarrierAbsorptionRemaining = ORIET_CHOSANG_HP_BARRIER_AMOUNT(1000) 부착.
-   * - 데미지 공유 시스템과 함께 작동: rider가 데미지를 받을 때 보호막이 먼저 소진(일반 룰).
-   *   ※ 현재 applyDamageToAebeolaekingRiderInHost는 보호막 소진 룰을 적용하지 않으므로, 데미지 공유 경로에서는 단순 hp 차감.
-   *      보호막은 직접 hyperBeam 적용 시 W가 데미지 받기 전 흡수해야 일관성 — 별도 작업 분리.
-   * - 반환 true: 라우팅 성공. false: 오리에트의 초상이 아니거나 자기 W가 아닌 경우.
-   */
-  const attemptCastOrietChosangSpellOnAebeolaekingRider = (
-    snap: SimulationState,
-    saved: HandDragState,
-    riderEl: HTMLElement
-  ): boolean => {
-    const hand = saved.player === "A" ? snap.playerA.hand : snap.playerB.hand;
-    const spellRow = hand[saved.cardIndex];
-    if (!spellRow || !isSpellCardRow(spellRow) || !isOrietChosangSpellCard(spellRow)) return false;
-    if (snap.currentTurn !== saved.player) return false;
-
-    const ownerStr = riderEl.dataset.aebeolaekingRiderOwner;
-    const hostSlotStr = riderEl.dataset.aebeolaekingRiderHostSlot;
-    if (ownerStr !== "A" && ownerStr !== "B") return false;
-    if (hostSlotStr !== "is" && hostSlotStr !== "m" && hostSlotStr !== "os") return false;
-    const hostOwner = ownerStr as "A" | "B";
-    const hostSlot = hostSlotStr as "is" | "m" | "os";
-    /* 자기 W = host의 반대편이 시전자 */
-    if (saved.player === hostOwner) return false;
-
-    if (blockRonuActiveSpellHandPlay(snap, spellRow, saved.player, hostOwner, hostSlot)) return true;
-
-    const hostField = hostOwner === "A" ? snap.playerA.field : snap.playerB.field;
-    const host = hostField[hostSlot];
-    const rider = host?.parasiteRider;
-    if (!host || !rider || !isAebeolaekingCard(rider) || (rider.currentHp ?? 0) <= 0) {
-      pushInfoFloat(`${hostOwner}-${hostSlot}`, "사용할 수 없는 대상입니다", INFO_FLOAT_MS);
-      return true;
-    }
-
-    const tokens = saved.player === "A" ? snap.playerA.tokens : snap.playerB.tokens;
-    const cost = Number(spellRow.cost) || 0;
-    if (tokens < cost) {
-      pushInfoFloat(`${hostOwner}-${hostSlot}`, "토큰이 부족합니다", INFO_FLOAT_MS);
-      return true;
-    }
-
-    const riderSlotKey = aebeolaekingRiderSlotKey(hostOwner, hostSlot);
-    scheduleSpellHandUsageSequence(snap, {
-      casterPlayer: saved.player,
-      previewCard: spellRow,
-      targetPlayer: hostOwner,
-      unitSlot: hostSlot,
-      mode: "handUnitTarget",
-      flyToUnitAfterReveal: true,
-      preApply: prev => {
-        const casterIsA = saved.player === "A";
-        const h = [...(casterIsA ? prev.playerA.hand : prev.playerB.hand)];
-        if (saved.cardIndex < 0 || saved.cardIndex >= h.length) return prev;
-        const c = h[saved.cardIndex];
-        if (!c || !isOrietChosangSpellCard(c) || !isSpellCardRow(c)) return prev;
-        const cst = Number(c.cost) || 0;
-        if ((casterIsA ? prev.playerA.tokens : prev.playerB.tokens) < cst) return prev;
-        h.splice(saved.cardIndex, 1);
-        const key = casterIsA ? "playerA" : "playerB";
-        const ps = casterIsA ? prev.playerA : prev.playerB;
-        return { ...prev, [key]: { ...ps, hand: h, tokens: ps.tokens - cst } };
-      },
-      commit: prev => {
-        const c = spellRow;
-        const hostKey = hostOwner === "A" ? "playerA" : "playerB";
-        const hostSide = { ...prev[hostKey], field: { ...prev[hostKey].field } };
-        const u = hostSide.field[hostSlot];
-        if (!u || !hasAebeolaekingRider(u)) return prev;
-        const liveRider = u.parasiteRider!;
-        if ((liveRider.currentHp ?? 0) <= 0) return prev;
-        const newRider: FieldCard = {
-          ...liveRider,
-          hpBarrierAbsorptionRemaining: ORIET_CHOSANG_HP_BARRIER_AMOUNT,
-        };
-        hostSide.field[hostSlot] = { ...u, parasiteRider: newRider };
-        return finalizeSpellWithSimpan({
-          ...prev,
-          [hostKey]: hostSide,
-          rewindCards: [...prev.rewindCards, c],
-        });
-      },
-      afterCommitVfx: () => {
-        window.setTimeout(() => triggerCardFlash(riderSlotKey, "orietShieldAllyPulse"), 0);
-      },
-    });
-    return true;
   };
 
   /**
@@ -9827,6 +9421,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     let riderKilled = false;
     let hostKilledByShare = false;
     const startingTreeAllyHealVfx: Record<string, number> = {};
+    const diagoFieldHealVfx: Record<string, number> = {};
 
     setState(prev => {
       if (!prev) return prev;
@@ -9842,6 +9437,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         rawDmg,
         {
           hostOwner: hostOwnerPlayer,
+          hostSlot,
           playerAField: newPlayerA.field,
           playerBField: newPlayerB.field,
         }
@@ -9890,22 +9486,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           hostFacingOpp
         );
         if (startingTreeAllyHeal > 0) {
+          const beforeHeal = {
+            is: hostSide.field.is,
+            m: hostSide.field.m,
+            os: hostSide.field.os,
+          };
+          applyStartingTreeDamagedHealSpread(
+            hostOwnerPlayer,
+            hostSlot,
+            newPlayerA.field,
+            newPlayerB.field,
+            startingTreeAllyHeal
+          );
           (["is", "m", "os"] as const).forEach(otherS => {
             if (otherS === hostSlot) return;
-            const unit = hostSide.field[otherS];
-            if (!unit) return;
-            const healed = Math.min(
-              Math.max(0, Number(unit.hp) - unit.currentHp),
-              startingTreeAllyHeal
-            );
-            hostSide.field[otherS] = {
-              ...unit,
-              ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
-            };
+            const before = beforeHeal[otherS];
+            const after = hostSide.field[otherS];
+            if (!before || !after) return;
+            const healed = Math.max(0, (after.currentHp ?? 0) - (before.currentHp ?? 0));
+            if (healed > 0) startingTreeAllyHealVfx[`${hostOwnerPlayer}-${otherS}`] = healed;
+          });
+          const casterField = hostOwnerPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+          const riderHeal = applyHealToOwnAebeolaekingRidersOnEnemyField(
+            casterField,
+            hostOwnerPlayer,
+            startingTreeAllyHeal,
+            "allyUnit"
+          );
+          riderHeal.perSlot.forEach(({ slot: riderHostSlot, healed }) => {
             if (healed > 0) {
-              /* StrictMode 더블 호출 안전 — 같은 ally 슬롯 키에는 같은 값이 들어가므로 덮어쓰기. */
-              const healKey = `${hostOwnerPlayer}-${otherS}`;
-              startingTreeAllyHealVfx[healKey] = healed;
+              startingTreeAllyHealVfx[aebeolaekingRiderSlotKey(hostOwnerPlayer, riderHostSlot)] =
+                healed;
             }
           });
         }
@@ -9940,6 +9551,54 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           delta: { damageDealt: totalDamageDealt, kills: riderKilled ? 1 : 0 },
         });
       }
+
+      let fieldHealDiago = 0;
+      if (totalDamageDealt > 0) {
+        applyPostAttackSkills(
+          attackerCard,
+          {
+            damageDealt: totalDamageDealt,
+            targetDestroyed: riderKilled,
+            applyFieldHeal: amt => {
+              fieldHealDiago = amt;
+            },
+            applyFieldBuff: () => {},
+          },
+          (hostOwnerPlayer === "A" ? newPlayerB.field : newPlayerA.field)[hostSlot] ?? null
+        );
+      }
+      if (fieldHealDiago > 0) {
+        (["is", "m", "os"] as const).forEach(s => {
+          const u = atkSide.field[s];
+          if (!u) return;
+          const before = u.currentHp ?? 0;
+          atkSide.field[s] = applyFieldAllyHealToUnit(
+            u,
+            fieldHealDiago,
+            attackerCard,
+            attackerSlot,
+            s
+          );
+          const healed = Math.max(0, (atkSide.field[s]!.currentHp ?? 0) - before);
+          if (healed > 0) diagoFieldHealVfx[`${attackerPlayer}-${s}`] = healed;
+        });
+        const enemyFieldDiago =
+          attackerPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+        const riderDiago = applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField(
+          enemyFieldDiago,
+          attackerPlayer,
+          fieldHealDiago,
+          attackerCard,
+          attackerSlot
+        );
+        const enemyPlayerDiago = attackerPlayer === "A" ? "B" : "A";
+        riderDiago.perSlot.forEach(({ slot: riderHostSlot, healed }) => {
+          if (healed > 0) {
+            diagoFieldHealVfx[aebeolaekingRiderSlotKey(enemyPlayerDiago, riderHostSlot)] = healed;
+          }
+        });
+      }
+
       return {
         ...prev,
         unitCombatStats: patchManyUnitCombatStats(nextUnitCombatStats, combatPatches),
@@ -9979,6 +9638,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (healAmount > 0) {
         showHealNumber(healKey, healAmount);
       }
+    }
+    for (const [healKey, healAmount] of Object.entries(diagoFieldHealVfx)) {
+      if (healAmount > 0) showHealNumber(healKey, healAmount);
     }
     return true;
   };
@@ -10751,6 +10413,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             LIBUTY_BASIC_AOE_DAMAGE,
             {
               hostOwner: defenderPlayer,
+              hostSlot: r.slot,
               playerAField: newPlayerA.field,
               playerBField: newPlayerB.field,
             }
@@ -10773,22 +10436,40 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             (defenderPlayer === "A" ? newPlayerB.field : newPlayerA.field)[r.slot] ?? null;
           const stHealFromShare = getStartingTreeAllyHealOnDamaged(r.card, hostShareVfx, hostFacingOpp);
           if (stHealFromShare > 0) {
+            const beforeStHeal = {
+              is: defSide.field.is,
+              m: defSide.field.m,
+              os: defSide.field.os,
+            };
+            applyStartingTreeDamagedHealSpread(
+              defenderPlayer,
+              r.slot,
+              newPlayerA.field,
+              newPlayerB.field,
+              stHealFromShare
+            );
             (["is", "m", "os"] as const).forEach(otherS => {
               if (otherS === r.slot) return;
-              const unit = defSide.field[otherS];
-              if (!unit) return;
-              const healed = Math.min(
-                Math.max(0, Number(unit.hp) - unit.currentHp),
-                stHealFromShare
-              );
-              defSide.field[otherS] = {
-                ...unit,
-                ...healUnitCurrentHp(unit, stHealFromShare, { supportSource: "allyUnit" }),
-              };
+              const before = beforeStHeal[otherS];
+              const after = defSide.field[otherS];
+              if (!before || !after) return;
+              const healed = Math.max(0, (after.currentHp ?? 0) - (before.currentHp ?? 0));
               if (healed > 0) {
-                /* StrictMode 더블 호출 안전 — 같은 (host→ally) 쌍에는 같은 값이 들어가므로 덮어쓰기. */
-                const dedupKey = `${defenderPlayer}-${r.slot}->${otherS}`;
-                aebStartingTreeAllyHealVfx[dedupKey] = healed;
+                aebStartingTreeAllyHealVfx[`${defenderPlayer}-${r.slot}->${otherS}`] = healed;
+              }
+            });
+            const enemyFieldSt =
+              defenderPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+            const riderStHeal = applyHealToOwnAebeolaekingRidersOnEnemyField(
+              enemyFieldSt,
+              defenderPlayer,
+              stHealFromShare,
+              "allyUnit"
+            );
+            riderStHeal.perSlot.forEach(({ slot: riderHostSlot, healed }) => {
+              if (healed > 0) {
+                aebStartingTreeAllyHealVfx[`${defenderPlayer}-${r.slot}->w-${riderHostSlot}`] =
+                  healed;
               }
             });
           }
@@ -10808,31 +10489,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       for (const r of rows) {
         if (!r.isDestroyed) continue;
         if (r.morningMoodDeathHeal > 0) {
-          const deadSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
-          (["is", "m", "os"] as const).forEach(s => {
-            const unit = deadSide.field[s];
-            if (!unit) return;
-            deadSide.field[s] = {
-              ...unit,
-              ...healUnitCurrentHp(unit, r.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-            };
-          });
+          applyMorningMoodDeathHealSpread(
+            defenderPlayer,
+            newPlayerA.field,
+            newPlayerB.field,
+            r.morningMoodDeathHeal
+          );
         }
         cleanupSkillLinksOnDeath(r.card, newPlayerA, newPlayerB, prev.globalTurnCount);
       }
 
       for (const r of rows) {
         if (r.startingTreeAllyHeal <= 0) continue;
-        const damagedSide = defenderPlayer === "A" ? newPlayerA : newPlayerB;
-        (["is", "m", "os"] as const).forEach(s => {
-          if (s === r.slot) return;
-          const unit = damagedSide.field[s];
-          if (!unit) return;
-          damagedSide.field[s] = {
-            ...unit,
-            ...healUnitCurrentHp(unit, r.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-          };
-        });
+        applyStartingTreeDamagedHealSpread(
+          defenderPlayer,
+          r.slot,
+          newPlayerA.field,
+          newPlayerB.field,
+          r.startingTreeAllyHeal
+        );
       }
 
       const activePlayerPrimary = attackerPlayer === "A" ? newPlayerA : newPlayerB;
@@ -10858,6 +10533,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
           activePlayerPrimary.field[s] = updatedUnit;
         });
+        if (fieldHealDiagoTotal > 0) {
+          const enemyFieldDiago =
+            attackerPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+          applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField(
+            enemyFieldDiago,
+            attackerPlayer,
+            fieldHealDiagoTotal,
+            attackerCardSnap,
+            attackerSlotName
+          );
+        }
       }
 
       let rc = prev.rewindCards;
@@ -11060,6 +10746,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     for (const r of rows) {
       if (r.morningMoodDeathHeal > 0 && r.isDestroyed) {
         const deadSideSnap = defenderPlayer === "A" ? state.playerA.field : state.playerB.field;
+        const oppSnap = defenderPlayer === "A" ? state.playerB.field : state.playerA.field;
         (["is", "m", "os"] as const).forEach(s => {
           if (s === r.slot) return;
           const unit = deadSideSnap[s];
@@ -11067,15 +10754,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const healed = Math.min(Number(unit.hp) - unit.currentHp, r.morningMoodDeathHeal);
           if (healed > 0) showHealNumber(`${defenderPlayer}-${s}`, healed);
         });
+        (["is", "m", "os"] as const).forEach(s => {
+          const host = oppSnap[s];
+          const rider = host?.parasiteRider;
+          if (!rider || getAebeolaekingRiderTrueOwner(rider) !== defenderPlayer) return;
+          const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), r.morningMoodDeathHeal);
+          if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(defenderPlayer, s), healed);
+        });
       }
       if (r.startingTreeAllyHeal > 0) {
         const sideSnap = defenderPlayer === "A" ? state.playerA.field : state.playerB.field;
+        const oppSnap = defenderPlayer === "A" ? state.playerB.field : state.playerA.field;
         (["is", "m", "os"] as const).forEach(s => {
           if (s === r.slot) return;
           const unit = sideSnap[s];
           if (!unit) return;
           const healed = Math.min(Number(unit.hp) - unit.currentHp, r.startingTreeAllyHeal);
           if (healed > 0) showHealNumber(`${defenderPlayer}-${s}`, healed);
+        });
+        (["is", "m", "os"] as const).forEach(s => {
+          const host = oppSnap[s];
+          const rider = host?.parasiteRider;
+          if (!rider || getAebeolaekingRiderTrueOwner(rider) !== defenderPlayer) return;
+          const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), r.startingTreeAllyHeal);
+          if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(defenderPlayer, s), healed);
         });
       }
       const ah = getHealFromSkillUpdates(attackerCardSnap, r.skillUpdates);
@@ -11106,6 +10808,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (fieldHealDiagoTotal > 0) {
       const allySnapPrimary = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+      const enemySnapDiago =
+        attackerPlayer === "A" ? state.playerB.field : state.playerA.field;
       (["is", "m", "os"] as const).forEach(s => {
         const u = allySnapPrimary[s];
         if (!u) return;
@@ -11117,6 +10821,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           s
         );
         if (healed > 0) showHealNumber(`${attackerPlayer}-${s}`, healed);
+      });
+      const enemyPlayerDiago = attackerPlayer === "A" ? "B" : "A";
+      (["is", "m", "os"] as const).forEach(s => {
+        const host = enemySnapDiago[s];
+        const rider = host?.parasiteRider;
+        if (!rider || getAebeolaekingRiderTrueOwner(rider) !== attackerPlayer) return;
+        const healed = computeFieldAllyHealApplied(
+          rider,
+          fieldHealDiagoTotal,
+          attackerCardSnap,
+          attackerSlotName,
+          s
+        );
+        if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(enemyPlayerDiago, s), healed);
       });
     }
   };
@@ -11603,29 +11321,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           rewindCards = [...rewindCards, card];
         }
 
-        if (resolved.morningMoodDeathHeal > 0) {
-          const deadSide = player === "A" ? newPlayerA : newPlayerB;
-          (["is", "m", "os"] as const).forEach(s => {
-            const unit = deadSide.field[s];
-            if (!unit) return;
-            deadSide.field[s] = {
-              ...unit,
-              ...healUnitCurrentHp(unit, resolved.morningMoodDeathHeal, { supportSource: "allyUnit" }),
-            };
-          });
-        }
-        if (resolved.startingTreeAllyHeal > 0) {
-          const damagedSide = player === "A" ? newPlayerA : newPlayerB;
-          (["is", "m", "os"] as const).forEach(s => {
-            if (s === slot) return;
-            const unit = damagedSide.field[s];
-            if (!unit) return;
-            damagedSide.field[s] = {
-              ...unit,
-              ...healUnitCurrentHp(unit, resolved.startingTreeAllyHeal, { supportSource: "allyUnit" }),
-            };
-          });
-        }
+        applyPostStrikeAllyHealsIncludingW({
+          targetPlayer: player,
+          targetSlot: slot,
+          playerAField: newPlayerA.field,
+          playerBField: newPlayerB.field,
+          morningMoodDeathHeal: resolved.morningMoodDeathHeal,
+          startingTreeAllyHeal: resolved.startingTreeAllyHeal,
+        });
 
         if (finishStrike) {
           const newOwner = pls.ownerPlayer === "A" ? newPlayerA : newPlayerB;
@@ -12262,20 +11965,28 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }
                 activePlayerSec.field[s] = updatedUnit;
               });
+              if (fieldHealAmount > 0) {
+                const enemyFieldDiagoSec =
+                  attackerPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+                applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField(
+                  enemyFieldDiagoSec,
+                  attackerPlayer,
+                  fieldHealAmount,
+                  attackerCard,
+                  attackerSlotName
+                );
+              }
             }
           }
 
           if (isDestroyed) {
             if (morningMoodDeathHeal > 0) {
-              const deadSide = player === "A" ? newPlayerA : newPlayerB;
-              (["is", "m", "os"] as const).forEach(s => {
-                const unit = deadSide.field[s];
-                if (!unit) return;
-                deadSide.field[s] = {
-                  ...unit,
-                  ...healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" }),
-                };
-              });
+              applyMorningMoodDeathHealSpread(
+                player,
+                newPlayerA.field,
+                newPlayerB.field,
+                morningMoodDeathHeal
+              );
             }
              cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
           }
@@ -12283,16 +11994,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             cleanupSkillLinksOnDeath(attackerCard, newPlayerA, newPlayerB, prev.globalTurnCount);
           }
           if (startingTreeAllyHeal > 0) {
-            const damagedSide = player === "A" ? newPlayerA : newPlayerB;
-            (["is", "m", "os"] as const).forEach(s => {
-              if (s === slot) return;
-              const unit = damagedSide.field[s];
-              if (!unit) return;
-              damagedSide.field[s] = {
-                ...unit,
-                ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
-              };
-            });
+            applyStartingTreeDamagedHealSpread(
+              player,
+              slot,
+              newPlayerA.field,
+              newPlayerB.field,
+              startingTreeAllyHeal
+            );
           }
 
           let newRewindCards = prev.rewindCards;
@@ -12452,6 +12160,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         triggerEristinaHitLine(attackerCard, `${player}-${slot}`, actualDamage, "secondary");
         if (morningMoodDeathHeal > 0) {
           const deadSideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+          const oppSnap = player === "A" ? state!.playerB.field : state!.playerA.field;
           (["is", "m", "os"] as const).forEach(s => {
             if (s === slot) return;
             const unit = deadSideSnap[s];
@@ -12459,15 +12168,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const healed = Math.min(Number(unit.hp) - unit.currentHp, morningMoodDeathHeal);
             if (healed > 0) showHealNumber(`${player}-${s}`, healed);
           });
+          (["is", "m", "os"] as const).forEach(s => {
+            const host = oppSnap[s];
+            const rider = host?.parasiteRider;
+            if (!rider || getAebeolaekingRiderTrueOwner(rider) !== player) return;
+            const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), morningMoodDeathHeal);
+            if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(player, s), healed);
+          });
         }
         if (startingTreeAllyHeal > 0) {
           const sideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+          const oppSnap = player === "A" ? state!.playerB.field : state!.playerA.field;
           (["is", "m", "os"] as const).forEach(s => {
             if (s === slot) return;
             const unit = sideSnap[s];
             if (!unit) return;
             const healed = Math.min(Number(unit.hp) - unit.currentHp, startingTreeAllyHeal);
             if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+          });
+          (["is", "m", "os"] as const).forEach(s => {
+            const host = oppSnap[s];
+            const rider = host?.parasiteRider;
+            if (!rider || getAebeolaekingRiderTrueOwner(rider) !== player) return;
+            const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), startingTreeAllyHeal);
+            if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(player, s), healed);
           });
         }
         if (attackerCard) {
@@ -13481,19 +13205,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }
                 activePlayerPrimary.field[s] = updatedUnit;
               });
+              if (fieldHealAmountPrimary > 0) {
+                const enemyFieldDiagoPri =
+                  attackerPlayer === "A" ? newPlayerB.field : newPlayerA.field;
+                applyFieldAllyHealToOwnAebeolaekingRidersOnEnemyField(
+                  enemyFieldDiagoPri,
+                  attackerPlayer,
+                  fieldHealAmountPrimary,
+                  attackerCard,
+                  attackerSlotName
+                );
+              }
             }
 
             if (isDestroyed) {
               if (morningMoodDeathHeal > 0) {
-                const deadSide = player === "A" ? newPlayerA : newPlayerB;
-                (["is", "m", "os"] as const).forEach(s => {
-                  const unit = deadSide.field[s];
-                  if (!unit) return;
-                  deadSide.field[s] = {
-                    ...unit,
-                    ...healUnitCurrentHp(unit, morningMoodDeathHeal, { supportSource: "allyUnit" }),
-                  };
-                });
+                applyMorningMoodDeathHealSpread(
+                  player,
+                  newPlayerA.field,
+                  newPlayerB.field,
+                  morningMoodDeathHeal
+                );
               }
                cleanupSkillLinksOnDeath(card, newPlayerA, newPlayerB, prev.globalTurnCount);
             }
@@ -13501,16 +13233,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               cleanupSkillLinksOnDeath(attackerCard, newPlayerA, newPlayerB, prev.globalTurnCount);
             }
             if (startingTreeAllyHeal > 0) {
-              const damagedSide = player === "A" ? newPlayerA : newPlayerB;
-              (["is", "m", "os"] as const).forEach(s => {
-                if (s === slot) return;
-                const unit = damagedSide.field[s];
-                if (!unit) return;
-                damagedSide.field[s] = {
-                  ...unit,
-                  ...healUnitCurrentHp(unit, startingTreeAllyHeal, { supportSource: "allyUnit" }),
-                };
-              });
+              applyStartingTreeDamagedHealSpread(
+                player,
+                slot,
+                newPlayerA.field,
+                newPlayerB.field,
+                startingTreeAllyHeal
+              );
             }
 
             let newRewindCards = prev.rewindCards;
@@ -13690,6 +13419,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           triggerEristinaHitLine(attackerCard, `${player}-${slot}`, actualPrimaryDamage, "primary");
           if (morningMoodDeathHeal > 0) {
             const deadSideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+            const oppSnap = player === "A" ? state!.playerB.field : state!.playerA.field;
             (["is", "m", "os"] as const).forEach(s => {
               if (s === slot) return;
               const unit = deadSideSnap[s];
@@ -13697,15 +13427,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               const healed = Math.min(Number(unit.hp) - unit.currentHp, morningMoodDeathHeal);
               if (healed > 0) showHealNumber(`${player}-${s}`, healed);
             });
+            (["is", "m", "os"] as const).forEach(s => {
+              const host = oppSnap[s];
+              const rider = host?.parasiteRider;
+              if (!rider || getAebeolaekingRiderTrueOwner(rider) !== player) return;
+              const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), morningMoodDeathHeal);
+              if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(player, s), healed);
+            });
           }
           if (startingTreeAllyHeal > 0) {
             const sideSnap = player === "A" ? state!.playerA.field : state!.playerB.field;
+            const oppSnap = player === "A" ? state!.playerB.field : state!.playerA.field;
             (["is", "m", "os"] as const).forEach(s => {
               if (s === slot) return;
               const unit = sideSnap[s];
               if (!unit) return;
               const healed = Math.min(Number(unit.hp) - unit.currentHp, startingTreeAllyHeal);
               if (healed > 0) showHealNumber(`${player}-${s}`, healed);
+            });
+            (["is", "m", "os"] as const).forEach(s => {
+              const host = oppSnap[s];
+              const rider = host?.parasiteRider;
+              if (!rider || getAebeolaekingRiderTrueOwner(rider) !== player) return;
+              const healed = Math.min(Number(rider.hp) - (rider.currentHp ?? 0), startingTreeAllyHeal);
+              if (healed > 0) showHealNumber(aebeolaekingRiderSlotKey(player, s), healed);
             });
           }
           if (attackerHealFromHit > 0) {
@@ -14321,7 +14066,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         handDrag &&
         isSpellCardRow(handDrag.card) &&
         isOrietChosangSpellCard(handDrag.card) &&
-        state?.currentTurn === handDrag.player
+        state?.currentTurn === handDrag.player &&
+        targetPlayer === handDrag.player
       ) {
         return "border-[3px] border-sky-400 bg-sky-500/25 shadow-[0_0_26px_rgba(56,189,248,0.88)] animate-pulse cursor-pointer z-20";
       }
@@ -15400,7 +15146,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
    * - bottom 진영(A) host: host 좌상단으로 살짝 튀어나오게 배치(체력바는 W의 위).
    * - W는 host slot div 바깥(unitSlotOuterClass div의 자식)으로 그려져 host의 overflow-hidden 영향을 받지 않음.
    * - 클릭 시 detail/✕ 메뉴(W 카드 본체 위에만 표시 — host를 덮지 않음).
-   * - cardBox에 data-aebeolaeking-rider-target 부여 → 단일 타깃 공격 스펠 hit-test/공격 hit-test 입구.
+   * - cardBox에 data-aebeolaeking-rider-target 부여 → W 직접 공격 hit-test 등(스펠 W 타깃은 미지원).
    */
   const renderAebeolaekingRiderOverlay = (
     ownerPlayer: "A" | "B",
@@ -15537,6 +15283,55 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       </div>
     );
 
+    /**
+     * 효과 뱃지 — W의 활성 상태(방어막/철벽/제압/무적/침묵 등)를 작은 칩으로 표기.
+     * - W의 진정한 소유자(true owner) 필드 기준으로 활성 오라(방어막·철벽)를 조회.
+     * - mySlotKey는 `${trueOwner}-${slot}` 형식으로 host slot을 그대로 사용 — 같은 슬롯의 spell stack 룰 일관성 유지.
+     * - oppCard는 host(=W의 적측 동일 슬롯 카드)로 전달.
+     * - 시각 연출(펄스·반짝임)은 일체 없음 — 데이터 기반 표기만.
+     */
+    const riderTrueOwner = getAebeolaekingRiderTrueOwner(rider);
+    const riderAllyField =
+      riderTrueOwner === "A"
+        ? state?.playerA.field
+        : riderTrueOwner === "B"
+          ? state?.playerB.field
+          : undefined;
+    const riderStatuses =
+      state && riderTrueOwner
+        ? sortStatusesForBadgeDisplay(
+            getActiveStatuses(rider, host, riderAllyField, {
+              playerAField: state.playerA.field,
+              playerBField: state.playerB.field,
+              mySlotKey: `${riderTrueOwner}-${slot}`,
+            })
+          )
+        : [];
+    const riderChipClass =
+      "shrink-0 flex h-3 w-3 md:h-3.5 md:w-3.5 rounded-[2px] border";
+    const riderBadges =
+      riderStatuses.length > 0 ? (
+        <div
+          className="z-[37] flex flex-wrap justify-center gap-0.5"
+          role="list"
+          aria-label="애벌레킹 효과"
+        >
+          {riderStatuses.map((status, i) => (
+            <div
+              key={`w-${status}-${i}`}
+              title={status}
+              className={`${riderChipClass} ${
+                status === BANG_EOMAK_DEFENSE_BADGE
+                  ? "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100"
+                  : getStatusBadgeSurfaceClassForCard(status, rider, ownerPlayer)
+              }`}
+              role="listitem"
+              aria-label={status}
+            />
+          ))}
+        </div>
+      ) : null;
+
     return (
       <div
         className={`${wrapPos} flex ${stackDir} items-stretch gap-0.5 w-[42px] md:w-[50px] lg:w-[60px]`}
@@ -15544,6 +15339,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       >
         {cardBox}
         {hpBar}
+        {riderBadges}
       </div>
     );
   };
