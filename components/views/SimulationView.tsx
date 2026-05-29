@@ -4,6 +4,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
+import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
 import { CardRow, FieldCard } from "../../types/game";
 import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
 import {
@@ -15514,7 +15515,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         {rider.image_url ? (
-          <img
+          <GuardedImg
             src={rider.image_url}
             alt={rider.name}
             className={`w-full h-full object-cover ${
@@ -16616,7 +16617,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
             <div
               className={getSlotClassName(player, slot, card, mobileFieldCardStyle)}
-              style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}
+              style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
+              onContextMenu={preventImageContextMenu}
               data-field-drop
               data-field-player={player}
               data-field-slot={slot}
@@ -16627,7 +16629,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             >
               {card ? (
                 card.image_url ? (
-                  <img
+                  <GuardedImg
                     src={card.image_url}
                     alt={slotLabel}
                     style={{
@@ -16826,9 +16828,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     <div className={handNewDrawGlowOverlayClass} aria-hidden />
                   ) : null}
                   {card ? (
-                    <div className={handCardFaceClipClass} style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H }}>
+                    <div
+                      className={handCardFaceClipClass}
+                      style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
+                      onContextMenu={preventImageContextMenu}
+                    >
                       {card.image_url ? (
-                        <img
+                        <GuardedImg
                           src={card.image_url}
                           alt={card.name}
                           style={{
@@ -16979,7 +16985,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }}
         >
           {simpanPeekFly.pendingCard.image_url ? (
-            <img
+            <GuardedImg
               src={simpanPeekFly.pendingCard.image_url}
               alt={simpanPeekFly.pendingCard.name}
               className={`h-full w-full object-cover ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
@@ -17015,7 +17021,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }}
         >
           {danhaStealFly.stolenCard.image_url ? (
-            <img
+            <GuardedImg
               src={danhaStealFly.stolenCard.image_url}
               alt={danhaStealFly.stolenCard.name}
               className="h-full w-full object-cover"
@@ -17090,7 +17096,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 {spellUsageFly.centerShowsCardBack ? (
                   <HiddenSpellCardBackFace />
                 ) : spellUsageFly.previewCard.image_url ? (
-                  <img
+                  <GuardedImg
                     src={spellUsageFly.previewCard.image_url}
                     alt={spellUsageFly.previewCard.name}
                     className="h-full w-full object-cover"
@@ -17117,7 +17123,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }}
         >
           {handDrag.card.image_url ? (
-            <img
+            <GuardedImg
               src={handDrag.card.image_url}
               alt={handDrag.card.name}
               className={`h-full w-full object-cover ${handDrag.opponentCardFlipped ? "rotate-180" : ""}`}
@@ -17637,7 +17643,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       onClick={() => executeDraw(idx)} 
                     >
                       {card.image_url ? (
-                        <img src={card.image_url} alt={card.name} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-110" />
+                        <GuardedImg src={card.image_url} alt={card.name} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-110" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center p-4">
                           <span className="text-sm font-bold text-center text-slate-400 group-hover:text-slate-200">{card.name}</span>
@@ -17942,6 +17948,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       {isMobile ? (
         <div
+          onContextMenu={preventImageContextMenu}
           onTouchMove={e => e.preventDefault()}
           style={{
             position: "fixed",
@@ -18475,7 +18482,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         <HiddenSpellCardBackFace />
                       </div>
                     ) : spellUsageReveal.previewCard.image_url ? (
-                      <img
+                      <GuardedImg
                         src={spellUsageReveal.previewCard.image_url}
                         alt={spellUsageReveal.previewCard.name}
                         className={`h-full w-full object-cover ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
@@ -18512,7 +18519,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
                     {simpanCenterDisplay.card.image_url ? (
-                      <img
+                      <GuardedImg
                         src={simpanCenterDisplay.card.image_url}
                         alt={simpanCenterDisplay.card.name}
                         className="h-full w-full object-cover"
@@ -18549,7 +18556,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "is", state.playerB.field.is)}
                     <div className={getSlotClassName("B", "is", state.playerB.field.is)} data-field-drop data-field-player="B" data-field-slot="is" onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
                     {state.playerB.field.is ? (
-                      state.playerB.field.is.image_url ? <img src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
+                      state.playerB.field.is.image_url ? <GuardedImg src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
                     {renderActionMenu("B", "is", state.playerB.field.is)}
                     </div>
@@ -18594,7 +18601,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "m", state.playerB.field.m)}
                     <div className={getSlotClassName("B", "m", state.playerB.field.m)} data-field-drop data-field-player="B" data-field-slot="m" onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
                     {state.playerB.field.m ? (
-                      state.playerB.field.m.image_url ? <img src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
+                      state.playerB.field.m.image_url ? <GuardedImg src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
                     {renderActionMenu("B", "m", state.playerB.field.m)}
                     </div>
@@ -18639,7 +18646,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "os", state.playerB.field.os)}
                     <div className={getSlotClassName("B", "os", state.playerB.field.os)} data-field-drop data-field-player="B" data-field-slot="os" onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
                     {state.playerB.field.os ? (
-                      state.playerB.field.os.image_url ? <img src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
+                      state.playerB.field.os.image_url ? <GuardedImg src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
                     {renderActionMenu("B", "os", state.playerB.field.os)}
                     </div>
@@ -18744,7 +18751,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "is", state.playerA.field.is)}
                     <div className={getSlotClassName("A", "is", state.playerA.field.is)} data-field-drop data-field-player="A" data-field-slot="is" onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
                     {state.playerA.field.is ? (
-                      state.playerA.field.is.image_url ? <img src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
+                      state.playerA.field.is.image_url ? <GuardedImg src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
                     {renderActionMenu("A", "is", state.playerA.field.is)}
                     </div>
@@ -18789,7 +18796,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "m", state.playerA.field.m)}
                     <div className={getSlotClassName("A", "m", state.playerA.field.m)} data-field-drop data-field-player="A" data-field-slot="m" onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
                     {state.playerA.field.m ? (
-                      state.playerA.field.m.image_url ? <img src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
+                      state.playerA.field.m.image_url ? <GuardedImg src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
                     {renderActionMenu("A", "m", state.playerA.field.m)}
                     </div>
@@ -18834,7 +18841,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "os", state.playerA.field.os)}
                     <div className={getSlotClassName("A", "os", state.playerA.field.os)} data-field-drop data-field-player="A" data-field-slot="os" onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
                     {state.playerA.field.os ? (
-                      state.playerA.field.os.image_url ? <img src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
+                      state.playerA.field.os.image_url ? <GuardedImg src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
                     {renderActionMenu("A", "os", state.playerA.field.os)}
                     </div>
@@ -18957,7 +18964,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <img src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{card.name}</span>}
+                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{card.name}</span>}
                          
                          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
                            <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
@@ -19160,7 +19167,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <img src={card.image_url} alt={card.name} className="w-full h-full object-cover group-hover:opacity-100 transition-opacity animate-[fadeIn_0.3s_ease-out]" /> : <span className="text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200">{card.name}</span>}
+                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className="w-full h-full object-cover group-hover:opacity-100 transition-opacity animate-[fadeIn_0.3s_ease-out]" /> : <span className="text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200">{card.name}</span>}
                          
                          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandA ? "hidden" : ""}`}>
                            <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-sky-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">

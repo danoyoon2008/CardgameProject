@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { preventImageContextMenu } from "../ui/GuardedImg";
 import { MOBILE_LOBBY_BASE_W } from "./mobile/mobileLobbyConstants";
 
 const MOBILE_LOBBY_CLASS = "pp-mobile-lobby";
@@ -61,6 +62,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
     <div
       ref={outerRef}
       className="pp-mobile-lobby-scroll"
+      onContextMenu={preventImageContextMenu}
       onTouchStart={handleTouchStart}
       style={{
         position: "fixed",

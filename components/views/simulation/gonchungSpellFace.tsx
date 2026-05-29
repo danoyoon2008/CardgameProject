@@ -1,5 +1,6 @@
 "use client";
 
+import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../../ui/GuardedImg";
 import type { FieldCard } from "../../../types/game";
 import { isHiddenSpellCard } from "../../../utils/battle";
 
@@ -60,7 +61,11 @@ export function GonchungSpellStackTopFace({
   const textRotate = player === "B" && opponentCardFlipped ? "rotate-180" : "";
 
   return (
-    <div className="absolute inset-0 overflow-visible rounded-[8px]">
+    <div
+      className="absolute inset-0 overflow-visible rounded-[8px]"
+      onContextMenu={preventImageContextMenu}
+      style={MOBILE_CARD_TOUCH_BLOCK_STYLE}
+    >
       {teslaCounterOutlineGlow ? (
         <div
           className={
@@ -73,7 +78,7 @@ export function GonchungSpellStackTopFace({
       ) : null}
       {revealGlow ? <div className="pp-gonchung-hidden-reveal-aura" aria-hidden /> : null}
       {spell.image_url ? (
-        <img src={spell.image_url} alt="Spell" className={imgRotate} />
+        <GuardedImg src={spell.image_url} alt="Spell" className={imgRotate} />
       ) : (
         <span
           className={`p-2 text-center text-xs font-bold leading-tight text-purple-200 ${textRotate}`}

@@ -129,7 +129,6 @@ export default function DeckView({
                     aspectRatio: "1 / 1.58",
                     minWidth: 0,
                     borderRadius: 8,
-                    animation: isPlacementMode && card ? "mobile-deck-replace-glow 2s ease-in-out infinite" : undefined,
                   }}
                 >
                   {isPlacementMode ? (
@@ -149,7 +148,7 @@ export default function DeckView({
                       style={{ width: "100%", height: "100%", cursor: "pointer" }}
                     >
                       {card ? (
-                        <CardPlaceholder card={card} showOutline={showOutline} />
+                        <CardPlaceholder card={card} showOutline={showOutline} replaceGlow />
                       ) : (
                         <div style={emptySlotStyle}>{index + 1}</div>
                       )}
@@ -262,22 +261,45 @@ export default function DeckView({
 
           <div className="grid grid-cols-6 gap-2 sm:gap-3 lg:gap-4 p-3 sm:p-5 lg:p-6 rounded-2xl bg-black/30 border border-white/10 shadow-[inset_0_0_30px_rgba(0,0,0,0.5)]">
             {deck.map((cardId, index) => {
-              const card = cards.find(c => Number(c.id) === cardId);
+              const card = cardId ? cards.find(c => Number(c.id) === cardId) : undefined;
+              const isPlacementMode = Boolean(selectedForDeck);
+
               return (
-                <div 
+                <div
                   key={`deck-slot-${index}`}
-                  onClick={() => { if(selectedForDeck) handleSlotReplace(index); }}
-                  className={`relative aspect-[53.98/85.6] rounded-lg transition-all ${selectedForDeck ? 'cursor-pointer hover:scale-105 ring-2 ring-amber-400/70 shadow-[0_0_15px_rgba(251,191,36,0.5)] z-10' : ''}`}
+                  className={`relative aspect-[53.98/85.6] rounded-lg ${isPlacementMode ? "z-10 cursor-pointer" : ""}`}
                 >
-                  {card ? (
-                    <CardPlaceholder 
-                      card={card} 
-                      showOutline={showOutline} 
+                  {isPlacementMode ? (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleSlotReplace(index)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleSlotReplace(index);
+                        }
+                      }}
+                      className="h-full w-full cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80"
+                    >
+                      {card ? (
+                        <CardPlaceholder card={card} showOutline={showOutline} replaceGlow="subtle" />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-amber-400/75 bg-amber-500/10">
+                          <span className="text-xl font-bold text-amber-200/90">{index + 1}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : card ? (
+                    <CardPlaceholder
+                      card={card}
+                      showOutline={showOutline}
                       onOpenDetail={handleOpenCardDetail}
+                      onRemoveFromDeck={() => handleSlotClear(index)}
                     />
                   ) : (
-                    <div className="w-full h-full rounded-lg border-2 border-dashed border-white/20 flex flex-col items-center justify-center bg-black/30">
-                       <span className="text-white/30 font-bold text-xl">{index + 1}</span>
+                    <div className="flex h-full w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-white/20 bg-black/30">
+                      <span className="text-xl font-bold text-white/30">{index + 1}</span>
                     </div>
                   )}
                 </div>

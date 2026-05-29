@@ -10,6 +10,7 @@ import {
   getFullRarityName 
 } from "../../utils/cardUtils";
 import { IconLock } from "./Icons";
+import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "./GuardedImg";
 
 export function CardBadges({ card, category, isUnit, isMagic, className }: { card: CardRow; category: string; isUnit: boolean; isMagic: boolean; className?: string }) {
   const rarityStyle = getRarityStyle(card.rarity);
@@ -40,10 +41,15 @@ export function CardTextBlock({ card, isUnit, isMagic, panelClassName }: { card:
   );
 }
 
+const DECK_OVERLAY_PAIR_BTN =
+  "pointer-events-auto box-border flex h-[34px] w-[92px] shrink-0 items-center justify-center rounded-lg border-0 p-0 text-sm font-semibold leading-none tracking-normal whitespace-nowrap shadow-lg transition-all duration-300 ease-out group-hover:scale-100 active:scale-95";
+
 export function CardPlaceholder({ 
   card, 
   onOpenDetail, 
   onSelectForDeck,
+  onRemoveFromDeck,
+  replaceGlow = false,
   isNew = false, 
   showOutline = false, 
   isShopView = false,
@@ -52,6 +58,9 @@ export function CardPlaceholder({
   card: CardRow; 
   onOpenDetail?: (card: CardRow) => void; 
   onSelectForDeck?: (card: CardRow) => void;
+  onRemoveFromDeck?: () => void;
+  /** 덱 배치 모드: 교체 가능 슬롯 하얀 윤곽 글로우 (`subtle` = PC용 약한 연출) */
+  replaceGlow?: boolean | "subtle";
   isNew?: boolean; 
   showOutline?: boolean; 
   isShopView?: boolean;
@@ -69,7 +78,15 @@ export function CardPlaceholder({
   let finalOutlineStyle: React.CSSProperties = {};
   const baseShadow = '0 12px 40px -12px rgba(0,0,0,0.65)';
   
-  if (inDeck) {
+  const replaceGlowClass =
+    replaceGlow === "subtle" ? "deck-replace-glow-subtle" : replaceGlow ? "deck-replace-glow" : "";
+
+  if (replaceGlow) {
+    finalOutlineStyle = {
+      borderColor: replaceGlow === "subtle" ? "rgba(255, 255, 255, 0.38)" : "rgba(255, 255, 255, 0.45)",
+      borderWidth: "2px",
+    };
+  } else if (inDeck) {
     finalOutlineStyle = {
       borderColor: 'rgba(245, 158, 11, 0.8)',
       boxShadow: `${baseShadow}, 0 0 15px rgba(245, 158, 11, 0.5)`,
@@ -95,8 +112,17 @@ export function CardPlaceholder({
       const isAncient = card.rarity && ['A', 'ANCIENT'].includes(card.rarity.toUpperCase());
       
       return (
-        <div className="absolute inset-0 w-full h-full bg-[#0a1628]">
-          <img src={imageUrl!} alt={card.name} className="absolute inset-0 z-0 h-full w-full object-cover object-center" onError={() => setImgFailed(true)} />
+        <div
+          className="absolute inset-0 w-full h-full bg-[#0a1628]"
+          onContextMenu={preventImageContextMenu}
+          style={MOBILE_CARD_TOUCH_BLOCK_STYLE}
+        >
+          <GuardedImg
+            src={imageUrl!}
+            alt={card.name}
+            className="absolute inset-0 z-0 h-full w-full object-cover object-center"
+            onError={() => setImgFailed(true)}
+          />
           
           {/* ⭐️ isAncient가 아닐(false) 때만 우측 하단 뱃지를 그려줍니다. */}
           {rarityStyle && displayRarity && !isAncient && (
@@ -123,13 +149,16 @@ export function CardPlaceholder({
   };
 
   return (
-    <article 
-      className={`group relative flex w-full h-full aspect-[53.98/85.6] flex-col rounded-lg border transition-all duration-300 ${
+    <article
+      onContextMenu={preventImageContextMenu}
+      className={`group relative flex w-full h-full aspect-[53.98/85.6] flex-col rounded-lg border ${
+        replaceGlowClass || "transition-all duration-300"
+      } ${
         isOwned 
-          ? (showOutline || inDeck ? '' : 'border-white/15 hover:border-sky-400/40') 
+          ? (replaceGlow || showOutline || inDeck ? '' : 'border-white/15 hover:border-sky-400/40') 
           : "border-white/5 opacity-60 grayscale hover:opacity-80"
       }`}
-      style={finalOutlineStyle}
+      style={{ ...MOBILE_CARD_TOUCH_BLOCK_STYLE, ...finalOutlineStyle }}
     >
       <div className="absolute inset-0 overflow-hidden rounded-lg">
         {renderCardContent()}
@@ -149,16 +178,39 @@ export function CardPlaceholder({
         </div>
       )}
 
-      {(onOpenDetail || onSelectForDeck) && !isShopView && (
+      {(onOpenDetail || onSelectForDeck || onRemoveFromDeck) && !isShopView && (
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/60 opacity-0 transition-opacity duration-300 ease-out group-hover:pointer-events-auto group-hover:opacity-100">
-          {onSelectForDeck && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); onSelectForDeck(card); }} className="pointer-events-auto scale-95 rounded-lg bg-amber-400 px-6 py-2 text-sm font-black text-[#0a1628] opacity-0 shadow-[0_4px_15px_rgba(251,191,36,0.5)] transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-amber-300 hover:scale-105 active:scale-95 tracking-widest w-28">
+          {onRemoveFromDeck ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRemoveFromDeck(); }}
+              className={`${DECK_OVERLAY_PAIR_BTN} scale-95 bg-rose-500 text-white opacity-0 group-hover:opacity-100 hover:bg-rose-400`}
+            >
+              제거
+            </button>
+          ) : null}
+          {onSelectForDeck ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onSelectForDeck(card); }}
+              className="pointer-events-auto scale-95 rounded-lg bg-amber-400 px-6 py-2 text-sm font-black text-[#0a1628] opacity-0 shadow-[0_4px_15px_rgba(251,191,36,0.5)] transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-amber-300 hover:scale-105 active:scale-95 tracking-widest w-28"
+            >
               선택
             </button>
-          )}
-          <button type="button" onClick={(e) => { e.stopPropagation(); if(onOpenDetail) onOpenDetail(card); }} className={`pointer-events-auto scale-95 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0a1628] opacity-0 shadow-lg transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-sky-100 hover:scale-105 active:scale-95 ${onSelectForDeck ? 'w-28' : ''}`}>
-            상세 정보
-          </button>
+          ) : null}
+          {onOpenDetail ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenDetail(card); }}
+              className={
+                onRemoveFromDeck
+                  ? `${DECK_OVERLAY_PAIR_BTN} scale-95 bg-white text-[#0a1628] opacity-0 group-hover:opacity-100 hover:bg-sky-100`
+                  : `pointer-events-auto scale-95 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0a1628] opacity-0 shadow-lg transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-sky-100 hover:scale-105 active:scale-95 ${onSelectForDeck ? "w-28" : ""}`
+              }
+            >
+              상세 정보
+            </button>
+          ) : null}
         </div>
       )}
     </article>

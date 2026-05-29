@@ -1,5 +1,6 @@
 "use client";
 
+import { GuardedImg } from "../../../ui/GuardedImg";
 import { IconDeck } from "../../../ui/Icons";
 import type { CardRow } from "../../../../types/game";
 
@@ -90,7 +91,7 @@ export default function RewindModal({
                     }}
                   >
                     {rCard.image_url ? (
-                      <img src={rCard.image_url} alt={rCard.name} className={imageClass} />
+                      <GuardedImg src={rCard.image_url} alt={rCard.name} className={imageClass} />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center p-4">
                         <span className={nameClass}>{rCard.name}</span>

@@ -3,6 +3,7 @@
 import type { MouseEvent } from "react";
 import { CardRow } from "../../../types/game";
 import { CardPlaceholder } from "../../ui/Card";
+import { MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../../ui/GuardedImg";
 
 /** 덱 슬롯 오버레이: 제거·상세 정보 동일 박스 규격 */
 const OVERLAY_PAIR_BTN =
@@ -71,12 +72,14 @@ export default function MobileTouchCardCell({
     <div
       data-mobile-card-cell
       onClick={handleCardClick}
+      onContextMenu={preventImageContextMenu}
       style={{
         position: "relative",
         width: "100%",
         aspectRatio: "1 / 1.58",
         minWidth: 0,
         cursor: "pointer",
+        ...MOBILE_CARD_TOUCH_BLOCK_STYLE,
       }}
     >
       <CardPlaceholder

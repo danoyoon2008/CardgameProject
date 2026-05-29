@@ -1,4 +1,5 @@
 import React from 'react';
+import { GuardedImg } from "../../../ui/GuardedImg";
 import { IconDeck } from "../../../ui/Icons";
 import { CardRow } from "../../../../types/game";
 
@@ -46,10 +47,11 @@ export default function DrawModal({ onClose, deckCards, onExecuteDraw }: DrawMod
                 <div 
                   key={`deck-select-${idx}`}
                   className="group relative w-full aspect-[1/1.58] rounded-[10px] border border-slate-600 bg-black/50 overflow-hidden cursor-pointer hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(79,70,229,0.4)] hover:border-indigo-400 transition-all duration-300"
-                  onClick={() => onExecuteDraw(idx)} 
+                  onClick={() => onExecuteDraw(idx)}
+                  onContextMenu={e => e.preventDefault()}
                 >
                   {card.image_url ? (
-                    <img src={card.image_url} alt={card.name} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-110" />
+                    <GuardedImg src={card.image_url} alt={card.name} className="w-full h-full object-cover transition-all duration-300 group-hover:scale-110" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center p-4">
                       <span className="text-sm font-bold text-center text-slate-400 group-hover:text-slate-200">{card.name}</span>
