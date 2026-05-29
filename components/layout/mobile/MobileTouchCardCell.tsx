@@ -39,7 +39,6 @@ export default function MobileTouchCardCell({
 
   const handleCardClick = (e: MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    if (!isOwned) return;
     onSelectCardIndex(index);
   };
 
@@ -73,8 +72,12 @@ export default function MobileTouchCardCell({
         showOutline={showOutline}
         inDeck={inDeck}
       />
-      {isSelected && isOwned ? (
+      {isSelected ? (
         <div
+          role="presentation"
+          onClick={e => {
+            if (e.target === e.currentTarget) onClearSelection();
+          }}
           style={{
             position: "absolute",
             inset: 0,
@@ -88,7 +91,7 @@ export default function MobileTouchCardCell({
             zIndex: 20,
           }}
         >
-          {onSelectForDeck ? (
+          {onSelectForDeck && isOwned ? (
             <button type="button" className={SELECT_BTN_CLASS} onClick={handleSelectForDeck}>
               선택
             </button>
@@ -96,7 +99,7 @@ export default function MobileTouchCardCell({
           {onOpenDetail ? (
             <button
               type="button"
-              className={`${DETAIL_BTN_CLASS} ${onSelectForDeck ? "w-28" : ""}`}
+              className={`${DETAIL_BTN_CLASS} ${onSelectForDeck && isOwned ? "w-28" : ""}`}
               onClick={handleOpenDetail}
             >
               상세 정보
@@ -106,15 +109,4 @@ export default function MobileTouchCardCell({
       ) : null}
     </div>
   );
-}
-
-/** 그리드 바깥(빈 영역) 터치 시 선택 해제 */
-export function handleMobileCardGridBackgroundClick(
-  e: MouseEvent<HTMLElement>,
-  onClearSelection: () => void
-) {
-  const target = e.target as HTMLElement;
-  if (!target.closest("[data-mobile-card-cell]")) {
-    onClearSelection();
-  }
 }

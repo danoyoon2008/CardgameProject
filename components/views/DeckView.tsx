@@ -6,8 +6,9 @@ import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { IconDeck, IconBook } from "../ui/Icons";
 import MobileViewShell from "../layout/mobile/MobileViewShell";
-import MobileTouchCardCell, { handleMobileCardGridBackgroundClick } from "../layout/mobile/MobileTouchCardCell";
+import MobileTouchCardCell from "../layout/mobile/MobileTouchCardCell";
 import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
+import { useMobileCardSelectionDismiss } from "../../hooks/useMobileCardSelectionDismiss";
 
 interface DeckViewProps {
   deck: number[];
@@ -46,6 +47,17 @@ export default function DeckView({
     }
   }, [layoutMobile, sortOption, selectedForDeck]);
 
+  const clearMobileCardSelection = () => {
+    setSelectedDeckSlotIndex(null);
+    setSelectedOwnedCardIndex(null);
+  };
+
+  useMobileCardSelectionDismiss(
+    selectedDeckSlotIndex !== null || selectedOwnedCardIndex !== null,
+    clearMobileCardSelection,
+    layoutMobile
+  );
+
   if (layoutMobile) {
     return (
       <MobileViewShell isDarkMode={isDarkMode}>
@@ -72,12 +84,6 @@ export default function DeckView({
           ) : null}
 
           <div
-            role="presentation"
-            onClick={e => {
-              if (!selectedForDeck) {
-                handleMobileCardGridBackgroundClick(e, () => setSelectedDeckSlotIndex(null));
-              }
-            }}
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(6, 1fr)",
@@ -197,8 +203,6 @@ export default function DeckView({
             <p style={{ textAlign: "center", color: "#64748b", fontSize: 14, padding: "32px 0" }}>보유한 카드가 없습니다.</p>
           ) : (
             <div
-              role="presentation"
-              onClick={e => handleMobileCardGridBackgroundClick(e, () => setSelectedOwnedCardIndex(null))}
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",

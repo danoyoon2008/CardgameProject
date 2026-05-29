@@ -6,8 +6,9 @@ import { CardPlaceholder } from "../ui/Card";
 import { getRarityWeight } from "../../utils/cardUtils";
 
 import MobileViewShell from "../layout/mobile/MobileViewShell";
-import MobileTouchCardCell, { handleMobileCardGridBackgroundClick } from "../layout/mobile/MobileTouchCardCell";
+import MobileTouchCardCell from "../layout/mobile/MobileTouchCardCell";
 import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
+import { useMobileCardSelectionDismiss } from "../../hooks/useMobileCardSelectionDismiss";
 
 interface CodexViewProps {
   cards: CardRow[];
@@ -53,6 +54,12 @@ export default function CodexView({
   useEffect(() => {
     if (layoutMobile) setSelectedCardIndex(null);
   }, [layoutMobile, sortOption, filterOwnedFirst]);
+
+  useMobileCardSelectionDismiss(
+    selectedCardIndex !== null,
+    () => setSelectedCardIndex(null),
+    layoutMobile
+  );
 
   if (layoutMobile) {
     return (
@@ -107,8 +114,6 @@ export default function CodexView({
           </div>
         ) : (
           <div
-            role="presentation"
-            onClick={e => handleMobileCardGridBackgroundClick(e, () => setSelectedCardIndex(null))}
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(4, 1fr)",
