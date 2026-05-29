@@ -15438,7 +15438,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return top;
   };
 
-  const renderGonchungSpellStackFace = (player: "A" | "B", field: PlayerState["field"]) => {
+  const renderGonchungSpellStackFace = (
+    player: "A" | "B",
+    field: PlayerState["field"],
+    opts?: { mobileFieldLayout?: boolean }
+  ) => {
     const display = gonchungSpellSlotDisplayCard(player, field);
     if (!display) return null;
     const showFront = isGonchungHiddenPeekShowingFront(player, display);
@@ -15457,6 +15461,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           showFront && (spellUsageTeslaFlipPlayer === player || !!spellUsageHiddenRevealCards?.[player])
         }
         ryeomhwaSuppressedOutlineGlow={ryeomhwaSuppressedOutlineGlow}
+        mobileFieldLayout={opts?.mobileFieldLayout}
       />
     );
   };
@@ -16365,9 +16370,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   /** 오른쪽 사이드(더 넓은 쪽) 기준 대칭 여백 — 보드 정중앙 필드 */
   const MOBILE_CENTER_W = MOBILE_BOARD_W - MOBILE_RIGHT_W * 2;
   const MOBILE_UNIT_W = 72;
+  const MOBILE_UNIT_SLOT_GAP = 8;
+  /** 유닛 3칸 행 너비 — 스펠 행과 좌/우 가장자리 정렬 */
+  const MOBILE_UNIT_ROW_W = MOBILE_UNIT_W * 3 + MOBILE_UNIT_SLOT_GAP * 2;
   const MOBILE_UNIT_H = 114;
   const MOBILE_SPELL_W = 100;
   const MOBILE_SPELL_H = 63;
+  /** 스펠↔유닛, 패↔필드 등 모바일 필드 스택 간격 (B/A 동일 값) */
+  const MOBILE_FIELD_STACK_GAP = 8;
+  const MOBILE_BOARD_EDGE_GAP = 8;
+  const MOBILE_SPELL_SLOT_BOX_STYLE: React.CSSProperties = {
+    width: MOBILE_SPELL_W,
+    height: MOBILE_SPELL_H,
+    aspectRatio: `${MOBILE_SPELL_W} / ${MOBILE_SPELL_H}`,
+    overflow: "hidden",
+    flexShrink: 0,
+    boxSizing: "border-box",
+  };
 
   const mobileFieldCardStyle =
     "shrink-0 rounded-[6px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
@@ -16637,12 +16656,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const fillPx = Math.max(0, Math.min(MOBILE_BOARD_W, Math.round((ps.hp / 2000) * MOBILE_BOARD_W)));
     return (
       <div
+        data-mobile-player-hp={player}
         style={{
           width: MOBILE_BOARD_W,
           height: MOBILE_HP_BAR_H,
           background: "#0f172a",
           position: "relative",
           overflow: "hidden",
+          flexShrink: 0,
         }}
       >
         <div
@@ -16704,7 +16725,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
             <div
               className={getSlotClassName(player, slot, card, mobileFieldCardStyle)}
-              style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
+              style={{
+                width: MOBILE_UNIT_W,
+                height: MOBILE_UNIT_H,
+                ...MOBILE_CARD_TOUCH_BLOCK_STYLE,
+              }}
               onContextMenu={preventImageContextMenu}
               data-field-drop
               data-field-player={player}
@@ -16818,6 +16843,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           width: "78%",
           marginLeft: "auto",
           marginRight: "auto",
+          ...(isPlayerA
+            ? { marginTop: MOBILE_BOARD_EDGE_GAP }
+            : { marginBottom: MOBILE_BOARD_EDGE_GAP }),
           height: MOBILE_HAND_H,
           border: `2px solid ${borderColor}`,
           borderRadius: 12,
@@ -18537,22 +18565,51 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  paddingTop: 20,
-                  paddingBottom: 20,
+                  overflow: "visible",
                   paddingLeft: 4,
                   paddingRight: 4,
                 }}
               >
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                  <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: MOBILE_FIELD_STACK_GAP,
+                  }}
+                >
+                  <div
+                    data-mobile-units-row="B"
+                    style={{
+                      width: MOBILE_UNIT_ROW_W,
+                      display: "flex",
+                      flexDirection: "row",
+                      gap: MOBILE_UNIT_SLOT_GAP,
+                      justifyContent: "center",
+                      paddingTop: MOBILE_BOARD_EDGE_GAP,
+                      boxSizing: "border-box",
+                    }}
+                  >
                     {renderMobileUnitSlot("B", "is", "Is", false)}
                     {renderMobileUnitSlot("B", "m", "M", false)}
                     {renderMobileUnitSlot("B", "os", "Os", false)}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingLeft: 8 }}>
+                  <div
+                    data-mobile-spell-row="B"
+                    style={{
+                      width: MOBILE_UNIT_ROW_W,
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "flex-start",
+                      gap: 4,
+                      boxSizing: "border-box",
+                    }}
+                  >
                     <div
-                      className={`${mobileSpellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
-                      style={{ width: MOBILE_SPELL_W, height: MOBILE_SPELL_H }}
+                      className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
+                      style={MOBILE_SPELL_SLOT_BOX_STYLE}
+                      data-mobile-spell-slot="B"
                       data-field-drop
                       data-field-player="B"
                       data-field-slot="spell"
@@ -18562,7 +18619,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
                     >
                       {renderFlashOverlay("B-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("B", state.playerB.field)}
+                      {renderGonchungSpellStackFace("B", state.playerB.field, { mobileFieldLayout: true })}
                       {renderFieldSpellDurationBadge(state.playerB.field, "B")}
                       {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
@@ -18588,8 +18645,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                 />
 
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end", paddingRight: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: MOBILE_FIELD_STACK_GAP,
+                  }}
+                >
+                  <div
+                    data-mobile-spell-row="A"
+                    style={{
+                      width: MOBILE_UNIT_ROW_W,
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      gap: 4,
+                      boxSizing: "border-box",
+                    }}
+                  >
                     {normalizeSpellStack(state.playerA.field).length > 1 ? (
                       <button
                         type="button"
@@ -18601,8 +18676,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       </button>
                     ) : null}
                     <div
-                      className={`${mobileSpellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
-                      style={{ width: MOBILE_SPELL_W, height: MOBILE_SPELL_H }}
+                      className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
+                      style={MOBILE_SPELL_SLOT_BOX_STYLE}
+                      data-mobile-spell-slot="A"
                       data-field-drop
                       data-field-player="A"
                       data-field-slot="spell"
@@ -18612,13 +18688,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
                     >
                       {renderFlashOverlay("A-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("A", state.playerA.field)}
+                      {renderGonchungSpellStackFace("A", state.playerA.field, { mobileFieldLayout: true })}
                       {renderFieldSpellDurationBadge(state.playerA.field, "A")}
                       {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                  <div
+                    data-mobile-units-row="A"
+                    style={{
+                      width: MOBILE_UNIT_ROW_W,
+                      display: "flex",
+                      flexDirection: "row",
+                      gap: MOBILE_UNIT_SLOT_GAP,
+                      justifyContent: "center",
+                      paddingBottom: MOBILE_BOARD_EDGE_GAP,
+                      boxSizing: "border-box",
+                    }}
+                  >
                     {renderMobileUnitSlot("A", "is", "Is", true)}
                     {renderMobileUnitSlot("A", "m", "M", true)}
                     {renderMobileUnitSlot("A", "os", "Os", true)}

@@ -23,6 +23,8 @@ type GonchungSpellFaceProps = {
   teslaCounterOutlineGlow?: boolean;
   /** No.41 렴화 — 상대 패시브로 히든 트리거가 막힌 뒷면 스펠 보라 윤곽 */
   ryeomhwaSuppressedOutlineGlow?: boolean;
+  /** 모바일 시뮬 필드 스펠 칸 — PC 회전·scale 없이 슬롯 안에 클리핑 */
+  mobileFieldLayout?: boolean;
 };
 
 export function GonchungSpellStackTopFace({
@@ -33,11 +35,12 @@ export function GonchungSpellStackTopFace({
   showFront,
   teslaCounterOutlineGlow = false,
   ryeomhwaSuppressedOutlineGlow = false,
+  mobileFieldLayout = false,
 }: GonchungSpellFaceProps) {
   if (!showFront && isHiddenSpellCard(spell)) {
     return (
       <div
-        className={`pointer-events-none absolute inset-0 rounded-[8px] ${ryeomhwaSuppressedOutlineGlow ? "overflow-visible" : "overflow-hidden"}`}
+        className={`pointer-events-none absolute inset-0 rounded-[6px] ${mobileFieldLayout || !ryeomhwaSuppressedOutlineGlow ? "overflow-hidden" : "overflow-visible"}`}
       >
         <HiddenSpellCardBackFace className={ryeomhwaSuppressedOutlineGlow ? "relative z-[1]" : undefined} />
         {ryeomhwaSuppressedOutlineGlow ? (
@@ -54,15 +57,19 @@ export function GonchungSpellStackTopFace({
     );
   }
 
-  const imgRotate =
-    player === "B"
-      ? `h-full w-full object-contain rotate-90 scale-[1.58] ${opponentCardFlipped ? "rotate-180" : ""}`
-      : "h-full w-full object-contain -rotate-90 scale-[1.58]";
+  const flipSuffix = opponentCardFlipped ? " rotate-180" : "";
+  const imgRotate = mobileFieldLayout
+    ? player === "B"
+      ? `h-full w-full object-cover rotate-90${flipSuffix}`
+      : `h-full w-full object-cover -rotate-90${flipSuffix}`
+    : player === "B"
+      ? `h-full w-full object-contain rotate-90 scale-[1.58]${flipSuffix}`
+      : `h-full w-full object-contain -rotate-90 scale-[1.58]`;
   const textRotate = player === "B" && opponentCardFlipped ? "rotate-180" : "";
 
   return (
     <div
-      className="absolute inset-0 overflow-visible rounded-[8px]"
+      className={`absolute inset-0 rounded-[6px] ${mobileFieldLayout ? "overflow-hidden" : "overflow-visible rounded-[8px]"}`}
       onContextMenu={preventImageContextMenu}
       style={MOBILE_CARD_TOUCH_BLOCK_STYLE}
     >
