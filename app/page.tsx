@@ -10,6 +10,8 @@ import { CardPlaceholder } from "../components/ui/Card";
 import { CardDetailModal, NewCardUnlockModal } from "../components/ui/CardModals";
 import Header from "../components/layout/Header";
 import Sidebar from "../components/layout/Sidebar";
+import MobileWrapper from "../components/layout/MobileWrapper";
+import { useIsMobile } from "../hooks/useIsMobile";
 import CodexView from "../components/views/CodexView";
 import ShopView from "../components/views/ShopView";
 import DeckView from "../components/views/DeckView";
@@ -32,6 +34,9 @@ function LoginRequiredView({ onLogin, isDarkMode }: { onLogin: () => void, isDar
 
 export default function Home() {
   const game = useGameLogic();
+  const isMobile = useIsMobile();
+  const isSimulation = game.mainView === "simulation";
+  const useMobileLobbyWrapper = isMobile && !isSimulation;
 
   /** 시뮬레이션 이탈 시 모바일 터치 잠금 클래스가 남지 않도록 보장 */
   useEffect(() => {
@@ -39,6 +44,36 @@ export default function Home() {
     document.documentElement.classList.remove("pp-simulation-mobile-touch-lock");
     document.body.classList.remove("pp-simulation-mobile-touch-lock");
   }, [game.mainView]);
+
+  const lobbyChrome = (
+    <>
+      <Header 
+        authReady={game.authReady} user={game.user} userAvatarUrl={game.userAvatarUrl} currentDisplayName={game.currentDisplayName} isDarkMode={game.isDarkMode}
+        gold={game.gold} primeTokens={game.primeTokens} cardShards={game.cardShards} handleGoogleLogin={game.handleGoogleLogin}
+        handleEditGold={game.handleEditGold} handleEditTokens={game.handleEditTokens} handleEditShards={game.handleEditShards}
+      />
+
+      <div className="flex w-full min-h-0 flex-1 flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8">
+        
+        <Sidebar mainView={game.mainView} setMainView={game.setMainView} isDarkMode={game.isDarkMode} newCardIdsSize={game.newCardIds.size} />
+
+        <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 ${game.mainView === "battle" ? "justify-center" : "justify-start overflow-y-auto"}`}>
+          {game.shouldShowLoginRequired ? (
+            <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
+          ) : (
+            <>
+              {game.mainView === "battle" && <BattleView isDarkMode={game.isDarkMode} onStartSimulation={() => game.setMainView("simulation")} />}
+              
+              {game.mainView === "shop" && <ShopView gold={game.gold} cardsLoading={game.cardsLoading} isDarkMode={game.isDarkMode} handleGacha={game.handleGacha} setShowProbModal={game.setShowProbModal} setIsShardShopOpen={game.setIsShardShopOpen} />}
+              {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
+              {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} />}
+              {game.mainView === "settings" && <SettingsView isDarkMode={game.isDarkMode} setIsDarkMode={game.setIsDarkMode} volume={game.volume} setVolume={game.setVolume} user={game.user} handleEditNickname={game.handleEditNickname} handleLogout={game.handleLogout} handleResetData={game.handleResetData} />}
+            </>
+          )}
+        </main>
+      </div>
+    </>
+  );
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${game.isDarkMode ? "bg-gradient-to-b from-[#0a1628] via-[#0d1f3c] to-[#050a14] text-slate-100" : "bg-slate-100 text-slate-900"}`}>
@@ -53,52 +88,29 @@ export default function Home() {
         @keyframes flyFromDeck { 0% { opacity: 0; transform: translateY(60vh) scale(0.1) rotateZ(-20deg); } 50% { opacity: 1; transform: translateY(-5vh) scale(1.05) rotateZ(5deg); } 100% { opacity: 1; transform: translateY(0) scale(1) rotateZ(0deg); } }
       `}} />
 
-      {game.mainView !== "simulation" && (
-        <Header 
-          authReady={game.authReady} user={game.user} userAvatarUrl={game.userAvatarUrl} currentDisplayName={game.currentDisplayName} isDarkMode={game.isDarkMode}
-          gold={game.gold} primeTokens={game.primeTokens} cardShards={game.cardShards} handleGoogleLogin={game.handleGoogleLogin}
-          handleEditGold={game.handleEditGold} handleEditTokens={game.handleEditTokens} handleEditShards={game.handleEditShards}
-        />
-      )}
-
-      <div className={`flex w-full min-h-0 flex-1 ${game.mainView === "simulation" ? "" : "flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8"}`}>
-        
-        {game.mainView !== "simulation" && (
-          <Sidebar mainView={game.mainView} setMainView={game.setMainView} isDarkMode={game.isDarkMode} newCardIdsSize={game.newCardIds.size} />
-        )}
-
-        <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 ${game.mainView === "battle" || game.mainView === "simulation" ? "justify-center" : "justify-start overflow-y-auto"}`}>
+      {isSimulation ? (
+        <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 justify-center`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
+          ) : game.cardsLoading ? (
+            <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+              <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sky-400 font-bold animate-pulse tracking-widest">전장 세팅을 위해 카드를 불러오는 중...</p>
+            </div>
           ) : (
-            <>
-              {game.mainView === "battle" && <BattleView isDarkMode={game.isDarkMode} onStartSimulation={() => game.setMainView("simulation")} />}
-              
-              {game.mainView === "simulation" && (
-                game.cardsLoading ? (
-                  <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
-                     <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-                     <p className="text-sky-400 font-bold animate-pulse tracking-widest">전장 세팅을 위해 카드를 불러오는 중...</p>
-                  </div>
-                ) : (
-                  // ⭐️ 도감처럼 상세보기를 띄우기 위해 onOpenDetail 전달 추가
-                  <SimulationView 
-                    isDarkMode={game.isDarkMode} 
-                    cards={game.cards} 
-                    onBackToLobby={() => game.setMainView("battle")} 
-                    onOpenDetail={game.handleOpenCardDetail} 
-                  />
-                )
-              )}
-
-              {game.mainView === "shop" && <ShopView gold={game.gold} cardsLoading={game.cardsLoading} isDarkMode={game.isDarkMode} handleGacha={game.handleGacha} setShowProbModal={game.setShowProbModal} setIsShardShopOpen={game.setIsShardShopOpen} />}
-              {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
-              {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} />}
-              {game.mainView === "settings" && <SettingsView isDarkMode={game.isDarkMode} setIsDarkMode={game.setIsDarkMode} volume={game.volume} setVolume={game.setVolume} user={game.user} handleEditNickname={game.handleEditNickname} handleLogout={game.handleLogout} handleResetData={game.handleResetData} />}
-            </>
+            <SimulationView 
+              isDarkMode={game.isDarkMode} 
+              cards={game.cards} 
+              onBackToLobby={() => game.setMainView("battle")} 
+              onOpenDetail={game.handleOpenCardDetail} 
+            />
           )}
         </main>
-      </div>
+      ) : useMobileLobbyWrapper ? (
+        <MobileWrapper>{lobbyChrome}</MobileWrapper>
+      ) : (
+        lobbyChrome
+      )}
 
       <CardDetailModal card={game.selectedCard} onClose={() => game.setSelectedCard(null)} />
       {game.unlockQueue.length > 0 && <NewCardUnlockModal card={game.unlockQueue[0]} onClose={() => game.setUnlockQueue(prev => prev.slice(1))} />}
