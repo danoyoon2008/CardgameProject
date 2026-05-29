@@ -1,18 +1,7 @@
 ﻿// components/views/SimulationView.tsx
 "use client";
 
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useMemo,
-  useCallback,
-  type CSSProperties,
-  type ReactNode,
-  type TouchEvent as ReactTouchEvent,
-} from "react";
-import { useTouchDrag } from "../../hooks/useTouchDrag";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
 import { CardRow, FieldCard } from "../../types/game";
@@ -1247,43 +1236,6 @@ function applySimpanForBothPlayersAfterSpell(s: SimulationState, nextGlowToken: 
   return primeSimpanPeekReveal(out);
 }
 
-type MobileHandCardTouchSurfaceProps = {
-  children: ReactNode;
-  disabled: boolean;
-  className: string;
-  style: CSSProperties;
-  onHandTap: () => void;
-  onDragStart: (e: ReactTouchEvent) => void;
-};
-
-function MobileHandCardTouchSurface({
-  children,
-  disabled,
-  className,
-  style,
-  onHandTap,
-  onDragStart,
-}: MobileHandCardTouchSurfaceProps) {
-  const { handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = useTouchDrag({
-    disabled,
-    onTap: onHandTap,
-    onDragStart,
-  });
-
-  return (
-    <div
-      className={className}
-      style={style}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchCancel}
-    >
-      {children}
-    </div>
-  );
-}
-
 export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpenDetail }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
@@ -1495,7 +1447,23 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
-  const mobileTouchDragCleanupRef = useRef<(() => void) | null>(null);
+  const touchDragRef = useRef<{
+    cardIndex: number;
+    player: "A" | "B";
+    startX: number;
+    startY: number;
+    isDragging: boolean;
+    ghostEl: HTMLElement | null;
+  }>({
+    cardIndex: -1,
+    player: "A",
+    startX: 0,
+    startY: 0,
+    isDragging: false,
+    ghostEl: null,
+  });
+  const mobileTouchSourceElRef = useRef<HTMLElement | null>(null);
+  const mobileTouchTapHandlerRef = useRef<(() => void) | null>(null);
   const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
   const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
   const [danhaStealFly, setDanhaStealFly] = useState<DanhaStealFlyVisualState | null>(null);
@@ -8648,111 +8616,266 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
   };
 
-  const handleTouchDrop = (clientX: number, clientY: number, saved: HandDragState) => {
-    const el = document.elementFromPoint(clientX, clientY);
-    const slotEl = el?.closest("[data-slot]") as HTMLElement | null;
-    if (slotEl) {
-      const slot = slotEl.getAttribute("data-slot") as "is" | "m" | "os" | "spell" | null;
-      const targetPlayer = slotEl.getAttribute("data-player") as "A" | "B" | null;
-      if (
-        slot &&
-        targetPlayer &&
-        (targetPlayer === "A" || targetPlayer === "B") &&
-        (slot === "is" || slot === "m" || slot === "os" || slot === "spell")
-      ) {
-        commitHandDragDrop(clientX, clientY, saved);
-        return;
-      }
-    }
-    commitHandDragDrop(clientX, clientY, saved);
+  const MOBILE_TOUCH_DRAG_THRESHOLD_PX = 10;
+
+  const removeMobileTouchGhost = () => {
+    const ghost = touchDragRef.current.ghostEl;
+    if (ghost?.parentNode) ghost.parentNode.removeChild(ghost);
+    touchDragRef.current.ghostEl = null;
   };
 
-  const beginMobileHandDragFromTouch = (
-    e: React.TouchEvent,
-    cardIndex: number,
-    player: "A" | "B",
-    card: CardRow
-  ) => {
-    if (e.touches.length !== 1) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    if (!canBeginHandDrag(cardIndex, player, card)) return;
+  const resetMobileTouchDragRef = () => {
+    removeMobileTouchGhost();
+    touchDragRef.current = {
+      cardIndex: -1,
+      player: "A",
+      startX: 0,
+      startY: 0,
+      isDragging: false,
+      ghostEl: null,
+    };
+    mobileTouchSourceElRef.current = null;
+    mobileTouchTapHandlerRef.current = null;
+  };
 
-    e.stopPropagation();
-    mobileTouchDragCleanupRef.current?.();
-    mobileTouchDragCleanupRef.current = null;
+  const createMobileTouchGhost = (sourceEl: HTMLElement, clientX: number, clientY: number) => {
+    removeMobileTouchGhost();
+    const rect = sourceEl.getBoundingClientRect();
+    const ghost = document.createElement("div");
+    ghost.style.position = "fixed";
+    ghost.style.pointerEvents = "none";
+    ghost.style.opacity = "0.7";
+    ghost.style.zIndex = "9999";
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.height = `${rect.height}px`;
+    ghost.style.left = `${clientX - rect.width / 2}px`;
+    ghost.style.top = `${clientY - rect.height / 2}px`;
+    ghost.style.overflow = "hidden";
+    ghost.style.borderRadius = "6px";
+    ghost.style.boxSizing = "border-box";
+    const img = sourceEl.querySelector("img");
+    if (img instanceof HTMLImageElement) {
+      const cloneImg = document.createElement("img");
+      cloneImg.src = img.src;
+      cloneImg.alt = img.alt;
+      cloneImg.style.width = "100%";
+      cloneImg.style.height = "100%";
+      cloneImg.style.objectFit = "cover";
+      if (img.style.transform) cloneImg.style.transform = img.style.transform;
+      ghost.appendChild(cloneImg);
+    }
+    document.body.appendChild(ghost);
+    touchDragRef.current.ghostEl = ghost;
+  };
 
-    setSelectedSlot(null);
-    setAttackingSlot(null);
-    setPendingSecondaryAttack(null);
-    applyStartingWraithChainPending(null);
-    setPendingAttackSelection(null);
-    setPendingLibutyAllEnemiesAttack(null);
-    setAttackOptionOverride(null);
+  const moveMobileTouchGhost = (clientX: number, clientY: number) => {
+    const ghost = touchDragRef.current.ghostEl;
+    if (!ghost) return;
+    const w = parseFloat(ghost.style.width) || 64;
+    const h = parseFloat(ghost.style.height) || 101;
+    ghost.style.left = `${clientX - w / 2}px`;
+    ghost.style.top = `${clientY - h / 2}px`;
+  };
 
-    const touch = e.touches[0];
-    const el = e.currentTarget as HTMLElement;
-    const rect = el.getBoundingClientRect();
-    const touchId = touch.identifier;
+  const syncActiveHandDragForMobileTouch = (clientX: number, clientY: number) => {
+    const { cardIndex, player } = touchDragRef.current;
+    if (!state || cardIndex < 0) return;
+    const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+    const card = hand[cardIndex];
+    if (!card || !canBeginHandDrag(cardIndex, player, card)) return;
+
+    if (!activeHandDragRef.current) {
+      setSelectedSlot(null);
+      setAttackingSlot(null);
+      setPendingSecondaryAttack(null);
+      applyStartingWraithChainPending(null);
+      setPendingAttackSelection(null);
+      setPendingLibutyAllEnemiesAttack(null);
+      setAttackOptionOverride(null);
+    }
+
     const next: HandDragState = {
       player,
       cardIndex,
       card,
-      width: rect.width,
-      height: rect.height,
-      offsetX: touch.clientX - rect.left,
-      offsetY: touch.clientY - rect.top,
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      pointerId: touchId,
-      opponentCardFlipped: player === "B" ? !!state!.settings.isOpponentCardFlipped : false,
+      width: 64,
+      height: 101,
+      offsetX: 32,
+      offsetY: 50.5,
+      clientX,
+      clientY,
+      pointerId: -1,
+      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
     };
     activeHandDragRef.current = next;
     setHandDrag(next);
-    syncHandDragHover(touch.clientX, touch.clientY);
+  };
 
-    const onTouchMove = (ev: TouchEvent) => {
-      const d = activeHandDragRef.current;
-      if (!d || d.pointerId !== touchId) return;
-      const activeTouch = Array.from(ev.touches).find(t => t.identifier === touchId);
-      if (!activeTouch) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      const updated = {
-        ...d,
-        clientX: activeTouch.clientX,
-        clientY: activeTouch.clientY,
-      };
-      activeHandDragRef.current = updated;
-      setHandDrag(updated);
-      syncHandDragHover(activeTouch.clientX, activeTouch.clientY);
+  const beginMobileTouchDragIfNeeded = (clientX: number, clientY: number) => {
+    const dx = clientX - touchDragRef.current.startX;
+    const dy = clientY - touchDragRef.current.startY;
+    if (Math.hypot(dx, dy) < MOBILE_TOUCH_DRAG_THRESHOLD_PX) return;
+
+    const { cardIndex, player } = touchDragRef.current;
+    if (!state || cardIndex < 0) return;
+    const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+    const card = hand[cardIndex];
+    if (!card || !canBeginHandDrag(cardIndex, player, card)) return;
+
+    if (!touchDragRef.current.isDragging) {
+      touchDragRef.current.isDragging = true;
+      const sourceEl = mobileTouchSourceElRef.current;
+      if (sourceEl) createMobileTouchGhost(sourceEl, clientX, clientY);
+      syncActiveHandDragForMobileTouch(clientX, clientY);
+    }
+
+    moveMobileTouchGhost(clientX, clientY);
+    syncHandDragHover(clientX, clientY);
+  };
+
+  const handleDrop = (
+    slot: "is" | "m" | "os" | "spell",
+    targetPlayer: "A" | "B",
+    clientX: number,
+    clientY: number
+  ) => {
+    const { cardIndex, player } = touchDragRef.current;
+    if (cardIndex < 0 || !state) return;
+    const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+    const card = hand[cardIndex];
+    if (!card) return;
+
+    const saved: HandDragState = {
+      player,
+      cardIndex,
+      card,
+      width: 64,
+      height: 101,
+      offsetX: 32,
+      offsetY: 50.5,
+      clientX,
+      clientY,
+      pointerId: -1,
+      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
     };
+    commitHandDragDrop(clientX, clientY, saved);
+  };
 
-    const onTouchEnd = (ev: TouchEvent) => {
-      const ended = Array.from(ev.changedTouches).find(t => t.identifier === touchId);
-      if (!ended) return;
-      const d = activeHandDragRef.current;
-      if (!d || d.pointerId !== touchId) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      const saved = { ...d };
-      clearHandDragVisual();
-      handleTouchDrop(ended.clientX, ended.clientY, saved);
-      cleanup();
-    };
+  const detachMobileTouchDocumentListeners = () => {
+    document.removeEventListener("touchmove", mobileTouchDocumentMove);
+    document.removeEventListener("touchend", mobileTouchDocumentEnd);
+    document.removeEventListener("touchcancel", mobileTouchDocumentEnd);
+  };
 
-    const cleanup = () => {
-      document.removeEventListener("touchmove", onTouchMove);
-      document.removeEventListener("touchend", onTouchEnd);
-      document.removeEventListener("touchcancel", onTouchEnd);
-      if (mobileTouchDragCleanupRef.current === cleanup) {
-        mobileTouchDragCleanupRef.current = null;
+  const mobileTouchDocumentMove = (ev: TouchEvent) => {
+    if (touchDragRef.current.cardIndex < 0) return;
+    const t = ev.touches[0];
+    if (!t) return;
+    ev.preventDefault();
+    beginMobileTouchDragIfNeeded(t.clientX, t.clientY);
+  };
+
+  const mobileTouchDocumentEnd = (ev: TouchEvent) => {
+    if (touchDragRef.current.cardIndex < 0) return;
+    const ended = ev.changedTouches[0];
+    if (!ended) return;
+    ev.preventDefault();
+
+    const wasDragging = touchDragRef.current.isDragging;
+    removeMobileTouchGhost();
+    detachMobileTouchDocumentListeners();
+    clearHandDragVisual();
+    setHandDragHoverSlotKey(null);
+
+    if (wasDragging) {
+      const el = document.elementFromPoint(ended.clientX, ended.clientY);
+      const slotEl = el?.closest("[data-slot]") as HTMLElement | null;
+      if (slotEl) {
+        const slot = slotEl.getAttribute("data-slot");
+        const targetPlayer = slotEl.getAttribute("data-player");
+        if (
+          (slot === "is" || slot === "m" || slot === "os" || slot === "spell") &&
+          (targetPlayer === "A" || targetPlayer === "B")
+        ) {
+          handleDrop(slot, targetPlayer, ended.clientX, ended.clientY);
+        }
+      } else {
+        const { cardIndex, player } = touchDragRef.current;
+        if (cardIndex >= 0 && state) {
+          const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+          const card = hand[cardIndex];
+          if (card) {
+            commitHandDragDrop(ended.clientX, ended.clientY, {
+              player,
+              cardIndex,
+              card,
+              width: 64,
+              height: 101,
+              offsetX: 32,
+              offsetY: 50.5,
+              clientX: ended.clientX,
+              clientY: ended.clientY,
+              pointerId: -1,
+              opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
+            });
+          }
+        }
       }
-    };
+    } else {
+      mobileTouchTapHandlerRef.current?.();
+    }
 
-    document.addEventListener("touchmove", onTouchMove, { passive: false });
-    document.addEventListener("touchend", onTouchEnd, { passive: false });
-    document.addEventListener("touchcancel", onTouchEnd, { passive: false });
-    mobileTouchDragCleanupRef.current = cleanup;
+    resetMobileTouchDragRef();
+  };
+
+  const attachMobileTouchDocumentListeners = () => {
+    detachMobileTouchDocumentListeners();
+    document.addEventListener("touchmove", mobileTouchDocumentMove, { passive: false });
+    document.addEventListener("touchend", mobileTouchDocumentEnd, { passive: false });
+    document.addEventListener("touchcancel", mobileTouchDocumentEnd, { passive: false });
+  };
+
+  const mobileHandTouchStart = (
+    e: React.TouchEvent,
+    cardIndex: number,
+    player: "A" | "B",
+    card: CardRow | undefined,
+    onTap: () => void
+  ) => {
+    if (!card) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const t = e.touches[0];
+    if (!t) return;
+
+    resetMobileTouchDragRef();
+    mobileTouchSourceElRef.current = e.currentTarget as HTMLElement;
+    mobileTouchTapHandlerRef.current = onTap;
+    touchDragRef.current = {
+      cardIndex,
+      player,
+      startX: t.clientX,
+      startY: t.clientY,
+      isDragging: false,
+      ghostEl: null,
+    };
+    attachMobileTouchDocumentListeners();
+  };
+
+  const mobileHandTouchMove = (e: React.TouchEvent) => {
+    if (touchDragRef.current.cardIndex < 0) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    if (!t) return;
+    beginMobileTouchDragIfNeeded(t.clientX, t.clientY);
+  };
+
+  const mobileHandTouchEnd = (e: React.TouchEvent) => {
+    if (touchDragRef.current.cardIndex < 0) return;
+    e.preventDefault();
+    mobileTouchDocumentEnd(e.nativeEvent);
   };
 
   const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
@@ -16269,8 +16392,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     return () => {
-      mobileTouchDragCleanupRef.current?.();
-      mobileTouchDragCleanupRef.current = null;
+      detachMobileTouchDocumentListeners();
+      resetMobileTouchDragRef();
       clearSimulationMobileTouchLock();
     };
   }, []);
@@ -16659,8 +16782,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }}
                 style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, position: "relative", flexShrink: 0 }}
               >
-                <MobileHandCardTouchSurface
-                  disabled={!card || !canPointerDrag}
+                <div
+                  draggable={false}
                   className={`touch-manipulation relative overflow-visible rounded-[6px] flex items-center justify-center ${
                     card
                       ? momoDiscard
@@ -16677,18 +16800,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       : "border border-dashed border-slate-700/50 bg-transparent"
                   } ${isDragSource || isDanhaStealFlySource ? "opacity-0 pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
                   style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, touchAction: "none" }}
-                  onHandTap={() => {
-                    if (simpanPick) {
-                      resolveSimpanHandPick(player, i);
-                    } else if (witchTarotDiscard) {
-                      resolveWitchTarotDiscard(player, i);
-                    } else if (momoDiscard) {
-                      handleSkillDiscard(i, player);
-                    } else if (danhaSteal) {
-                      handleDanhaSteal(i, player);
-                    }
-                  }}
-                  onDragStart={e => beginMobileHandDragFromTouch(e, i, player, card!)}
+                  onTouchStart={e =>
+                    mobileHandTouchStart(e, i, player, card, () => {
+                      if (simpanPick) {
+                        resolveSimpanHandPick(player, i);
+                      } else if (witchTarotDiscard) {
+                        resolveWitchTarotDiscard(player, i);
+                      } else if (momoDiscard) {
+                        handleSkillDiscard(i, player);
+                      } else if (danhaSteal) {
+                        handleDanhaSteal(i, player);
+                      }
+                    })
+                  }
+                  onTouchMove={mobileHandTouchMove}
+                  onTouchEnd={mobileHandTouchEnd}
                 >
                   {card && hasBubbleStationHandDiscardFlashMark(card) ? (
                     <div className="absolute inset-0 z-[6] rounded-[6px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
@@ -16730,7 +16856,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : (
                     <IconDeck className={`w-5 h-5 opacity-20 ${isPlayerA ? "text-sky-300" : "text-rose-300"}`} />
                   )}
-                </MobileHandCardTouchSurface>
+                </div>
                 {renderFlashOverlay(`hand-${player}-${i}`, "rounded-[6px]")}
               </div>
             );
@@ -17816,6 +17942,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       {isMobile ? (
         <div
+          onTouchMove={e => e.preventDefault()}
           style={{
             position: "fixed",
             inset: 0,
