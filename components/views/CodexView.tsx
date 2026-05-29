@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
-import { getRarityWeight } from "../../utils/cardUtils";
+import { sortCodexCards } from "../../utils/cardUtils";
 
 import MobileViewShell from "../layout/mobile/MobileViewShell";
 import MobileTouchCardCell from "../layout/mobile/MobileTouchCardCell";
@@ -34,26 +34,17 @@ export default function CodexView({
   isDarkMode = true,
 }: CodexViewProps) {
   const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
+  /** 모바일 도감 전용: 유닛 블록 + 마법 블록 순 배치 */
+  const [splitUnitSpell, setSplitUnitSpell] = useState(false);
 
   const sortedCards = useMemo(() => {
-    let arr = [...cards];
-    arr.sort((a, b) => {
-      if (filterOwnedFirst && a.isOwned !== b.isOwned) return a.isOwned ? -1 : 1;
-      switch (sortOption) {
-        case "rarity_desc": return getRarityWeight(b.rarity) - getRarityWeight(a.rarity) || Number(a.id) - Number(b.id);
-        case "rarity_asc": return getRarityWeight(a.rarity) - getRarityWeight(b.rarity) || Number(a.id) - Number(b.id);
-        case "cost_desc": return (Number(b.cost) || 0) - (Number(a.cost) || 0) || Number(a.id) - Number(b.id);
-        case "cost_asc": return (Number(a.cost) || 0) - (Number(b.cost) || 0) || Number(a.id) - Number(b.id);
-        case "number_desc": return Number(b.id) - Number(a.id);
-        case "number_asc": default: return Number(a.id) - Number(b.id);
-      }
-    });
-    return arr;
-  }, [cards, sortOption, filterOwnedFirst]);
+    const applyUnitSpellSplit = layoutMobile && splitUnitSpell;
+    return sortCodexCards(cards, sortOption, filterOwnedFirst, applyUnitSpellSplit);
+  }, [cards, sortOption, filterOwnedFirst, layoutMobile, splitUnitSpell]);
 
   useEffect(() => {
     if (layoutMobile) setSelectedCardIndex(null);
-  }, [layoutMobile, sortOption, filterOwnedFirst]);
+  }, [layoutMobile, sortOption, filterOwnedFirst, splitUnitSpell]);
 
   useMobileCardSelectionDismiss(
     selectedCardIndex !== null,
@@ -75,21 +66,49 @@ export default function CodexView({
             borderBottom: "1px solid rgba(255,255,255,0.1)",
           }}
         >
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: filterOwnedFirst ? "#7dd3fc" : "#94a3b8" }}>
-            <input type="checkbox" checked={filterOwnedFirst} onChange={e => setFilterOwnedFirst(e.target.checked)} style={{ width: 16, height: 16 }} />
-            획득 카드 우선
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: showOutline ? "#c4b5fd" : "#94a3b8" }}>
-            <input type="checkbox" checked={showOutline} onChange={e => setShowOutline(e.target.checked)} style={{ width: 16, height: 16 }} />
-            윤곽선 표시
-          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              id="mobile-codex-filter-owned"
+              type="checkbox"
+              checked={filterOwnedFirst}
+              onChange={e => setFilterOwnedFirst(e.target.checked)}
+              style={{ width: 20, height: 20, flexShrink: 0, margin: 0, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 14, color: filterOwnedFirst ? "#7dd3fc" : "#94a3b8", userSelect: "none" }}>
+              획득 카드 우선
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              id="mobile-codex-show-outline"
+              type="checkbox"
+              checked={showOutline}
+              onChange={e => setShowOutline(e.target.checked)}
+              style={{ width: 20, height: 20, flexShrink: 0, margin: 0, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 14, color: showOutline ? "#c4b5fd" : "#94a3b8", userSelect: "none" }}>
+              윤곽선 표시
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              id="mobile-codex-split-unit-spell"
+              type="checkbox"
+              checked={splitUnitSpell}
+              onChange={e => setSplitUnitSpell(e.target.checked)}
+              style={{ width: 20, height: 20, flexShrink: 0, margin: 0, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 14, color: splitUnitSpell ? "#86efac" : "#94a3b8", userSelect: "none" }}>
+              유닛/마법 분류
+            </span>
+          </div>
           <select
             value={sortOption}
             onChange={e => setSortOption(e.target.value)}
             style={{
               height: 40,
-              width: "100%",
-              maxWidth: MOBILE_LOBBY_CONTENT_W,
+              width: Math.round(MOBILE_LOBBY_CONTENT_W / 4),
+              alignSelf: "flex-start",
               borderRadius: 8,
               border: "1px solid #475569",
               background: "#1e293b",
@@ -97,6 +116,7 @@ export default function CodexView({
               fontSize: 14,
               paddingLeft: 12,
               paddingRight: 12,
+              boxSizing: "border-box",
             }}
           >
             <option value="number_asc">번호 오름차순</option>
