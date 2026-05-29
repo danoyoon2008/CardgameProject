@@ -1,7 +1,18 @@
 ﻿// components/views/SimulationView.tsx
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  type CSSProperties,
+  type ReactNode,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
+import { useTouchDrag } from "../../hooks/useTouchDrag";
 import { flushSync } from "react-dom";
 import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
 import { CardRow, FieldCard } from "../../types/game";
@@ -1236,22 +1247,57 @@ function applySimpanForBothPlayersAfterSpell(s: SimulationState, nextGlowToken: 
   return primeSimpanPeekReveal(out);
 }
 
-/** 뷰포트 너비 기준 모바일(768px 미만) 여부 */
-function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(false);
+type MobileHandCardTouchSurfaceProps = {
+  children: ReactNode;
+  disabled: boolean;
+  className: string;
+  style: CSSProperties;
+  onHandTap: () => void;
+  onDragStart: (e: ReactTouchEvent) => void;
+};
 
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < breakpoint);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [breakpoint]);
+function MobileHandCardTouchSurface({
+  children,
+  disabled,
+  className,
+  style,
+  onHandTap,
+  onDragStart,
+}: MobileHandCardTouchSurfaceProps) {
+  const { handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = useTouchDrag({
+    disabled,
+    onTap: onHandTap,
+    onDragStart,
+  });
 
-  return isMobile;
+  return (
+    <div
+      className={className}
+      style={style}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpenDetail }: SimulationViewProps) {
-  const isMobile = useIsMobile();
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileScale, setMobileScale] = useState(1);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const isTouch = navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+      const isNarrow = window.innerWidth < 1280;
+      setIsMobile(isTouch && isNarrow);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
   const [state, setState] = useState<SimulationState | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
@@ -1792,11 +1838,11 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     const under = document.elementFromPoint(clientX, clientY);
 
     const drop =
-      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined) ??
-      (under?.closest("[data-slot]") as HTMLElement | null | undefined);
+      (under?.closest("[data-slot]") as HTMLElement | null | undefined) ??
+      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined);
     if (!drop) return null;
-    const targetPlayer = (drop.dataset.fieldPlayer ?? drop.dataset.player) as "A" | "B" | undefined;
-    const slot = (drop.dataset.fieldSlot ?? drop.dataset.slot) as "is" | "m" | "os" | "spell" | undefined;
+    const targetPlayer = (drop.dataset.player ?? drop.dataset.fieldPlayer) as "A" | "B" | undefined;
+    const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return null;
 
     /* 애벌레킹(W) 손패 부착 — 적의 점유된 유닛 슬롯에만 드롭 가능 */
@@ -8583,12 +8629,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const under = document.elementFromPoint(clientX, clientY);
     const drop =
-      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined) ??
-      (under?.closest("[data-slot]") as HTMLElement | null | undefined);
+      (under?.closest("[data-slot]") as HTMLElement | null | undefined) ??
+      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined);
     if (!drop) return;
 
-    const targetPlayer = (drop.dataset.fieldPlayer ?? drop.dataset.player) as "A" | "B" | undefined;
-    const slot = (drop.dataset.fieldSlot ?? drop.dataset.slot) as "is" | "m" | "os" | "spell" | undefined;
+    const targetPlayer = (drop.dataset.player ?? drop.dataset.fieldPlayer) as "A" | "B" | undefined;
+    const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return;
     if (targetPlayer !== "A" && targetPlayer !== "B") return;
 
@@ -8602,7 +8648,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
   };
 
-  const beginMobileHandTouch = (
+  const handleTouchDrop = (clientX: number, clientY: number, saved: HandDragState) => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const slotEl = el?.closest("[data-slot]") as HTMLElement | null;
+    if (slotEl) {
+      const slot = slotEl.getAttribute("data-slot") as "is" | "m" | "os" | "spell" | null;
+      const targetPlayer = slotEl.getAttribute("data-player") as "A" | "B" | null;
+      if (
+        slot &&
+        targetPlayer &&
+        (targetPlayer === "A" || targetPlayer === "B") &&
+        (slot === "is" || slot === "m" || slot === "os" || slot === "spell")
+      ) {
+        commitHandDragDrop(clientX, clientY, saved);
+        return;
+      }
+    }
+    commitHandDragDrop(clientX, clientY, saved);
+  };
+
+  const beginMobileHandDragFromTouch = (
     e: React.TouchEvent,
     cardIndex: number,
     player: "A" | "B",
@@ -8671,7 +8736,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       ev.stopPropagation();
       const saved = { ...d };
       clearHandDragVisual();
-      commitHandDragDrop(ended.clientX, ended.clientY, saved);
+      handleTouchDrop(ended.clientX, ended.clientY, saved);
       cleanup();
     };
 
@@ -16171,22 +16236,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     "shrink-0 rounded-[6px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 
   useEffect(() => {
-    if (!isMobile) {
-      document.documentElement.style.removeProperty("--mobile-scale");
-      return;
-    }
+    if (!isMobile) return;
     const updateScale = () => {
-      const scaleX = window.innerWidth / MOBILE_BOARD_W;
-      const scaleY = window.innerHeight / MOBILE_BOARD_H;
-      const scale = Math.min(scaleX, scaleY, 1);
-      document.documentElement.style.setProperty("--mobile-scale", String(scale));
+      const BASE_W = 540;
+      const BASE_H = 720;
+      const scaleX = window.innerWidth / BASE_W;
+      const scaleY = window.innerHeight / BASE_H;
+      setMobileScale(Math.min(scaleX, scaleY));
     };
     updateScale();
     window.addEventListener("resize", updateScale);
-    return () => {
-      window.removeEventListener("resize", updateScale);
-      document.documentElement.style.removeProperty("--mobile-scale");
-    };
+    return () => window.removeEventListener("resize", updateScale);
   }, [isMobile]);
 
   const SIM_MOBILE_TOUCH_LOCK_CLASS = "pp-simulation-mobile-touch-lock";
@@ -16439,6 +16499,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               data-field-slot={slot}
               data-slot={slot}
               data-player={player}
+              onDragOver={e => e.preventDefault()}
               onClick={e => handleFieldClick(e, player, slot, card)}
             >
               {card ? (
@@ -16598,22 +16659,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 }}
                 style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, position: "relative", flexShrink: 0 }}
               >
-                <div
-                  onClick={e => {
-                    if (simpanPick) {
-                      e.stopPropagation();
-                      resolveSimpanHandPick(player, i);
-                    } else if (witchTarotDiscard) {
-                      e.stopPropagation();
-                      resolveWitchTarotDiscard(player, i);
-                    } else if (momoDiscard) {
-                      e.stopPropagation();
-                      handleSkillDiscard(i, player);
-                    } else if (danhaSteal) {
-                      e.stopPropagation();
-                      handleDanhaSteal(i, player);
-                    }
-                  }}
+                <MobileHandCardTouchSurface
+                  disabled={!card || !canPointerDrag}
                   className={`touch-manipulation relative overflow-visible rounded-[6px] flex items-center justify-center ${
                     card
                       ? momoDiscard
@@ -16630,11 +16677,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       : "border border-dashed border-slate-700/50 bg-transparent"
                   } ${isDragSource || isDanhaStealFlySource ? "opacity-0 pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
                   style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, touchAction: "none" }}
-                  onTouchStart={
-                    card && canPointerDrag
-                      ? e => beginMobileHandTouch(e, i, player, card)
-                      : undefined
-                  }
+                  onHandTap={() => {
+                    if (simpanPick) {
+                      resolveSimpanHandPick(player, i);
+                    } else if (witchTarotDiscard) {
+                      resolveWitchTarotDiscard(player, i);
+                    } else if (momoDiscard) {
+                      handleSkillDiscard(i, player);
+                    } else if (danhaSteal) {
+                      handleDanhaSteal(i, player);
+                    }
+                  }}
+                  onDragStart={e => beginMobileHandDragFromTouch(e, i, player, card!)}
                 >
                   {card && hasBubbleStationHandDiscardFlashMark(card) ? (
                     <div className="absolute inset-0 z-[6] rounded-[6px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
@@ -16676,7 +16730,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : (
                     <IconDeck className={`w-5 h-5 opacity-20 ${isPlayerA ? "text-sky-300" : "text-rose-300"}`} />
                   )}
-                </div>
+                </MobileHandCardTouchSurface>
                 {renderFlashOverlay(`hand-${player}-${i}`, "rounded-[6px]")}
               </div>
             );
@@ -17761,27 +17815,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       )}
 
       {isMobile ? (
-        <div className="fixed inset-0 bg-black" aria-hidden />
-      ) : null}
-      {isMobile ? (
         <div
           style={{
             position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%) scale(var(--mobile-scale))",
-            transformOrigin: "center center",
-            width: MOBILE_BOARD_W,
-            height: MOBILE_BOARD_H,
-            overflow: "hidden",
-            background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
-            border: "2px solid #1e293b",
-            boxSizing: "border-box",
+            inset: 0,
+            backgroundColor: "black",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             touchAction: "none",
-            userSelect: "none",
-            WebkitUserSelect: "none",
+            overflow: "hidden",
           }}
         >
+          <div
+            style={{
+              width: MOBILE_BOARD_W,
+              height: MOBILE_BOARD_H,
+              transform: `scale(${mobileScale})`,
+              transformOrigin: "center center",
+              position: "relative",
+              overflow: "hidden",
+              flexShrink: 0,
+              background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
+              border: "2px solid #1e293b",
+              boxSizing: "border-box",
+            }}
+          >
           {isInitializing && (
             <div
               style={{
@@ -17969,6 +18028,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       data-field-slot="spell"
                       data-slot="spell"
                       data-player="B"
+                      onDragOver={e => e.preventDefault()}
                       onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
                     >
                       {renderFlashOverlay("B-spell", "rounded-[6px]")}
@@ -18018,6 +18078,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       data-field-slot="spell"
                       data-slot="spell"
                       data-player="A"
+                      onDragOver={e => e.preventDefault()}
                       onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
                     >
                       {renderFlashOverlay("A-spell", "rounded-[6px]")}
@@ -18145,6 +18206,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
             {renderMobileHandRow("A")}
             {renderMobilePlayerHpBar("A")}
+          </div>
           </div>
         </div>
       ) : null}
