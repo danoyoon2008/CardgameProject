@@ -1,7 +1,7 @@
 // components/views/DeckView.tsx
 "use client";
 
-import { RefObject, useState, useEffect } from "react";
+import { RefObject, useState, useEffect, type CSSProperties } from "react";
 import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { IconDeck, IconBook } from "../ui/Icons";
@@ -18,6 +18,7 @@ interface DeckViewProps {
   selectedForDeck: CardRow | null;
   setSelectedForDeck: (card: CardRow | null) => void;
   handleSlotReplace: (slotIndex: number) => void;
+  handleSlotClear: (slotIndex: number) => void;
   handleOpenCardDetail: (card: CardRow) => void;
   handleSelectForDeck: (card: CardRow) => void;
   showOutline: boolean;
@@ -31,7 +32,7 @@ interface DeckViewProps {
 
 export default function DeckView({
   deck, cards, deckAvailableCards, deckContainerRef,
-  selectedForDeck, setSelectedForDeck, handleSlotReplace,
+  selectedForDeck, setSelectedForDeck, handleSlotReplace, handleSlotClear,
   handleOpenCardDetail, handleSelectForDeck,
   showOutline, setShowOutline, sortOption, setSortOption, cardsLoading,
   layoutMobile = false,
@@ -98,7 +99,28 @@ export default function DeckView({
             }}
           >
             {deck.map((cardId, index) => {
-              const card = cards.find(c => Number(c.id) === cardId);
+              const card = cardId ? cards.find(c => Number(c.id) === cardId) : undefined;
+              const isEmpty = !card;
+              const isPlacementMode = Boolean(selectedForDeck);
+
+              const emptySlotStyle: CSSProperties = {
+                width: "100%",
+                height: "100%",
+                borderRadius: 8,
+                border: isPlacementMode
+                  ? "2px dashed rgba(251,191,36,0.75)"
+                  : "2px dashed rgba(255,255,255,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isPlacementMode ? "rgba(245,158,11,0.12)" : "rgba(0,0,0,0.3)",
+                color: isPlacementMode ? "rgba(253,230,138,0.9)" : "rgba(255,255,255,0.35)",
+                fontWeight: 700,
+                fontSize: 16,
+                cursor: isPlacementMode ? "pointer" : "default",
+                boxSizing: "border-box",
+              };
+
               return (
                 <div
                   key={`deck-slot-${index}`}
@@ -107,68 +129,47 @@ export default function DeckView({
                     aspectRatio: "1 / 1.58",
                     minWidth: 0,
                     borderRadius: 8,
-                    boxShadow: selectedForDeck ? "0 0 12px rgba(251,191,36,0.45)" : undefined,
+                    animation: isPlacementMode && card ? "mobile-deck-replace-glow 2s ease-in-out infinite" : undefined,
                   }}
                 >
-                  {card ? (
-                    selectedForDeck ? (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={e => {
-                          e.stopPropagation();
-                          handleSlotReplace(index);
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleSlotReplace(index);
-                          }
-                        }}
-                        style={{ width: "100%", height: "100%", cursor: "pointer" }}
-                      >
-                        <CardPlaceholder card={card} showOutline={showOutline} />
-                      </div>
-                    ) : (
-                      <MobileTouchCardCell
-                        card={card}
-                        index={index}
-                        selectedCardIndex={selectedDeckSlotIndex}
-                        onSelectCardIndex={i => {
-                          setSelectedOwnedCardIndex(null);
-                          setSelectedDeckSlotIndex(i);
-                        }}
-                        onClearSelection={() => setSelectedDeckSlotIndex(null)}
-                        onOpenDetail={handleOpenCardDetail}
-                        showOutline={showOutline}
-                      />
-                    )
-                  ) : (
+                  {isPlacementMode ? (
                     <div
-                      role={selectedForDeck ? "button" : undefined}
-                      tabIndex={selectedForDeck ? 0 : undefined}
+                      role="button"
+                      tabIndex={0}
                       onClick={e => {
-                        if (!selectedForDeck) return;
                         e.stopPropagation();
                         handleSlotReplace(index);
                       }}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        borderRadius: 8,
-                        border: "2px dashed rgba(255,255,255,0.2)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(0,0,0,0.3)",
-                        color: "rgba(255,255,255,0.35)",
-                        fontWeight: 700,
-                        fontSize: 16,
-                        cursor: selectedForDeck ? "pointer" : "default",
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleSlotReplace(index);
+                        }
                       }}
+                      style={{ width: "100%", height: "100%", cursor: "pointer" }}
                     >
-                      {index + 1}
+                      {card ? (
+                        <CardPlaceholder card={card} showOutline={showOutline} />
+                      ) : (
+                        <div style={emptySlotStyle}>{index + 1}</div>
+                      )}
                     </div>
+                  ) : card ? (
+                    <MobileTouchCardCell
+                      card={card}
+                      index={index}
+                      selectedCardIndex={selectedDeckSlotIndex}
+                      onSelectCardIndex={i => {
+                        setSelectedOwnedCardIndex(null);
+                        setSelectedDeckSlotIndex(i);
+                      }}
+                      onClearSelection={() => setSelectedDeckSlotIndex(null)}
+                      onOpenDetail={handleOpenCardDetail}
+                      onRemove={() => handleSlotClear(index)}
+                      showOutline={showOutline}
+                    />
+                  ) : (
+                    <div style={emptySlotStyle}>{index + 1}</div>
                   )}
                 </div>
               );

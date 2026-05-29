@@ -225,6 +225,13 @@ export function useGameLogic() {
     setSelectedForDeck(null); 
   };
 
+  const handleSlotClear = (slotIndex: number) => {
+    if (slotIndex < 0 || slotIndex >= deck.length) return;
+    const newDeck = [...deck];
+    newDeck[slotIndex] = 0;
+    setDeck(newDeck);
+  };
+
   const handleGoogleLogin = async () => {
     const supabase = createClient();
     if (!supabase) return;
@@ -423,7 +430,7 @@ export function useGameLogic() {
     deck, selectedForDeck, setSelectedForDeck, deckContainerRef,
     deckAvailableCards, shopAvailableCards, userAvatarUrl, currentDisplayName,
     shouldShowLoginRequired, isAllFlipped,
-    handleOpenCardDetail, handleSelectForDeck, handleSlotReplace,
+    handleOpenCardDetail, handleSelectForDeck, handleSlotReplace, handleSlotClear,
     handleGoogleLogin, handleLogout, handleResetData,
     handleEditGold, handleEditTokens, handleEditShards, handleEditNickname,
     handleBuyCardFromShop, handleGacha, handleFlipCard, handleFlipAll, handleCloseSummon

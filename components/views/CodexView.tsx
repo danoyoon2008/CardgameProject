@@ -34,13 +34,12 @@ export default function CodexView({
   isDarkMode = true,
 }: CodexViewProps) {
   const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
-  /** 모바일 도감 전용: 유닛 블록 + 마법 블록 순 배치 */
+  /** 유닛 블록 + 마법 블록 순 배치 (체크 시) */
   const [splitUnitSpell, setSplitUnitSpell] = useState(false);
 
   const sortedCards = useMemo(() => {
-    const applyUnitSpellSplit = layoutMobile && splitUnitSpell;
-    return sortCodexCards(cards, sortOption, filterOwnedFirst, applyUnitSpellSplit);
-  }, [cards, sortOption, filterOwnedFirst, layoutMobile, splitUnitSpell]);
+    return sortCodexCards(cards, sortOption, filterOwnedFirst, splitUnitSpell);
+  }, [cards, sortOption, filterOwnedFirst, splitUnitSpell]);
 
   useEffect(() => {
     if (layoutMobile) setSelectedCardIndex(null);
@@ -173,6 +172,10 @@ export default function CodexView({
             <label className={`flex items-center gap-2 cursor-pointer transition-colors hover:text-white ${showOutline ? 'text-purple-300' : 'text-slate-400'}`}>
               <input type="checkbox" checked={showOutline} onChange={(e) => setShowOutline(e.target.checked)} className="w-4 h-4 accent-purple-500 cursor-pointer rounded" />
               <span className="font-medium">윤곽선 표시</span>
+            </label>
+            <label className={`flex items-center gap-2 cursor-pointer transition-colors hover:text-white ${splitUnitSpell ? 'text-emerald-300' : 'text-slate-400'}`}>
+              <input type="checkbox" checked={splitUnitSpell} onChange={(e) => setSplitUnitSpell(e.target.checked)} className="w-4 h-4 accent-emerald-500 cursor-pointer rounded" />
+              <span className="font-medium">유닛/마법 분류</span>
             </label>
             <div className="relative">
               <select value={sortOption} onChange={(e) => setSortOption(e.target.value)} className="bg-slate-800 text-slate-200 border border-slate-600 rounded-lg px-3 py-1.5 outline-none focus:border-sky-500 appearance-none pr-8 cursor-pointer shadow-sm text-xs sm:text-sm">
