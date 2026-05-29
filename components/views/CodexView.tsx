@@ -103,14 +103,16 @@ export default function CodexView({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 86px)",
-              gap: 12,
-              justifyContent: "space-between",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 8,
               width: MOBILE_LOBBY_CONTENT_W,
             }}
           >
             {sortedCards.map((card, index) => (
-              <div key={card.id ?? `card-${index}`} style={{ width: 86 }}>
+              <div
+                key={card.id ?? `card-${index}`}
+                style={{ width: "100%", aspectRatio: "1 / 1.58", minWidth: 0 }}
+              >
                 <CardPlaceholder
                   card={card}
                   onOpenDetail={onOpenDetail}

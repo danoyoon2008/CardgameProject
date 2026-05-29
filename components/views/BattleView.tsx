@@ -56,12 +56,13 @@ export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile
           </p>
         </header>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 12, width: "100%" }}>
           <button
             type="button"
             onClick={() => alert("멀티플레이 기능은 현재 준비 중입니다!")}
             style={{
-              width: "100%",
+              flex: 1,
+              minWidth: 0,
               height: MOBILE_BATTLE_MODE_BTN_H,
               borderRadius: 16,
               border: modeBtnBorder("#0ea5e9"),
@@ -70,19 +71,22 @@ export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 10,
+              gap: 8,
+              padding: "8px 6px",
+              boxSizing: "border-box",
             }}
           >
-            <IconGlobe className="h-12 w-12 text-sky-500" />
-            <span style={{ fontSize: 20, fontWeight: 700, color: isDarkMode ? "#fff" : "#1e293b" }}>글로벌 플레이</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: "rgba(14,165,233,0.85)" }}>자동 매칭 시스템</span>
+            <IconGlobe className="h-10 w-10 text-sky-500 shrink-0" />
+            <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? "#fff" : "#1e293b", textAlign: "center" }}>글로벌 플레이</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(14,165,233,0.85)", textAlign: "center" }}>자동 매칭</span>
           </button>
 
           <button
             type="button"
             onClick={() => alert("친구 초대 기능은 현재 준비 중입니다!")}
             style={{
-              width: "100%",
+              flex: 1,
+              minWidth: 0,
               height: MOBILE_BATTLE_MODE_BTN_H,
               borderRadius: 16,
               border: modeBtnBorder("#6366f1"),
@@ -91,12 +95,14 @@ export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 10,
+              gap: 8,
+              padding: "8px 6px",
+              boxSizing: "border-box",
             }}
           >
-            <IconUsers className="h-12 w-12 text-indigo-500" />
-            <span style={{ fontSize: 20, fontWeight: 700, color: isDarkMode ? "#fff" : "#1e293b" }}>친구와 플레이</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: "rgba(99,102,241,0.85)" }}>초대 코드 입력</span>
+            <IconUsers className="h-10 w-10 text-indigo-500 shrink-0" />
+            <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? "#fff" : "#1e293b", textAlign: "center" }}>친구와 플레이</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(99,102,241,0.85)", textAlign: "center" }}>초대 코드</span>
           </button>
         </div>
 

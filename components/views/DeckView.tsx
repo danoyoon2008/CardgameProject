@@ -27,8 +27,6 @@ interface DeckViewProps {
   isDarkMode?: boolean;
 }
 
-const MOBILE_DECK_SLOT_W = 58;
-
 export default function DeckView({
   deck, cards, deckAvailableCards, deckContainerRef,
   selectedForDeck, setSelectedForDeck, handleSlotReplace,
@@ -65,14 +63,15 @@ export default function DeckView({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `repeat(6, ${MOBILE_DECK_SLOT_W}px)`,
-              gap: 8,
-              justifyContent: "center",
-              padding: 16,
+              gridTemplateColumns: "repeat(6, 1fr)",
+              gap: 6,
+              width: MOBILE_LOBBY_CONTENT_W,
+              padding: 12,
               borderRadius: 16,
               border: "1px solid rgba(255,255,255,0.1)",
               background: "rgba(0,0,0,0.3)",
               marginBottom: 28,
+              boxSizing: "border-box",
             }}
           >
             {deck.map((cardId, index) => {
@@ -84,8 +83,9 @@ export default function DeckView({
                     if (selectedForDeck) handleSlotReplace(index);
                   }}
                   style={{
-                    width: MOBILE_DECK_SLOT_W,
-                    height: Math.round(MOBILE_DECK_SLOT_W * (85.6 / 53.98)),
+                    width: "100%",
+                    aspectRatio: "1 / 1.58",
+                    minWidth: 0,
                     borderRadius: 8,
                     cursor: selectedForDeck ? "pointer" : "default",
                     boxShadow: selectedForDeck ? "0 0 12px rgba(251,191,36,0.45)" : undefined,
@@ -130,9 +130,19 @@ export default function DeckView({
           ) : deckAvailableCards.length === 0 ? (
             <p style={{ textAlign: "center", color: "#64748b", fontSize: 14, padding: "32px 0" }}>보유한 카드가 없습니다.</p>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 86px)", gap: 12, justifyContent: "space-between", width: MOBILE_LOBBY_CONTENT_W }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 8,
+                width: MOBILE_LOBBY_CONTENT_W,
+              }}
+            >
               {deckAvailableCards.map((card, index) => (
-                <div key={card.id ?? `deck-card-${index}`} style={{ width: 86 }}>
+                <div
+                  key={card.id ?? `deck-card-${index}`}
+                  style={{ width: "100%", aspectRatio: "1 / 1.58", minWidth: 0 }}
+                >
                   <CardPlaceholder
                     card={card}
                     onOpenDetail={handleOpenCardDetail}

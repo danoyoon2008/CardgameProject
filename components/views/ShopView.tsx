@@ -68,20 +68,23 @@ export default function ShopView({
             >
               상세 확률 보기
             </button>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 12, width: "100%" }}>
               <button
                 type="button"
                 onClick={() => handleGacha(1)}
                 disabled={cardsLoading || gold < 300}
                 style={{
-                  width: "100%",
+                  flex: 1,
+                  minWidth: 0,
                   height: 72,
                   borderRadius: 16,
                   border: "1px solid #475569",
                   background: "rgba(51,65,85,0.55)",
                   color: "#fff",
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: 700,
+                  padding: "8px 6px",
+                  boxSizing: "border-box",
                 }}
               >
                 1회 소환 · 300
@@ -91,17 +94,20 @@ export default function ShopView({
                 onClick={() => handleGacha(10)}
                 disabled={cardsLoading || gold < 3000}
                 style={{
-                  width: "100%",
+                  flex: 1,
+                  minWidth: 0,
                   height: 72,
                   borderRadius: 16,
                   border: "1px solid #fbbf24",
                   background: "linear-gradient(180deg, #f59e0b 0%, #d97706 100%)",
                   color: "#fff",
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: 700,
+                  padding: "8px 6px",
+                  boxSizing: "border-box",
                 }}
               >
-                10회 연속 소환 · 3000
+                10회 연속 · 3000
               </button>
             </div>
           </div>
