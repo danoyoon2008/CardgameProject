@@ -1236,7 +1236,22 @@ function applySimpanForBothPlayersAfterSpell(s: SimulationState, nextGlowToken: 
   return primeSimpanPeekReveal(out);
 }
 
+/** 뷰포트 너비 기준 모바일(768px 미만) 여부 */
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < breakpoint);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpenDetail }: SimulationViewProps) {
+  const isMobile = useIsMobile();
   const [state, setState] = useState<SimulationState | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
@@ -1434,6 +1449,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
+  const mobileTouchDragCleanupRef = useRef<(() => void) | null>(null);
   const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
   const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
   const [danhaStealFly, setDanhaStealFly] = useState<DanhaStealFlyVisualState | null>(null);
@@ -1775,10 +1791,12 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
     const under = document.elementFromPoint(clientX, clientY);
 
-    const drop = under?.closest("[data-field-drop]") as HTMLElement | null | undefined;
+    const drop =
+      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined) ??
+      (under?.closest("[data-slot]") as HTMLElement | null | undefined);
     if (!drop) return null;
-    const targetPlayer = drop.dataset.fieldPlayer as "A" | "B" | undefined;
-    const slot = drop.dataset.fieldSlot as "is" | "m" | "os" | "spell" | undefined;
+    const targetPlayer = (drop.dataset.fieldPlayer ?? drop.dataset.player) as "A" | "B" | undefined;
+    const slot = (drop.dataset.fieldSlot ?? drop.dataset.slot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return null;
 
     /* 애벌레킹(W) 손패 부착 — 적의 점유된 유닛 슬롯에만 드롭 가능 */
@@ -8518,23 +8536,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     window.setTimeout(() => tryTriggerOneNightWagerSequence(), 0);
   };
 
-  const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return;
+  const canBeginHandDrag = (cardIndex: number, player: "A" | "B", card: CardRow): boolean => {
+    if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return false;
 
     const muhyohwaCounterDrag =
-      !spellUsageFly &&
-      canMuhyohwaCounterFromHandSlot(state, player, cardIndex, card);
+      !spellUsageFly && canMuhyohwaCounterFromHandSlot(state, player, cardIndex, card);
 
     if (witchTarotDiscardPlayer) {
-      if (witchTarotDiscardPlayer !== player) return;
+      if (witchTarotDiscardPlayer !== player) return false;
     } else if (state.currentTurn !== player && !muhyohwaCounterDrag) {
-      return;
+      return false;
     }
-    if (state.simpanHandChoice?.player === player) {
-      return;
-    }
+    if (state.simpanHandChoice?.player === player) return false;
     if (
       state.simpanPeekReveal?.player === player ||
       simpanPeekFly?.player === player ||
@@ -8547,11 +8560,140 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       (!muhyohwaCounterDrag && state.spellUsagePending) ||
       witchTarotCoin
     ) {
-      return;
+      return false;
     }
     if (state.currentTurn !== player && witchTarotDiscardPlayer !== player && !muhyohwaCounterDrag) {
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const clearHandDragVisual = () => {
+    activeHandDragRef.current = null;
+    setHandDrag(null);
+    setHandDragHoverSlotKey(null);
+  };
+
+  const commitHandDragDrop = (clientX: number, clientY: number, saved: HandDragState) => {
+    const snap = state;
+    if (!snap) return;
+    if (attemptMuhyohwaCounterDrop(snap, saved, clientX, clientY)) return;
+    if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
+    if (snap.guihwanPending) return;
+
+    const under = document.elementFromPoint(clientX, clientY);
+    const drop =
+      (under?.closest("[data-field-drop]") as HTMLElement | null | undefined) ??
+      (under?.closest("[data-slot]") as HTMLElement | null | undefined);
+    if (!drop) return;
+
+    const targetPlayer = (drop.dataset.fieldPlayer ?? drop.dataset.player) as "A" | "B" | undefined;
+    const slot = (drop.dataset.fieldSlot ?? drop.dataset.slot) as "is" | "m" | "os" | "spell" | undefined;
+    if (!targetPlayer || !slot) return;
+    if (targetPlayer !== "A" && targetPlayer !== "B") return;
+
+    if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) return;
+    if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) return;
+
+    placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
+  };
+
+  const beginMobileHandTouch = (
+    e: React.TouchEvent,
+    cardIndex: number,
+    player: "A" | "B",
+    card: CardRow
+  ) => {
+    if (e.touches.length !== 1) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (!canBeginHandDrag(cardIndex, player, card)) return;
+
+    e.stopPropagation();
+    mobileTouchDragCleanupRef.current?.();
+    mobileTouchDragCleanupRef.current = null;
+
+    setSelectedSlot(null);
+    setAttackingSlot(null);
+    setPendingSecondaryAttack(null);
+    applyStartingWraithChainPending(null);
+    setPendingAttackSelection(null);
+    setPendingLibutyAllEnemiesAttack(null);
+    setAttackOptionOverride(null);
+
+    const touch = e.touches[0];
+    const el = e.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    const touchId = touch.identifier;
+    const next: HandDragState = {
+      player,
+      cardIndex,
+      card,
+      width: rect.width,
+      height: rect.height,
+      offsetX: touch.clientX - rect.left,
+      offsetY: touch.clientY - rect.top,
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      pointerId: touchId,
+      opponentCardFlipped: player === "B" ? !!state!.settings.isOpponentCardFlipped : false,
+    };
+    activeHandDragRef.current = next;
+    setHandDrag(next);
+    syncHandDragHover(touch.clientX, touch.clientY);
+
+    const onTouchMove = (ev: TouchEvent) => {
+      const d = activeHandDragRef.current;
+      if (!d || d.pointerId !== touchId) return;
+      const activeTouch = Array.from(ev.touches).find(t => t.identifier === touchId);
+      if (!activeTouch) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const updated = {
+        ...d,
+        clientX: activeTouch.clientX,
+        clientY: activeTouch.clientY,
+      };
+      activeHandDragRef.current = updated;
+      setHandDrag(updated);
+      syncHandDragHover(activeTouch.clientX, activeTouch.clientY);
+    };
+
+    const onTouchEnd = (ev: TouchEvent) => {
+      const ended = Array.from(ev.changedTouches).find(t => t.identifier === touchId);
+      if (!ended) return;
+      const d = activeHandDragRef.current;
+      if (!d || d.pointerId !== touchId) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const saved = { ...d };
+      clearHandDragVisual();
+      commitHandDragDrop(ended.clientX, ended.clientY, saved);
+      cleanup();
+    };
+
+    const cleanup = () => {
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("touchcancel", onTouchEnd);
+      if (mobileTouchDragCleanupRef.current === cleanup) {
+        mobileTouchDragCleanupRef.current = null;
+      }
+    };
+
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+    document.addEventListener("touchend", onTouchEnd, { passive: false });
+    document.addEventListener("touchcancel", onTouchEnd, { passive: false });
+    mobileTouchDragCleanupRef.current = cleanup;
+  };
+
+  const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (!canBeginHandDrag(cardIndex, player, card)) return;
     e.preventDefault();
     setSelectedSlot(null);
     setAttackingSlot(null);
@@ -8575,7 +8717,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       clientX: e.clientX,
       clientY: e.clientY,
       pointerId: e.pointerId,
-      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
+      opponentCardFlipped: player === "B" ? !!state!.settings.isOpponentCardFlipped : false,
     };
     activeHandDragRef.current = next;
     setHandDrag(next);
@@ -9238,34 +9380,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     } catch {
       /* already released */
     }
-    activeHandDragRef.current = null;
-    setHandDrag(null);
-    setHandDragHoverSlotKey(null);
-
-    const snap = state;
-    if (!snap) return;
-    if (attemptMuhyohwaCounterDrop(snap, saved, e.clientX, e.clientY)) return;
-    if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
-    if (snap.guihwanPending) return;
-
-    const under = document.elementFromPoint(e.clientX, e.clientY);
-
-    const drop = under?.closest("[data-field-drop]");
-    if (!drop) return;
-
-    const targetPlayer = (drop as HTMLElement).dataset.fieldPlayer as "A" | "B" | undefined;
-    const slot = (drop as HTMLElement).dataset.fieldSlot as "is" | "m" | "os" | "spell" | undefined;
-    if (!targetPlayer || !slot) return;
-    if (targetPlayer !== "A" && targetPlayer !== "B") return;
-
-    if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) return;
-
-    placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
+    clearHandDragVisual();
+    commitHandDragDrop(e.clientX, e.clientY, saved);
   };
 
   /**
@@ -14116,7 +14232,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   // ⭐️ [신규] 코드가 길어지는 것을 방지하고 클래스 생성을 깔끔하게 관리하는 헬퍼 함수
-  const getSlotClassName = (player: "A" | "B", slot: "is" | "m" | "os", card: FieldCard | null) => {
+  const getSlotClassName = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null,
+    cardStyle: string = fieldCardStyle
+  ) => {
     const slotKeyForHover = `${player}-${slot}`;
     const handDragSlotHoverGlow =
       handDragHoverSlotKey === slotKeyForHover
@@ -14128,12 +14249,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       pendingLegendarySwordStrike?.ownerPlayer === player &&
       pendingLegendarySwordStrike.swordSlot === slot
     ) {
-      return `${fieldCardStyle} pp-legendary-sword-charge-border pp-legendary-sword-charge-border--steady${handDragSlotHoverGlow}`;
+      return `${cardStyle} pp-legendary-sword-charge-border pp-legendary-sword-charge-border--steady${handDragSlotHoverGlow}`;
     }
 
     if (card && isLegendarySwordCharging(card)) {
       const fast = card.legendarySwordChargeFastBlink ? " pp-legendary-sword-charge-border--fast" : "";
-      return `${fieldCardStyle} pp-legendary-sword-charge-border${fast}${handDragSlotHoverGlow}`;
+      return `${cardStyle} pp-legendary-sword-charge-border${fast}${handDragSlotHoverGlow}`;
     }
 
     if (
@@ -14144,15 +14265,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       isGuihwanSpellCard(card) &&
       card.statsInstanceId === state.guihwanPending.spellStatsInstanceId
     ) {
-      return `${fieldCardStyle} border-[3px] border-indigo-400/95 bg-indigo-950/50 shadow-[0_0_28px_rgba(99,102,241,0.85)] animate-pulse cursor-pointer z-20${handDragSlotHoverGlow}`;
+      return `${cardStyle} border-[3px] border-indigo-400/95 bg-indigo-950/50 shadow-[0_0_28px_rgba(99,102,241,0.85)] animate-pulse cursor-pointer z-20${handDragSlotHoverGlow}`;
     }
 
     const targetClass = getTargetableClass(player, slot, card);
-    if (targetClass) return `${fieldCardStyle} ${targetClass}${handDragSlotHoverGlow}`;
+    if (targetClass) return `${cardStyle} ${targetClass}${handDragSlotHoverGlow}`;
 
     const handDragPlacementClass = getHandDragUnitPlacementPulseClass(player, slot, card);
     if (handDragPlacementClass) {
-      return `${fieldCardStyle} ${handDragPlacementClass}${handDragSlotHoverGlow}`;
+      return `${cardStyle} ${handDragPlacementClass}${handDragSlotHoverGlow}`;
     }
     if (
       card &&
@@ -14163,9 +14284,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         state &&
         isTauntSuppressedByRyeomhwaForUnitOwner(player, state.playerA.field, state.playerB.field);
       if (banjitOutlineSuppressed) {
-        return `${fieldCardStyle} z-10 border-[2px] border-purple-400/90 bg-purple-950/25 shadow-[0_0_12px_rgba(147,51,234,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-purple-300" : ""}`;
+        return `${cardStyle} z-10 border-[2px] border-purple-400/90 bg-purple-950/25 shadow-[0_0_12px_rgba(147,51,234,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-purple-300" : ""}`;
       }
-      return `${fieldCardStyle} z-10 border-[2px] border-pink-400/90 bg-pink-950/25 shadow-[0_0_12px_rgba(236,72,153,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-pink-300" : ""}`;
+      return `${cardStyle} z-10 border-[2px] border-pink-400/90 bg-pink-950/25 shadow-[0_0_12px_rgba(236,72,153,0.35)] ${!attackingSlot ? "cursor-pointer hover:border-pink-300" : ""}`;
     }
 
     if (
@@ -14173,13 +14294,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       state &&
       maxellandTenacityGaugeFullForCombat(card, facingOppUnitAtSlot(state, player, slot))
     ) {
-      return `${fieldCardStyle} z-10 border-[2px] border-red-600/95 bg-red-950/35 shadow-[0_0_12px_rgba(220,38,38,0.65),0_0_22px_rgba(249,115,22,0.42)] ${!attackingSlot ? "cursor-pointer hover:border-orange-500/90" : ""}`;
+      return `${cardStyle} z-10 border-[2px] border-red-600/95 bg-red-950/35 shadow-[0_0_12px_rgba(220,38,38,0.65),0_0_22px_rgba(249,115,22,0.42)] ${!attackingSlot ? "cursor-pointer hover:border-orange-500/90" : ""}`;
     }
 
     if (player === "A") {
-      return `${fieldCardStyle} border-sky-500/30 bg-sky-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-sky-400/80" : state?.currentTurn === "A" && !attackingSlot ? "hover:border-sky-400 transition-colors" : ""}`;
+      return `${cardStyle} border-sky-500/30 bg-sky-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-sky-400/80" : state?.currentTurn === "A" && !attackingSlot ? "hover:border-sky-400 transition-colors" : ""}`;
     }
-    return `${fieldCardStyle} border-blue-500/30 bg-blue-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-blue-400/80" : state?.currentTurn === "B" && !attackingSlot ? "hover:border-blue-400 transition-colors" : ""}`;
+    return `${cardStyle} border-blue-500/30 bg-blue-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-blue-400/80" : state?.currentTurn === "B" && !attackingSlot ? "hover:border-blue-400 transition-colors" : ""}`;
   };
 
   /** 효과 뱃지 표시 순서 (동일 카드에서 항상 이 순서) */
@@ -16025,6 +16146,75 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const simpanHandReplaceSelectableClass =
     "border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-pointer z-[30]";
 
+  const MOBILE_BOARD_W = 540;
+  const MOBILE_BOARD_H = 720;
+  const MOBILE_HP_BAR_H = 8;
+  const MOBILE_HAND_H = 110;
+  const MOBILE_MID_H = MOBILE_BOARD_H - MOBILE_HP_BAR_H * 2 - MOBILE_HAND_H * 2;
+  const MOBILE_LEFT_W = 60;
+  const MOBILE_CENTER_W = 380;
+  const MOBILE_RIGHT_W = 100;
+  const MOBILE_UNIT_W = 72;
+  const MOBILE_UNIT_H = 114;
+  const MOBILE_SPELL_W = 100;
+  const MOBILE_SPELL_H = 63;
+  const MOBILE_HAND_CARD_W = 64;
+  const MOBILE_HAND_CARD_H = 101;
+
+  const mobileFieldCardStyle =
+    "shrink-0 rounded-[6px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  const mobileFieldSlotBadgeZoneClassWithCard = (card: FieldCard | null, isPlayerA: boolean) =>
+    `flex flex-col items-center justify-center overflow-visible${
+      !isPlayerA && (card?.name === DARK_KNIGHT_ID || card?.name === MAXELLAND_ID) ? " -translate-y-1" : ""
+    }`;
+  const mobileSpellCardStyle =
+    "shrink-0 rounded-[6px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+
+  useEffect(() => {
+    if (!isMobile) {
+      document.documentElement.style.removeProperty("--mobile-scale");
+      return;
+    }
+    const updateScale = () => {
+      const scaleX = window.innerWidth / MOBILE_BOARD_W;
+      const scaleY = window.innerHeight / MOBILE_BOARD_H;
+      const scale = Math.min(scaleX, scaleY, 1);
+      document.documentElement.style.setProperty("--mobile-scale", String(scale));
+    };
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => {
+      window.removeEventListener("resize", updateScale);
+      document.documentElement.style.removeProperty("--mobile-scale");
+    };
+  }, [isMobile]);
+
+  const SIM_MOBILE_TOUCH_LOCK_CLASS = "pp-simulation-mobile-touch-lock";
+
+  const clearSimulationMobileTouchLock = () => {
+    document.documentElement.classList.remove(SIM_MOBILE_TOUCH_LOCK_CLASS);
+    document.body.classList.remove(SIM_MOBILE_TOUCH_LOCK_CLASS);
+  };
+
+  /** 모바일 시뮬레이션 뷰에서만 브라우저 기본 스크롤·줌 제스처 차단 (로비/메뉴는 영향 없음) */
+  useEffect(() => {
+    if (!isMobile) {
+      clearSimulationMobileTouchLock();
+      return;
+    }
+    document.documentElement.classList.add(SIM_MOBILE_TOUCH_LOCK_CLASS);
+    document.body.classList.add(SIM_MOBILE_TOUCH_LOCK_CLASS);
+    return clearSimulationMobileTouchLock;
+  }, [isMobile]);
+
+  useEffect(() => {
+    return () => {
+      mobileTouchDragCleanupRef.current?.();
+      mobileTouchDragCleanupRef.current = null;
+      clearSimulationMobileTouchLock();
+    };
+  }, []);
+
   if (!state) {
     return (
       <div className={`flex flex-col items-center justify-center h-screen w-full gap-5 ${theme.bg}`}>
@@ -16171,9 +16361,395 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       isAFieldEmpty &&
       canDirectAttackOpponentPlayerHp);
 
+  const renderMobilePlayerHpBar = (player: "A" | "B") => {
+    const ps = player === "A" ? state.playerA : state.playerB;
+    const fillPx = Math.max(0, Math.min(MOBILE_BOARD_W, Math.round((ps.hp / 2000) * MOBILE_BOARD_W)));
+    return (
+      <div
+        style={{
+          width: MOBILE_BOARD_W,
+          height: MOBILE_HP_BAR_H,
+          background: "#0f172a",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: fillPx,
+            height: MOBILE_HP_BAR_H,
+            background:
+              player === "A"
+                ? "linear-gradient(90deg, #0284c7 0%, #38bdf8 100%)"
+                : "linear-gradient(90deg, #dc2626 0%, #fb7185 100%)",
+            transition: "width 500ms",
+          }}
+        />
+      </div>
+    );
+  };
+
+  const renderMobileUnitSlot = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    slotLabel: string,
+    isPlayerA: boolean
+  ) => {
+    const field = isPlayerA ? state.playerA.field : state.playerB.field;
+    const card = field[slot];
+    const slotKey = `${player}-${slot}`;
+    const flipOpp = !isPlayerA && state.settings.isOpponentCardFlipped;
+
+    return (
+      <div
+        style={{
+          width: MOBILE_UNIT_W,
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ width: MOBILE_UNIT_W, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+          {!isPlayerA ? (
+            <div
+              className={mobileFieldSlotBadgeZoneClassWithCard(card, false)}
+              style={{ width: MOBILE_UNIT_W, height: 28 }}
+            >
+              {renderStatusBadges(player, slot, card, false)}
+            </div>
+          ) : null}
+          {!isPlayerA
+            ? renderHpRowWithOptionalDKGauge(
+                card,
+                renderHpBar(card, false, "inline", slot) ?? (
+                  <div style={{ width: MOBILE_UNIT_W, height: 12 }} aria-hidden />
+                ),
+                false,
+                slotKey
+              )
+            : null}
+          <div className={unitSlotOuterClass} style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}>
+            {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
+            <div
+              className={getSlotClassName(player, slot, card, mobileFieldCardStyle)}
+              style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}
+              data-field-drop
+              data-field-player={player}
+              data-field-slot={slot}
+              data-slot={slot}
+              data-player={player}
+              onClick={e => handleFieldClick(e, player, slot, card)}
+            >
+              {card ? (
+                card.image_url ? (
+                  <img
+                    src={card.image_url}
+                    alt={slotLabel}
+                    style={{
+                      width: MOBILE_UNIT_W,
+                      height: MOBILE_UNIT_H,
+                      objectFit: "cover",
+                      transform: flipOpp ? "rotate(180deg)" : undefined,
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 8,
+                      fontWeight: 700,
+                      textAlign: "center",
+                      padding: 4,
+                      color: isPlayerA ? "#bae6fd" : "#bfdbfe",
+                      transform: flipOpp ? "rotate(180deg)" : undefined,
+                    }}
+                  >
+                    {card.name}
+                  </span>
+                )
+              ) : (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>{slotLabel}</span>
+              )}
+              {renderActionMenu(player, slot, card)}
+            </div>
+            {renderAebeolaekingRiderOverlay(player, slot, card)}
+            {renderFlashOverlay(slotKey, "rounded-[6px]")}
+            {renderGeunyangMojaHitFlameOverlay(slotKey, "rounded-[6px]")}
+            {renderDiagoHitFlameOverlay(slotKey, "rounded-[6px]")}
+            {renderMomoHitFlameOverlay(slotKey, "rounded-[6px]")}
+            {renderGhostoneClawHitOverlay(slotKey, "rounded-[6px]")}
+            {renderIversonClawHitOverlay(slotKey, "rounded-[6px]")}
+            {renderEristinaHitLineOverlay(slotKey, "rounded-[6px]")}
+            {renderCheolgibyeongFieldRing(player, slot, card)}
+            {renderRyeomchoFieldRing(player, slot, card)}
+            {renderMaryDefenseFieldRing(player, slot, card)}
+            {renderBanjitgoriFieldRing(player, slot, card)}
+            {renderPhilipFacingRing(player, slot, card)}
+            {renderDinnerFacingRing(player, slot, card)}
+            {renderMaengsugyeonPoThreatRing(player, slot, card)}
+            {renderStartingHeraldPrivilegeTargetOutline(player, slot, card)}
+            {renderEondeokSilenceOutline(card, "rounded-[6px]")}
+            {renderStackingGaugeFieldRings(player, slot, card)}
+            {renderStunSwirlOverlay(card, "rounded-[6px]", slotKey)}
+            {renderLegendarySwordChargeAura(player, slot, card, "rounded-[6px]")}
+            {renderIversonWaitAuraOverlay(card, "rounded-[6px]", slotKey)}
+            {renderBaekseuInvulnRing(card, "rounded-[6px]", player, slot)}
+          </div>
+          {isPlayerA
+            ? renderHpRowWithOptionalDKGauge(
+                card,
+                renderHpBar(card, true, "inline", slot) ?? (
+                  <div style={{ width: MOBILE_UNIT_W, height: 12 }} aria-hidden />
+                ),
+                true,
+                slotKey
+              )
+            : null}
+          {isPlayerA ? (
+            <div
+              className={mobileFieldSlotBadgeZoneClassWithCard(card, true)}
+              style={{ width: MOBILE_UNIT_W, height: 28 }}
+            >
+              {renderStatusBadges(player, slot, card, true)}
+            </div>
+          ) : null}
+          <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups(slotKey)}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMobileHandRow = (player: "A" | "B") => {
+    const isPlayerA = player === "A";
+    const hand = isPlayerA ? state.playerA.hand : state.playerB.hand;
+    const handRefs = isPlayerA ? handSlotOuterRefsA : handSlotOuterRefsB;
+    const borderColor = isPlayerA
+      ? state.currentTurn === "A"
+        ? "#0ea5e9"
+        : "#334155"
+      : state.currentTurn === "B"
+        ? "#f43f5e"
+        : "#334155";
+    const bgColor = isPlayerA
+      ? state.currentTurn === "A"
+        ? "rgba(8,47,73,0.45)"
+        : "rgba(0,0,0,0.25)"
+      : state.currentTurn === "B"
+        ? "rgba(76,5,25,0.45)"
+        : "rgba(0,0,0,0.25)";
+
+    return (
+      <div
+        style={{
+          width: MOBILE_BOARD_W,
+          height: MOBILE_HAND_H,
+          border: `2px solid ${borderColor}`,
+          borderRadius: 12,
+          background: bgColor,
+          overflowX: "auto",
+          overflowY: "hidden",
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingLeft: 8,
+          paddingRight: 8,
+          boxSizing: "border-box",
+          touchAction: "pan-x",
+        }}
+      >
+          {Array.from({ length: 6 }).map((_, i) => {
+            const card = hand[i];
+            const momoDiscard =
+              pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
+              pendingSkill.player === player &&
+              state.currentTurn === player &&
+              !!card;
+            const danhaSteal =
+              pendingSkill?.name === PENDING_SKILL.DANHA_GALGORI &&
+              pendingSkill.player === (isPlayerA ? "B" : "A") &&
+              state.currentTurn === (isPlayerA ? "B" : "A") &&
+              !!card;
+            const simpanPick = state.simpanHandChoice?.player === player && !!card;
+            const simpanPeekBlockDrag = state.simpanPeekReveal?.player === player;
+            const witchTarotDiscard = witchTarotDiscardPlayer === player && !!card;
+            const canPointerDrag =
+              !!card &&
+              !pendingSkill &&
+              !simpanPick &&
+              !simpanPeekBlockDrag &&
+              !witchTarotDiscard &&
+              !witchTarotFlowActive &&
+              (state.currentTurn === player ||
+                canMuhyohwaCounterFromHandSlot(state, player, i, card));
+            const muhyohwaHandGlow =
+              spellUsageMuhyohwaCounterGlow &&
+              !!card &&
+              canMuhyohwaCounterFromHandSlot(state, player, i, card);
+            const isDragSource = handDrag?.player === player && handDrag.cardIndex === i;
+            const isDanhaStealFlySource =
+              danhaStealFly?.victimPlayer === player && danhaStealFly.victimHandIndex === i;
+
+            return (
+              <div
+                key={i}
+                ref={el => {
+                  handRefs.current[i] = el;
+                }}
+                style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, position: "relative", flexShrink: 0 }}
+              >
+                <div
+                  onClick={e => {
+                    if (simpanPick) {
+                      e.stopPropagation();
+                      resolveSimpanHandPick(player, i);
+                    } else if (witchTarotDiscard) {
+                      e.stopPropagation();
+                      resolveWitchTarotDiscard(player, i);
+                    } else if (momoDiscard) {
+                      e.stopPropagation();
+                      handleSkillDiscard(i, player);
+                    } else if (danhaSteal) {
+                      e.stopPropagation();
+                      handleDanhaSteal(i, player);
+                    }
+                  }}
+                  className={`touch-manipulation relative overflow-visible rounded-[6px] flex items-center justify-center ${
+                    card
+                      ? momoDiscard
+                        ? "border-2 border-amber-400 bg-amber-900/40 animate-pulse cursor-pointer"
+                        : danhaSteal
+                          ? "border-2 border-sky-400 bg-sky-900/35 animate-pulse cursor-pointer"
+                          : witchTarotDiscard
+                            ? "border-2 border-violet-300 bg-violet-950/50 animate-pulse cursor-pointer"
+                            : simpanPick
+                              ? simpanHandReplaceSelectableClass
+                              : isPlayerA
+                                ? "border border-sky-400/50 bg-black/30"
+                                : "border border-rose-400/40 bg-rose-950/60"
+                      : "border border-dashed border-slate-700/50 bg-transparent"
+                  } ${isDragSource || isDanhaStealFlySource ? "opacity-0 pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
+                  style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, touchAction: "none" }}
+                  onTouchStart={
+                    card && canPointerDrag
+                      ? e => beginMobileHandTouch(e, i, player, card)
+                      : undefined
+                  }
+                >
+                  {card && hasBubbleStationHandDiscardFlashMark(card) ? (
+                    <div className="absolute inset-0 z-[6] rounded-[6px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
+                  ) : card && ppSimHandDanhaStealArrivalToken(card) ? (
+                    <div className={handDanhaStealArrivalGlowOverlayClass} aria-hidden />
+                  ) : muhyohwaHandGlow ? (
+                    <div className={handMuhyohwaCounterGlowOverlayClass} aria-hidden />
+                  ) : card && ppSimHandNewGlowToken(card) ? (
+                    <div className={handNewDrawGlowOverlayClass} aria-hidden />
+                  ) : null}
+                  {card ? (
+                    <div className={handCardFaceClipClass} style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H }}>
+                      {card.image_url ? (
+                        <img
+                          src={card.image_url}
+                          alt={card.name}
+                          style={{
+                            width: MOBILE_HAND_CARD_W,
+                            height: MOBILE_HAND_CARD_H,
+                            objectFit: "cover",
+                            transform: !isPlayerA && state.settings.isOpponentCardFlipped ? "rotate(180deg)" : undefined,
+                          }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: 8,
+                            fontWeight: 700,
+                            textAlign: "center",
+                            padding: 4,
+                            color: isPlayerA ? "#bae6fd" : "#fecdd3",
+                            transform: !isPlayerA && state.settings.isOpponentCardFlipped ? "rotate(180deg)" : undefined,
+                          }}
+                        >
+                          {card.name}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <IconDeck className={`w-5 h-5 opacity-20 ${isPlayerA ? "text-sky-300" : "text-rose-300"}`} />
+                  )}
+                </div>
+                {renderFlashOverlay(`hand-${player}-${i}`, "rounded-[6px]")}
+              </div>
+            );
+          })}
+      </div>
+    );
+  };
+
+  const renderMobilePlayerTokenPanel = (player: "A" | "B") => {
+    const isPlayerA = player === "A";
+    const ps = isPlayerA ? state.playerA : state.playerB;
+    const canAttack = isPlayerA ? canAttackPlayerA : canAttackPlayerB;
+    const turnActive = state.currentTurn === player;
+    const panelH = 72;
+
+    return (
+      <div
+        style={{
+          width: MOBILE_RIGHT_W,
+          height: panelH,
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          borderRadius: 8,
+          border: canAttack
+            ? "2px solid #ffffff"
+            : turnActive
+              ? isPlayerA
+                ? "2px solid #0ea5e9"
+                : "2px solid #f43f5e"
+              : "2px solid #334155",
+          background: canAttack ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.35)",
+          boxSizing: "border-box",
+          paddingLeft: 6,
+          paddingRight: 6,
+          cursor: canAttack ? "crosshair" : "default",
+        }}
+        onClick={e => {
+          if (canAttack) {
+            e.stopPropagation();
+            handlePlayerAttack(player);
+          }
+        }}
+      >
+        {renderFlashOverlay(`player-${player}`, "rounded-lg")}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, width: 88, pointerEvents: "none" }}>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                width: 14,
+                height: 8,
+                borderRadius: 2,
+                border: i < ps.tokens ? "1px solid #fdba74" : "1px solid #334155",
+                background: i < ps.tokens ? "#f97316" : "#1e293b",
+              }}
+            />
+          ))}
+        </div>
+        <div
+          className="pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-lg"
+          style={{ width: MOBILE_RIGHT_W, height: panelH }}
+        >
+          {renderCombatPopups(`player-${player}`)}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div 
-      className={`w-full h-screen overflow-auto ${theme.bg} ${theme.text} flex items-center justify-center p-4 relative`}
+      className={`w-full h-screen ${isMobile ? "overflow-hidden bg-black" : `overflow-auto ${theme.bg}`} ${theme.text} flex items-center justify-center ${isMobile ? "p-0" : "p-4"} relative`}
       onClick={() => {
         setSelectedSlot(null);
         setAttackingSlot(null);
@@ -17184,6 +17760,396 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         />
       )}
 
+      {isMobile ? (
+        <div className="fixed inset-0 bg-black" aria-hidden />
+      ) : null}
+      {isMobile ? (
+        <div
+          style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%) scale(var(--mobile-scale))",
+            transformOrigin: "center center",
+            width: MOBILE_BOARD_W,
+            height: MOBILE_BOARD_H,
+            overflow: "hidden",
+            background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
+            border: "2px solid #1e293b",
+            boxSizing: "border-box",
+            touchAction: "none",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+          }}
+        >
+          {isInitializing && (
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 8,
+                zIndex: 56,
+                display: "flex",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  skipOpeningInitialization();
+                }}
+                style={{
+                  pointerEvents: "auto",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: "2px solid rgba(251,191,36,0.85)",
+                  background: "rgba(69,26,3,0.92)",
+                  color: "#fef3c7",
+                  fontWeight: 900,
+                  fontSize: 10,
+                }}
+              >
+                시작 연출 스킵
+              </button>
+            </div>
+          )}
+          {coinTossDisplay && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 50,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(0,0,0,0.6)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <h3 style={{ color: "#fff", fontWeight: 900, fontSize: 14, marginBottom: 16 }}>선공 결정 코인 토스</h3>
+                {coinTossDisplay === "FLIPPING" ? (
+                  <div
+                    style={{
+                      width: 96,
+                      height: 96,
+                      borderRadius: 48,
+                      border: "4px solid",
+                      borderColor: coinFlipSide === "A" ? "#7dd3fc" : "#fda4af",
+                      background: coinFlipSide === "A" ? "#0284c7" : "#e11d48",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <IconUser className="w-10 h-10 text-white opacity-80" />
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: 96,
+                      height: 96,
+                      borderRadius: 48,
+                      border: "4px solid",
+                      borderColor: coinTossDisplay === "A" ? "#7dd3fc" : "#fda4af",
+                      background: coinTossDisplay === "A" ? "#0284c7" : "#e11d48",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <span style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>{coinTossDisplay}</span>
+                  </div>
+                )}
+                <p style={{ marginTop: 16, fontSize: 18, fontWeight: 900, color: "#fff" }}>
+                  {coinTossDisplay === "FLIPPING" ? "돌아가는 중..." : `Player ${coinTossDisplay} 선공!`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div style={{ opacity: isInitializing ? 0.5 : 1, pointerEvents: isInitializing ? "none" : "auto" }}>
+            {renderMobilePlayerHpBar("B")}
+            {renderMobileHandRow("B")}
+
+            <div
+              style={{
+                width: MOBILE_BOARD_W,
+                height: MOBILE_MID_H,
+                display: "flex",
+                flexDirection: "row",
+              }}
+            >
+              <div
+                style={{
+                  width: MOBILE_LEFT_W,
+                  height: MOBILE_MID_H,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 12,
+                }}
+              >
+                <button
+                  onClick={handleDrawClick}
+                  disabled={isDrawDisabled}
+                  style={{
+                    width: 52,
+                    height: 234,
+                    borderRadius: 8,
+                    border: isDrawHighlight ? "2px solid #fff" : "2px solid rgba(99,102,241,0.5)",
+                    background: isDrawHighlight ? "rgba(49,46,129,0.6)" : "rgba(30,27,75,0.4)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: isDrawDisabled ? 0.4 : 1,
+                    cursor: isDrawDisabled ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <IconDeck className={`w-5 h-5 mb-1 ${isDrawHighlight ? "text-white" : "text-indigo-400"}`} />
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#a5b4fc" }}>덱</span>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{state.deckCards.length}</span>
+                </button>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (state.simpanHandChoice) dismissSimpanViaRewind();
+                    else setIsRewindModalOpen(true);
+                  }}
+                  style={{
+                    width: 52,
+                    height: 234,
+                    borderRadius: 8,
+                    border: "2px dashed #475569",
+                    background: "rgba(0,0,0,0.4)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  className={state.simpanHandChoice ? "pp-rewind-simpan-white-blink" : ""}
+                >
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>리와인드</span>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: "#64748b" }}>{state.rewindCards.length}</span>
+                </button>
+              </div>
+
+              <div
+                style={{
+                  width: MOBILE_CENTER_W,
+                  height: MOBILE_MID_H,
+                  border: "2px solid rgba(217,119,6,0.35)",
+                  borderRadius: 12,
+                  background: "rgba(0,0,0,0.5)",
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingTop: 8,
+                  paddingBottom: 8,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                    {renderMobileUnitSlot("B", "is", "Is", false)}
+                    {renderMobileUnitSlot("B", "m", "M", false)}
+                    {renderMobileUnitSlot("B", "os", "Os", false)}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingLeft: 8 }}>
+                    <div
+                      className={`${mobileSpellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
+                      style={{ width: MOBILE_SPELL_W, height: MOBILE_SPELL_H }}
+                      data-field-drop
+                      data-field-player="B"
+                      data-field-slot="spell"
+                      data-slot="spell"
+                      data-player="B"
+                      onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
+                    >
+                      {renderFlashOverlay("B-spell", "rounded-[6px]")}
+                      {renderGonchungSpellStackFace("B", state.playerB.field)}
+                      {renderFieldSpellDurationBadge(state.playerB.field, "B")}
+                      {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
+                      <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
+                    </div>
+                    {normalizeSpellStack(state.playerB.field).length > 1 ? (
+                      <button
+                        type="button"
+                        style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
+                        className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
+                        onClick={e => handleSpellStackShuffleClick(e, "B")}
+                      >
+                        {normalizeSpellStack(state.playerB.field).length}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    width: 340,
+                    height: 2,
+                    background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.85), transparent)",
+                  }}
+                />
+
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end", paddingRight: 8 }}>
+                    {normalizeSpellStack(state.playerA.field).length > 1 ? (
+                      <button
+                        type="button"
+                        style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
+                        className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
+                        onClick={e => handleSpellStackShuffleClick(e, "A")}
+                      >
+                        {normalizeSpellStack(state.playerA.field).length}
+                      </button>
+                    ) : null}
+                    <div
+                      className={`${mobileSpellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
+                      style={{ width: MOBILE_SPELL_W, height: MOBILE_SPELL_H }}
+                      data-field-drop
+                      data-field-player="A"
+                      data-field-slot="spell"
+                      data-slot="spell"
+                      data-player="A"
+                      onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
+                    >
+                      {renderFlashOverlay("A-spell", "rounded-[6px]")}
+                      {renderGonchungSpellStackFace("A", state.playerA.field)}
+                      {renderFieldSpellDurationBadge(state.playerA.field, "A")}
+                      {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
+                      <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                    {renderMobileUnitSlot("A", "is", "Is", true)}
+                    {renderMobileUnitSlot("A", "m", "M", true)}
+                    {renderMobileUnitSlot("A", "os", "Os", true)}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  width: MOBILE_RIGHT_W,
+                  height: MOBILE_MID_H,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingTop: 4,
+                  paddingBottom: 4,
+                  boxSizing: "border-box",
+                }}
+              >
+                {renderMobilePlayerTokenPanel("B")}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
+                  {state.settings.isTimeLimitEnabled ? (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontFamily: "monospace",
+                        fontWeight: 900,
+                        color: state.currentTurn === "B" && state.turnTimeLeft <= 15 ? "#ef4444" : "#fda4af",
+                      }}
+                    >
+                      {state.currentTurn === "B" ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}` : "00:60"}
+                    </span>
+                  ) : null}
+                  <button
+                    onClick={() => handleEndTurn("B")}
+                    disabled={state.currentTurn !== "B" || isInitializing}
+                    style={{
+                      width: 88,
+                      height: 44,
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 9,
+                      border: "2px solid",
+                      borderColor: state.currentTurn === "B" && !isInitializing ? "#fb923c" : "#334155",
+                      background: state.currentTurn === "B" && !isInitializing ? "#ea580c" : "#1e293b",
+                      color: state.currentTurn === "B" && !isInitializing ? "#fff" : "#64748b",
+                      opacity: state.currentTurn === "B" && !isInitializing ? 1 : 0.5,
+                    }}
+                  >
+                    상대 턴 종료
+                  </button>
+                </div>
+                <div
+                  style={{
+                    width: 88,
+                    height: 72,
+                    border: "2px solid #334155",
+                    borderRadius: 8,
+                    background: "rgba(0,0,0,0.6)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 2,
+                  }}
+                >
+                  <span style={{ fontSize: 8, color: "#94a3b8", fontWeight: 900 }}>T{state.turnCount}</span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 900,
+                      color: state.currentTurn === "A" ? "#38bdf8" : state.currentTurn === "B" ? "#fb7185" : "#64748b",
+                    }}
+                  >
+                    {state.currentTurn === "A" ? "MY TURN" : state.currentTurn === "B" ? "OPP TURN" : "READY"}
+                  </span>
+                  <span style={{ fontSize: 10, fontFamily: "monospace", color: "#cbd5e1" }}>{formatTime(state.elapsedTime || 0)}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
+                  <button
+                    onClick={() => handleEndTurn("A")}
+                    disabled={state.currentTurn !== "A" || isInitializing}
+                    style={{
+                      width: 88,
+                      height: 44,
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 9,
+                      border: "2px solid",
+                      borderColor: state.currentTurn === "A" && !isInitializing ? "#fb923c" : "#334155",
+                      background: state.currentTurn === "A" && !isInitializing ? "#ea580c" : "#1e293b",
+                      color: state.currentTurn === "A" && !isInitializing ? "#fff" : "#64748b",
+                      opacity: state.currentTurn === "A" && !isInitializing ? 1 : 0.5,
+                    }}
+                  >
+                    내 턴 종료
+                  </button>
+                  {state.settings.isTimeLimitEnabled ? (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontFamily: "monospace",
+                        fontWeight: 900,
+                        color: state.currentTurn === "A" && state.turnTimeLeft <= 15 ? "#ef4444" : "#7dd3fc",
+                      }}
+                    >
+                      {state.currentTurn === "A" ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}` : "00:60"}
+                    </span>
+                  ) : null}
+                </div>
+                {renderMobilePlayerTokenPanel("A")}
+              </div>
+            </div>
+
+            {renderMobileHandRow("A")}
+            {renderMobilePlayerHpBar("A")}
+          </div>
+        </div>
+      ) : null}
+
+      {!isMobile && (
       <div className={`relative w-full max-w-[1700px] min-w-[1300px] min-h-[750px] aspect-video flex flex-row gap-6 p-6 rounded-3xl border-2 ${theme.border} shadow-[0_0_50px_rgba(0,0,0,0.6)] bg-gradient-to-b from-[#0a1628] to-[#050a14] overflow-hidden`}>
         {isInitializing && (
           <div
@@ -18027,6 +18993,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
 
       </div>
+      )}
+
     </div>
   );
 }

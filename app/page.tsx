@@ -1,6 +1,7 @@
 // app/page.tsx
 "use client";
 
+import { useEffect } from "react";
 import { useGameLogic } from "../hooks/useGameLogic";
 import { getGlowColor, getShardShopPrice } from "../utils/cardUtils";
 import { IconShard, IconDeck, IconBook, IconLock } from "../components/ui/Icons";
@@ -31,6 +32,13 @@ function LoginRequiredView({ onLogin, isDarkMode }: { onLogin: () => void, isDar
 
 export default function Home() {
   const game = useGameLogic();
+
+  /** 시뮬레이션 이탈 시 모바일 터치 잠금 클래스가 남지 않도록 보장 */
+  useEffect(() => {
+    if (game.mainView === "simulation") return;
+    document.documentElement.classList.remove("pp-simulation-mobile-touch-lock");
+    document.body.classList.remove("pp-simulation-mobile-touch-lock");
+  }, [game.mainView]);
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${game.isDarkMode ? "bg-gradient-to-b from-[#0a1628] via-[#0d1f3c] to-[#050a14] text-slate-100" : "bg-slate-100 text-slate-900"}`}>
