@@ -1,11 +1,12 @@
 // components/views/DeckView.tsx
 "use client";
 
-import { RefObject } from "react";
+import { RefObject, useState, useEffect } from "react";
 import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { IconDeck, IconBook } from "../ui/Icons";
 import MobileViewShell from "../layout/mobile/MobileViewShell";
+import MobileTouchCardCell, { handleMobileCardGridBackgroundClick } from "../layout/mobile/MobileTouchCardCell";
 import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
 
 interface DeckViewProps {
@@ -35,6 +36,16 @@ export default function DeckView({
   layoutMobile = false,
   isDarkMode = true,
 }: DeckViewProps) {
+  const [selectedDeckSlotIndex, setSelectedDeckSlotIndex] = useState<number | null>(null);
+  const [selectedOwnedCardIndex, setSelectedOwnedCardIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (layoutMobile) {
+      setSelectedDeckSlotIndex(null);
+      setSelectedOwnedCardIndex(null);
+    }
+  }, [layoutMobile, sortOption, selectedForDeck]);
+
   if (layoutMobile) {
     return (
       <MobileViewShell isDarkMode={isDarkMode}>
@@ -61,6 +72,12 @@ export default function DeckView({
           ) : null}
 
           <div
+            role="presentation"
+            onClick={e => {
+              if (!selectedForDeck) {
+                handleMobileCardGridBackgroundClick(e, () => setSelectedDeckSlotIndex(null));
+              }
+            }}
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(6, 1fr)",
@@ -79,22 +96,71 @@ export default function DeckView({
               return (
                 <div
                   key={`deck-slot-${index}`}
-                  onClick={() => {
-                    if (selectedForDeck) handleSlotReplace(index);
-                  }}
                   style={{
                     width: "100%",
                     aspectRatio: "1 / 1.58",
                     minWidth: 0,
                     borderRadius: 8,
-                    cursor: selectedForDeck ? "pointer" : "default",
                     boxShadow: selectedForDeck ? "0 0 12px rgba(251,191,36,0.45)" : undefined,
                   }}
                 >
                   {card ? (
-                    <CardPlaceholder card={card} showOutline={showOutline} onOpenDetail={handleOpenCardDetail} />
+                    selectedForDeck ? (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => {
+                          e.stopPropagation();
+                          handleSlotReplace(index);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleSlotReplace(index);
+                          }
+                        }}
+                        style={{ width: "100%", height: "100%", cursor: "pointer" }}
+                      >
+                        <CardPlaceholder card={card} showOutline={showOutline} />
+                      </div>
+                    ) : (
+                      <MobileTouchCardCell
+                        card={card}
+                        index={index}
+                        selectedCardIndex={selectedDeckSlotIndex}
+                        onSelectCardIndex={i => {
+                          setSelectedOwnedCardIndex(null);
+                          setSelectedDeckSlotIndex(i);
+                        }}
+                        onClearSelection={() => setSelectedDeckSlotIndex(null)}
+                        onOpenDetail={handleOpenCardDetail}
+                        showOutline={showOutline}
+                      />
+                    )
                   ) : (
-                    <div style={{ width: "100%", height: "100%", borderRadius: 8, border: "2px dashed rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)", color: "rgba(255,255,255,0.35)", fontWeight: 700, fontSize: 16 }}>
+                    <div
+                      role={selectedForDeck ? "button" : undefined}
+                      tabIndex={selectedForDeck ? 0 : undefined}
+                      onClick={e => {
+                        if (!selectedForDeck) return;
+                        e.stopPropagation();
+                        handleSlotReplace(index);
+                      }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: 8,
+                        border: "2px dashed rgba(255,255,255,0.2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(0,0,0,0.3)",
+                        color: "rgba(255,255,255,0.35)",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        cursor: selectedForDeck ? "pointer" : "default",
+                      }}
+                    >
                       {index + 1}
                     </div>
                   )}
@@ -131,6 +197,8 @@ export default function DeckView({
             <p style={{ textAlign: "center", color: "#64748b", fontSize: 14, padding: "32px 0" }}>보유한 카드가 없습니다.</p>
           ) : (
             <div
+              role="presentation"
+              onClick={e => handleMobileCardGridBackgroundClick(e, () => setSelectedOwnedCardIndex(null))}
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
@@ -139,18 +207,21 @@ export default function DeckView({
               }}
             >
               {deckAvailableCards.map((card, index) => (
-                <div
+                <MobileTouchCardCell
                   key={card.id ?? `deck-card-${index}`}
-                  style={{ width: "100%", aspectRatio: "1 / 1.58", minWidth: 0 }}
-                >
-                  <CardPlaceholder
-                    card={card}
-                    onOpenDetail={handleOpenCardDetail}
-                    onSelectForDeck={handleSelectForDeck}
-                    showOutline={showOutline}
-                    inDeck={deck.includes(Number(card.id))}
-                  />
-                </div>
+                  card={card}
+                  index={index}
+                  selectedCardIndex={selectedOwnedCardIndex}
+                  onSelectCardIndex={i => {
+                    setSelectedDeckSlotIndex(null);
+                    setSelectedOwnedCardIndex(i);
+                  }}
+                  onClearSelection={() => setSelectedOwnedCardIndex(null)}
+                  onOpenDetail={handleOpenCardDetail}
+                  onSelectForDeck={handleSelectForDeck}
+                  showOutline={showOutline}
+                  inDeck={deck.includes(Number(card.id))}
+                />
               ))}
             </div>
           )}

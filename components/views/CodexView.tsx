@@ -1,11 +1,12 @@
 "use client"; // ⭐️ 이 선언이 반드시 최상단에 있어야 합니다!
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { getRarityWeight } from "../../utils/cardUtils";
 
 import MobileViewShell from "../layout/mobile/MobileViewShell";
+import MobileTouchCardCell, { handleMobileCardGridBackgroundClick } from "../layout/mobile/MobileTouchCardCell";
 import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
 
 interface CodexViewProps {
@@ -31,7 +32,8 @@ export default function CodexView({
   layoutMobile = false,
   isDarkMode = true,
 }: CodexViewProps) {
-  
+  const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
+
   const sortedCards = useMemo(() => {
     let arr = [...cards];
     arr.sort((a, b) => {
@@ -47,6 +49,10 @@ export default function CodexView({
     });
     return arr;
   }, [cards, sortOption, filterOwnedFirst]);
+
+  useEffect(() => {
+    if (layoutMobile) setSelectedCardIndex(null);
+  }, [layoutMobile, sortOption, filterOwnedFirst]);
 
   if (layoutMobile) {
     return (
@@ -101,6 +107,8 @@ export default function CodexView({
           </div>
         ) : (
           <div
+            role="presentation"
+            onClick={e => handleMobileCardGridBackgroundClick(e, () => setSelectedCardIndex(null))}
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(4, 1fr)",
@@ -109,17 +117,17 @@ export default function CodexView({
             }}
           >
             {sortedCards.map((card, index) => (
-              <div
+              <MobileTouchCardCell
                 key={card.id ?? `card-${index}`}
-                style={{ width: "100%", aspectRatio: "1 / 1.58", minWidth: 0 }}
-              >
-                <CardPlaceholder
-                  card={card}
-                  onOpenDetail={onOpenDetail}
-                  isNew={newCardIds.has(Number(card.id))}
-                  showOutline={showOutline}
-                />
-              </div>
+                card={card}
+                index={index}
+                selectedCardIndex={selectedCardIndex}
+                onSelectCardIndex={setSelectedCardIndex}
+                onClearSelection={() => setSelectedCardIndex(null)}
+                onOpenDetail={onOpenDetail}
+                isNew={newCardIds.has(Number(card.id))}
+                showOutline={showOutline}
+              />
             ))}
           </div>
         )}
