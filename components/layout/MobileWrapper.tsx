@@ -16,8 +16,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
 
   useEffect(() => {
     const updateScale = () => {
-      const shortSide = Math.min(window.innerWidth, window.innerHeight);
-      setMobileScale(Math.min(shortSide / MOBILE_LOBBY_BASE_W, 1));
+      setMobileScale(Math.min(window.innerWidth / MOBILE_LOBBY_BASE_W, 1));
     };
     updateScale();
     window.addEventListener("resize", updateScale);
@@ -44,9 +43,6 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
     if (!el) return;
 
     const onTouchMove = (e: TouchEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest(".pp-mobile-lobby-scroll")) return;
-
       const start = touchStartRef.current;
       const t = e.touches[0];
       if (!start || !t) return;
@@ -64,6 +60,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
   return (
     <div
       ref={outerRef}
+      className="pp-mobile-lobby-scroll"
       onTouchStart={handleTouchStart}
       style={{
         position: "fixed",
@@ -72,27 +69,26 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
-        overflow: "hidden",
-        touchAction: "none",
+        overflowX: "hidden",
+        overflowY: "scroll",
+        WebkitOverflowScrolling: "touch",
+        touchAction: "pan-y",
       }}
     >
       <div
+        className="pp-mobile-lobby-scale-layer"
         style={{
           width: MOBILE_LOBBY_BASE_W,
           flexShrink: 0,
           transformOrigin: "top center",
           transform: `scale(${mobileScale})`,
+          height: "auto",
         }}
       >
         <div
-          className="pp-mobile-lobby-scroll"
           style={{
             width: MOBILE_LOBBY_BASE_W,
-            height: "100vh",
-            overflowY: "scroll",
-            overflowX: "hidden",
-            touchAction: "pan-y",
-            WebkitOverflowScrolling: "touch",
+            overflow: "visible",
           }}
         >
           {children}

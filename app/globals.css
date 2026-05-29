@@ -48,7 +48,13 @@ body.pp-mobile-lobby {
   overscroll-behavior-x: none;
 }
 
-/* 모바일 로비: 가로 회전 시에도 세로 UI 유지 (scale은 MobileWrapper에서 shortSide 기준) */
+/* 모바일 로비: scale 레이어 최소 높이 (dvh 미지원 시 100vh) */
+.pp-mobile-lobby-scale-layer {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* 모바일 로비: 가로 회전 시에도 세로 UI 유지 (scale은 너비 기준) */
 @supports (orientation: landscape) {
   html.pp-mobile-lobby {
     -webkit-text-size-adjust: 100%;
