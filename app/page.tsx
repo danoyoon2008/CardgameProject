@@ -12,6 +12,7 @@ import Header from "../components/layout/Header";
 import Sidebar from "../components/layout/Sidebar";
 import MobileWrapper from "../components/layout/MobileWrapper";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePreventUiTextSelection } from "../hooks/usePreventUiTextSelection";
 import CodexView from "../components/views/CodexView";
 import ShopView from "../components/views/ShopView";
 import DeckView from "../components/views/DeckView";
@@ -100,6 +101,8 @@ export default function Home() {
   const isMobile = useIsMobile();
   const isSimulation = game.mainView === "simulation";
   const useMobileLobbyWrapper = isMobile && !isSimulation;
+
+  usePreventUiTextSelection(!isMobile);
 
   /** 시뮬레이션 이탈 시 모바일 터치 잠금 클래스가 남지 않도록 보장 */
   useEffect(() => {
@@ -234,7 +237,10 @@ export default function Home() {
   );
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${game.isDarkMode ? "bg-gradient-to-b from-[#0a1628] via-[#0d1f3c] to-[#050a14] text-slate-100" : "bg-slate-100 text-slate-900"}`}>
+    <div
+      className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${!isMobile ? "pp-ui-no-select" : ""} ${game.isDarkMode ? "bg-gradient-to-b from-[#0a1628] via-[#0d1f3c] to-[#050a14] text-slate-100" : "bg-slate-100 text-slate-900"}`}
+      onContextMenu={!isMobile ? e => e.preventDefault() : undefined}
+    >
       
       <style dangerouslySetInnerHTML={{__html: `
         .perspective-1000 { perspective: 1000px; } .preserve-3d { transform-style: preserve-3d; } .backface-hidden { backface-visibility: hidden; } .rotate-y-180 { transform: rotateY(180deg); }

@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { IconDeck, IconUser, IconSettings } from "../ui/Icons";
+import { IconBook, IconDeck, IconHome, IconUser, IconSettings } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
 import { CardRow, FieldCard } from "../../types/game";
 import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
@@ -1253,6 +1253,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   }, []);
   const [state, setState] = useState<SimulationState | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
   const [isGameStatsOpen, setIsGameStatsOpen] = useState(false);
   const [gameStatsUnitSortKey, setGameStatsUnitSortKey] = useState<GameStatsUnitSortKey>("default");
@@ -1465,6 +1466,11 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   });
   const mobileTouchSourceElRef = useRef<HTMLElement | null>(null);
   const mobileTouchTapHandlerRef = useRef<(() => void) | null>(null);
+  const mobileHandRowRefA = useRef<HTMLDivElement | null>(null);
+  const mobileHandRowRefB = useRef<HTMLDivElement | null>(null);
+  const mobileSimulationShellRef = useRef<HTMLDivElement | null>(null);
+  const mobileHandTapHandlersRef = useRef<Record<string, () => void>>({});
+  const mobileHandTouchStartRef = useRef<(ev: TouchEvent) => void>(() => {});
   const [handDragHoverSlotKey, setHandDragHoverSlotKey] = useState<string | null>(null);
   const [simpanPeekFly, setSimpanPeekFly] = useState<SimpanPeekFlyVisualState | null>(null);
   const [danhaStealFly, setDanhaStealFly] = useState<DanhaStealFlyVisualState | null>(null);
@@ -8639,6 +8645,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     mobileTouchTapHandlerRef.current = null;
   };
 
+  const getMobileHandCardDragMetrics = () => {
+    const sourceEl = mobileTouchSourceElRef.current;
+    const rect = sourceEl?.getBoundingClientRect();
+    const width = rect?.width && rect.width > 0 ? rect.width : 90;
+    const height = rect?.height && rect.height > 0 ? rect.height : width * 1.58;
+    return { width, height, offsetX: width / 2, offsetY: height / 2 };
+  };
+
   const createMobileTouchGhost = (sourceEl: HTMLElement, clientX: number, clientY: number) => {
     removeMobileTouchGhost();
     const rect = sourceEl.getBoundingClientRect();
@@ -8695,14 +8709,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       setAttackOptionOverride(null);
     }
 
+    const { width, height, offsetX, offsetY } = getMobileHandCardDragMetrics();
     const next: HandDragState = {
       player,
       cardIndex,
       card,
-      width: 64,
-      height: 101,
-      offsetX: 32,
-      offsetY: 50.5,
+      width,
+      height,
+      offsetX,
+      offsetY,
       clientX,
       clientY,
       pointerId: -1,
@@ -8746,14 +8761,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const card = hand[cardIndex];
     if (!card) return;
 
+    const { width, height, offsetX, offsetY } = getMobileHandCardDragMetrics();
     const saved: HandDragState = {
       player,
       cardIndex,
       card,
-      width: 64,
-      height: 101,
-      offsetX: 32,
-      offsetY: 50.5,
+      width,
+      height,
+      offsetX,
+      offsetY,
       clientX,
       clientY,
       pointerId: -1,
@@ -8806,14 +8822,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
           const card = hand[cardIndex];
           if (card) {
+            const { width, height, offsetX, offsetY } = getMobileHandCardDragMetrics();
             commitHandDragDrop(ended.clientX, ended.clientY, {
               player,
               cardIndex,
               card,
-              width: 64,
-              height: 101,
-              offsetX: 32,
-              offsetY: 50.5,
+              width,
+              height,
+              offsetX,
+              offsetY,
               clientX: ended.clientX,
               clientY: ended.clientY,
               pointerId: -1,
@@ -8836,24 +8853,31 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     document.addEventListener("touchcancel", mobileTouchDocumentEnd, { passive: false });
   };
 
-  const mobileHandTouchStart = (
-    e: React.TouchEvent,
-    cardIndex: number,
-    player: "A" | "B",
-    card: CardRow | undefined,
-    onTap: () => void
-  ) => {
-    if (!card) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    e.preventDefault();
-    e.stopPropagation();
+  const handleMobileHandTouchStart = (ev: TouchEvent) => {
+    const cardEl = (ev.target as HTMLElement).closest("[data-mobile-hand-card]") as HTMLElement | null;
+    if (!cardEl) return;
+    if ((ev.target as HTMLElement).closest("button")) return;
 
-    const t = e.touches[0];
+    const player = cardEl.dataset.handPlayer as "A" | "B" | undefined;
+    const cardIndexRaw = cardEl.dataset.handIndex;
+    if ((player !== "A" && player !== "B") || cardIndexRaw === undefined) return;
+    const cardIndex = Number(cardIndexRaw);
+    if (!Number.isFinite(cardIndex)) return;
+    if (!state) return;
+
+    const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+    const card = hand[cardIndex];
+    if (!card) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const t = ev.touches[0];
     if (!t) return;
 
     resetMobileTouchDragRef();
-    mobileTouchSourceElRef.current = e.currentTarget as HTMLElement;
-    mobileTouchTapHandlerRef.current = onTap;
+    mobileTouchSourceElRef.current = cardEl;
+    mobileTouchTapHandlerRef.current = mobileHandTapHandlersRef.current[`${player}-${cardIndex}`] ?? null;
     touchDragRef.current = {
       cardIndex,
       player,
@@ -8864,20 +8888,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     };
     attachMobileTouchDocumentListeners();
   };
-
-  const mobileHandTouchMove = (e: React.TouchEvent) => {
-    if (touchDragRef.current.cardIndex < 0) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    if (!t) return;
-    beginMobileTouchDragIfNeeded(t.clientX, t.clientY);
-  };
-
-  const mobileHandTouchEnd = (e: React.TouchEvent) => {
-    if (touchDragRef.current.cardIndex < 0) return;
-    e.preventDefault();
-    mobileTouchDocumentEnd(e.nativeEvent);
-  };
+  mobileHandTouchStartRef.current = handleMobileHandTouchStart;
 
   const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
     if (e.button !== 0) return;
@@ -16338,7 +16349,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_BOARD_W = 540;
   const MOBILE_BOARD_H = 720;
   const MOBILE_HP_BAR_H = 8;
-  const MOBILE_HAND_H = 110;
+  const MOBILE_HAND_CARD_ASPECT = 1.58;
+  const MOBILE_HAND_OUTER_W_RATIO = 0.78;
+  const MOBILE_HAND_PAD_X = 6;
+  const MOBILE_HAND_PAD_Y = 4;
+  const MOBILE_HAND_GRID_GAP = 3;
+  const MOBILE_HAND_OUTER_W = MOBILE_BOARD_W * MOBILE_HAND_OUTER_W_RATIO;
+  const MOBILE_HAND_GRID_INNER_W = MOBILE_HAND_OUTER_W - MOBILE_HAND_PAD_X * 2;
+  const MOBILE_HAND_SLOT_W = (MOBILE_HAND_GRID_INNER_W - MOBILE_HAND_GRID_GAP * 5) / 6;
+  const MOBILE_HAND_CARD_H = MOBILE_HAND_SLOT_W * MOBILE_HAND_CARD_ASPECT;
+  const MOBILE_HAND_H = Math.ceil(MOBILE_HAND_CARD_H) + MOBILE_HAND_PAD_Y * 2 + 4;
   const MOBILE_MID_H = MOBILE_BOARD_H - MOBILE_HP_BAR_H * 2 - MOBILE_HAND_H * 2;
   const MOBILE_LEFT_W = 60;
   const MOBILE_CENTER_W = 380;
@@ -16347,8 +16367,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_UNIT_H = 114;
   const MOBILE_SPELL_W = 100;
   const MOBILE_SPELL_H = 63;
-  const MOBILE_HAND_CARD_W = 64;
-  const MOBILE_HAND_CARD_H = 101;
 
   const mobileFieldCardStyle =
     "shrink-0 rounded-[6px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
@@ -16365,13 +16383,46 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const BASE_W = 540;
       const BASE_H = 720;
       const scaleX = window.innerWidth / BASE_W;
-      const scaleY = window.innerHeight / BASE_H;
+      const scaleY = (window.innerHeight - 40) / BASE_H;
       setMobileScale(Math.min(scaleX, scaleY));
     };
     updateScale();
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);
   }, [isMobile]);
+
+  const mobileModalOverlayStyle: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    zIndex: 200,
+    backgroundColor: "rgba(0,0,0,0.75)",
+  };
+
+  const mobileSettingsModalPanelStyle: React.CSSProperties = {
+    position: "fixed",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "88%",
+    maxWidth: 360,
+    maxHeight: "min(80vh, 560px)",
+    overflowY: "auto",
+    padding: 16,
+    boxSizing: "border-box",
+  };
+
+  const mobileGameStatsModalPanelStyle: React.CSSProperties = {
+    position: "fixed",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "88%",
+    maxWidth: 360,
+    maxHeight: "80vh",
+    overflowY: "auto",
+    padding: 16,
+    boxSizing: "border-box",
+  };
 
   const SIM_MOBILE_TOUCH_LOCK_CLASS = "pp-simulation-mobile-touch-lock";
 
@@ -16390,6 +16441,41 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     document.body.classList.add(SIM_MOBILE_TOUCH_LOCK_CLASS);
     return clearSimulationMobileTouchLock;
   }, [isMobile]);
+
+  const mobileTouchPassiveFalseOpts: AddEventListenerOptions = { passive: false };
+
+  useEffect(() => {
+    if (!isMobile || !state) return;
+    const rowA = mobileHandRowRefA.current;
+    const rowB = mobileHandRowRefB.current;
+    if (!rowA || !rowB) return;
+
+    const onTouchStart = (ev: TouchEvent) => {
+      mobileHandTouchStartRef.current(ev);
+    };
+
+    rowA.addEventListener("touchstart", onTouchStart, mobileTouchPassiveFalseOpts);
+    rowB.addEventListener("touchstart", onTouchStart, mobileTouchPassiveFalseOpts);
+    return () => {
+      rowA.removeEventListener("touchstart", onTouchStart, mobileTouchPassiveFalseOpts);
+      rowB.removeEventListener("touchstart", onTouchStart, mobileTouchPassiveFalseOpts);
+    };
+  }, [isMobile, Boolean(state)]);
+
+  useEffect(() => {
+    if (!isMobile || !state) return;
+    const shell = mobileSimulationShellRef.current;
+    if (!shell) return;
+
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+    };
+
+    shell.addEventListener("touchmove", onTouchMove, mobileTouchPassiveFalseOpts);
+    return () => {
+      shell.removeEventListener("touchmove", onTouchMove, mobileTouchPassiveFalseOpts);
+    };
+  }, [isMobile, Boolean(state)]);
 
   useEffect(() => {
     return () => {
@@ -16726,22 +16812,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div
+        ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
         style={{
-          width: MOBILE_BOARD_W,
+          width: "78%",
+          marginLeft: "auto",
+          marginRight: "auto",
           height: MOBILE_HAND_H,
           border: `2px solid ${borderColor}`,
           borderRadius: 12,
           background: bgColor,
-          overflowX: "auto",
-          overflowY: "hidden",
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingLeft: 8,
-          paddingRight: 8,
+          overflow: "hidden",
+          display: "grid",
+          gridTemplateColumns: "repeat(6, 1fr)",
+          gap: MOBILE_HAND_GRID_GAP,
+          paddingTop: MOBILE_HAND_PAD_Y,
+          paddingBottom: MOBILE_HAND_PAD_Y,
+          paddingLeft: MOBILE_HAND_PAD_X,
+          paddingRight: MOBILE_HAND_PAD_X,
           boxSizing: "border-box",
-          touchAction: "pan-x",
+          touchAction: "none",
         }}
       >
           {Array.from({ length: 6 }).map((_, i) => {
@@ -16776,13 +16865,31 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const isDanhaStealFlySource =
               danhaStealFly?.victimPlayer === player && danhaStealFly.victimHandIndex === i;
 
+            mobileHandTapHandlersRef.current[`${player}-${i}`] = () => {
+              if (simpanPick) {
+                resolveSimpanHandPick(player, i);
+              } else if (witchTarotDiscard) {
+                resolveWitchTarotDiscard(player, i);
+              } else if (momoDiscard) {
+                handleSkillDiscard(i, player);
+              } else if (danhaSteal) {
+                handleDanhaSteal(i, player);
+              }
+            };
+
             return (
               <div
                 key={i}
                 ref={el => {
                   handRefs.current[i] = el;
                 }}
-                style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, position: "relative", flexShrink: 0 }}
+                style={{
+                  width: "100%",
+                  minWidth: 0,
+                  aspectRatio: "1 / 1.58",
+                  position: "relative",
+                  alignSelf: "center",
+                }}
               >
                 <div
                   draggable={false}
@@ -16801,22 +16908,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                                 : "border border-rose-400/40 bg-rose-950/60"
                       : "border border-dashed border-slate-700/50 bg-transparent"
                   } ${isDragSource || isDanhaStealFlySource ? "opacity-0 pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
-                  style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, touchAction: "none" }}
-                  onTouchStart={e =>
-                    mobileHandTouchStart(e, i, player, card, () => {
-                      if (simpanPick) {
-                        resolveSimpanHandPick(player, i);
-                      } else if (witchTarotDiscard) {
-                        resolveWitchTarotDiscard(player, i);
-                      } else if (momoDiscard) {
-                        handleSkillDiscard(i, player);
-                      } else if (danhaSteal) {
-                        handleDanhaSteal(i, player);
-                      }
-                    })
-                  }
-                  onTouchMove={mobileHandTouchMove}
-                  onTouchEnd={mobileHandTouchEnd}
+                  style={{ width: "100%", height: "100%", touchAction: "none" }}
+                  data-mobile-hand-card="1"
+                  data-hand-player={player}
+                  data-hand-index={i}
                 >
                   {card && hasBubbleStationHandDiscardFlashMark(card) ? (
                     <div className="absolute inset-0 z-[6] rounded-[6px] pp-bubble-station-hand-wipe pointer-events-none" aria-hidden />
@@ -16830,7 +16925,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   {card ? (
                     <div
                       className={handCardFaceClipClass}
-                      style={{ width: MOBILE_HAND_CARD_W, height: MOBILE_HAND_CARD_H, ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
+                      style={{ width: "100%", height: "100%", ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
                       onContextMenu={preventImageContextMenu}
                     >
                       {card.image_url ? (
@@ -16838,8 +16933,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                           src={card.image_url}
                           alt={card.name}
                           style={{
-                            width: MOBILE_HAND_CARD_W,
-                            height: MOBILE_HAND_CARD_H,
+                            width: "100%",
+                            height: "100%",
                             objectFit: "cover",
                             transform: !isPlayerA && state.settings.isOpponentCardFlipped ? "rotate(180deg)" : undefined,
                           }}
@@ -17198,15 +17293,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       {isGameStatsOpen && state && (
         <div
-          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          style={isMobile ? mobileModalOverlayStyle : undefined}
+          className={
+            isMobile
+              ? undefined
+              : "fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          }
           onClick={() => setIsGameStatsOpen(false)}
         >
           <div
-            className="bg-[#0a1628] border-2 border-slate-600 rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+            style={isMobile ? mobileGameStatsModalPanelStyle : undefined}
+            className={
+              isMobile
+                ? "bg-[#0a1628] border-2 border-slate-600 rounded-2xl shadow-2xl text-[13px]"
+                : "bg-[#0a1628] border-2 border-slate-600 rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+            }
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-700 shrink-0">
-              <h2 className="text-xl font-black text-white tracking-wide">게임 통계</h2>
+            <div
+              className={`flex items-center justify-between gap-4 border-b border-slate-700 shrink-0 ${
+                isMobile ? "pb-3 mb-3" : "px-5 py-4"
+              }`}
+            >
+              <h2
+                className={`font-black text-white tracking-wide ${isMobile ? "text-[18px]" : "text-xl"}`}
+              >
+                게임 통계
+              </h2>
               <button
                 type="button"
                 className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 border border-slate-600"
@@ -17215,7 +17328,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 닫기
               </button>
             </div>
-            <div className="px-5 py-4 text-sm text-slate-300 border-b border-slate-800 shrink-0 space-y-1">
+            <div
+              className={`text-slate-300 border-b border-slate-800 shrink-0 space-y-1 ${
+                isMobile ? "pb-3 mb-3 text-[13px]" : "px-5 py-4 text-sm"
+              }`}
+            >
               <p>
                 <span className="text-slate-500">턴 수</span>{" "}
                 <span className="font-mono font-bold text-amber-200">{state.turnCount}</span>
@@ -17236,9 +17353,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 필드에 코스트를 지불하고 배치한 유닛만 집계합니다. 감소된 피해는 반짓고리·방어 패시브·무적 등으로 막거나 줄인 양의 합(추정)입니다. 피해·회복·감소 피해 수치는 표시만 50 단위로 반올림합니다(처치 제외).
               </p>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-8">
+            <div className={isMobile ? "space-y-6" : "overflow-y-auto flex-1 px-5 py-4 space-y-8"}>
               <section>
-                <h3 className="text-sm font-black text-emerald-400 mb-3 tracking-wider">유닛</h3>
+                <h3
+                  className={`font-black text-emerald-400 mb-3 tracking-wider ${
+                    isMobile ? "text-[13px]" : "text-sm"
+                  }`}
+                >
+                  유닛
+                </h3>
                 {gameStatsDisplayUnitRows.length === 0 ? (
                   <p className="text-sm text-slate-500">아직 기록된 유닛이 없습니다.</p>
                 ) : (
@@ -17491,8 +17614,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 )}
               </section>
               <section>
-                <h3 className="text-sm font-black text-violet-400 mb-3 tracking-wider">마법 카드</h3>
-                <p className="text-xs text-slate-500 mb-3">배치된 마법만 목록으로 표시합니다. 상세 통계는 이후 버전에서 추가됩니다.</p>
+                <h3
+                  className={`font-black text-violet-400 mb-3 tracking-wider ${
+                    isMobile ? "text-[13px]" : "text-sm"
+                  }`}
+                >
+                  마법 카드
+                </h3>
+                <p className={`text-slate-500 mb-3 ${isMobile ? "text-[13px]" : "text-xs"}`}>
+                  배치된 마법만 목록으로 표시합니다. 상세 통계는 이후 버전에서 추가됩니다.
+                </p>
                 {state.spellDeployLog.length === 0 ? (
                   <p className="text-sm text-slate-500">배치된 마법이 없습니다.</p>
                 ) : (
@@ -17518,13 +17649,38 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       )}
 
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]" onClick={() => setIsSettingsOpen(false)}>
-          <div className="bg-[#0a1628] border-2 border-slate-700 rounded-[2rem] p-8 w-full max-w-sm shadow-2xl flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-black text-white mb-6 border-b border-slate-700 pb-4 w-full text-center tracking-wider">게임 설정</h2>
-            
-            <div className="flex flex-col gap-4 w-full py-4">
-              
-              <div className="flex items-center justify-between w-full bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+        <div
+          style={isMobile ? mobileModalOverlayStyle : undefined}
+          className={
+            isMobile
+              ? undefined
+              : "fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]"
+          }
+          onClick={() => setIsSettingsOpen(false)}
+        >
+          <div
+            style={isMobile ? mobileSettingsModalPanelStyle : undefined}
+            className={
+              isMobile
+                ? "bg-[#0a1628] border-2 border-slate-700 rounded-2xl shadow-2xl flex flex-col items-center w-full"
+                : "bg-[#0a1628] border-2 border-slate-700 rounded-[2rem] p-8 w-full max-w-sm shadow-2xl flex flex-col items-center"
+            }
+            onClick={e => e.stopPropagation()}
+          >
+            <h2
+              className={`font-black text-white border-b border-slate-700 w-full text-center tracking-wider ${
+                isMobile ? "text-[18px] mb-4 pb-3" : "text-2xl mb-6 pb-4"
+              }`}
+            >
+              게임 설정
+            </h2>
+
+            <div className={`flex flex-col gap-4 w-full ${isMobile ? "" : "py-4"}`}>
+              <div
+                className={`flex items-center justify-between w-full bg-slate-800/50 rounded-xl border border-slate-700 ${
+                  isMobile ? "p-3" : "p-4"
+                }`}
+              >
                 <div className="flex flex-col text-left mr-4">
                   <h4 className="text-white font-bold mb-1">카드 뽑기 방식</h4>
                   <p className="text-[11px] text-slate-400 leading-snug">
@@ -17547,7 +17703,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </button>
               </div>
 
-              <div className="flex items-center justify-between w-full bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+              <div
+                className={`flex items-center justify-between w-full bg-slate-800/50 rounded-xl border border-slate-700 ${
+                  isMobile ? "p-3" : "p-4"
+                }`}
+              >
                 <div className="flex flex-col text-left mr-4">
                   <h4 className="text-white font-bold mb-1">턴 제한 시간 (1분)</h4>
                   <p className="text-[11px] text-slate-400 leading-snug">
@@ -17570,7 +17730,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </button>
               </div>
 
-              <div className="flex items-center justify-between w-full bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+              <div
+                className={`flex items-center justify-between w-full bg-slate-800/50 rounded-xl border border-slate-700 ${
+                  isMobile ? "p-3" : "p-4"
+                }`}
+              >
                 <div className="flex flex-col text-left mr-4">
                   <h4 className="text-white font-bold mb-1">상대 카드 회전 (180도)</h4>
                   <p className="text-[11px] text-slate-400 leading-snug">
@@ -17948,33 +18112,257 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       {isMobile ? (
         <div
+          ref={mobileSimulationShellRef}
           onContextMenu={preventImageContextMenu}
-          onTouchMove={e => e.preventDefault()}
           style={{
             position: "fixed",
             inset: 0,
             backgroundColor: "black",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            flexDirection: "column",
+            alignItems: "stretch",
+            justifyContent: "flex-start",
             touchAction: "none",
             overflow: "hidden",
           }}
         >
+          {/* 모바일 상단 헤더(단순) */}
           <div
             style={{
-              width: MOBILE_BOARD_W,
-              height: MOBILE_BOARD_H,
-              transform: `scale(${mobileScale})`,
-              transformOrigin: "center center",
-              position: "relative",
-              overflow: "hidden",
-              flexShrink: 0,
-              background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
-              border: "2px solid #1e293b",
+              height: 40,
+              width: "100%",
+              backgroundColor: "rgba(10,22,40,0.95)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              position: "absolute",
+              top: 0,
+              left: 0,
+              boxSizing: "border-box",
+              paddingLeft: 6,
+              paddingRight: 8,
+              zIndex: 20,
+            }}
+          >
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setIsDrawerOpen(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingLeft: 8,
+                paddingRight: 8,
+                minWidth: 44,
+                minHeight: 40,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ width: 20, height: 2, borderRadius: 9999, backgroundColor: "#e5e7eb" }} />
+                <span style={{ width: 20, height: 2, borderRadius: 9999, backgroundColor: "#e5e7eb" }} />
+                <span style={{ width: 20, height: 2, borderRadius: 9999, backgroundColor: "#e5e7eb" }} />
+              </div>
+            </button>
+          </div>
+
+          {isDrawerOpen ? (
+            <div
+              role="presentation"
+              onClick={() => setIsDrawerOpen(false)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                backgroundColor: "rgba(0,0,0,0.5)",
+                zIndex: 9998,
+                pointerEvents: "auto",
+              }}
+            />
+          ) : null}
+
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: 220,
+              zIndex: 9999,
+              backgroundColor: "rgb(10, 22, 40)",
+              borderRightWidth: "1px",
+              borderRightStyle: "solid",
+              borderRightColor: "rgba(255,255,255,0.1)",
+              transform: isDrawerOpen ? "translateX(0)" : "translateX(-100%)",
+              transition: "transform 300ms ease",
+              pointerEvents: isDrawerOpen ? "auto" : "none",
               boxSizing: "border-box",
             }}
           >
+            <button
+              type="button"
+              style={{
+                height: 52,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                paddingLeft: 20,
+                gap: 8,
+                fontSize: 15,
+                fontWeight: "bold",
+                color: "white",
+                background: "transparent",
+                borderTopWidth: 0,
+                borderLeftWidth: 0,
+                borderRightWidth: 0,
+                borderBottomWidth: "1px",
+                borderBottomStyle: "solid",
+                borderBottomColor: "rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+              onClick={() => {
+                setIsDrawerOpen(false);
+                if (onBackToLobby) onBackToLobby();
+                else window.location.href = "/";
+              }}
+            >
+              <IconHome className="w-5 h-5 shrink-0" />
+              로비로 돌아가기
+            </button>
+            <button
+              type="button"
+              style={{
+                height: 52,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                paddingLeft: 20,
+                gap: 8,
+                fontSize: 15,
+                fontWeight: "bold",
+                color: "white",
+                background: "transparent",
+                borderTopWidth: 0,
+                borderLeftWidth: 0,
+                borderRightWidth: 0,
+                borderBottomWidth: "1px",
+                borderBottomStyle: "solid",
+                borderBottomColor: "rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+              onClick={() => {
+                setIsDrawerOpen(false);
+                handleReset();
+              }}
+            >
+              <svg
+                className="w-5 h-5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              게임 초기화
+            </button>
+            <button
+              type="button"
+              style={{
+                height: 52,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                paddingLeft: 20,
+                gap: 8,
+                fontSize: 15,
+                fontWeight: "bold",
+                color: "white",
+                background: "transparent",
+                borderTopWidth: 0,
+                borderLeftWidth: 0,
+                borderRightWidth: 0,
+                borderBottomWidth: "1px",
+                borderBottomStyle: "solid",
+                borderBottomColor: "rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+              onClick={() => {
+                setIsDrawerOpen(false);
+                setIsSettingsOpen(true);
+              }}
+            >
+              <IconSettings className="w-5 h-5 shrink-0" />
+              게임 설정
+            </button>
+            <button
+              type="button"
+              style={{
+                height: 52,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                paddingLeft: 20,
+                gap: 8,
+                fontSize: 15,
+                fontWeight: "bold",
+                color: "white",
+                background: "transparent",
+                borderTopWidth: 0,
+                borderLeftWidth: 0,
+                borderRightWidth: 0,
+                borderBottomWidth: "1px",
+                borderBottomStyle: "solid",
+                borderBottomColor: "rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+              onClick={() => {
+                setIsDrawerOpen(false);
+                setIsGameStatsOpen(true);
+              }}
+            >
+              <IconBook className="w-5 h-5 shrink-0" />
+              게임 통계
+            </button>
+          </div>
+
+          {/* 헤더 아래 게임 영역 */}
+          <div
+            style={{
+              width: "100%",
+              height: "calc(100% - 40px)",
+              marginTop: 40,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              style={{
+                width: MOBILE_BOARD_W,
+                height: MOBILE_BOARD_H,
+                transform: `scale(${mobileScale})`,
+                transformOrigin: "center center",
+                position: "relative",
+                overflow: "hidden",
+                flexShrink: 0,
+                background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
+                border: "2px solid #1e293b",
+                boxSizing: "border-box",
+              }}
+            >
           {isInitializing && (
             <div
               style={{
@@ -18342,6 +18730,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderMobilePlayerHpBar("A")}
           </div>
           </div>
+        </div>
         </div>
       ) : null}
 
@@ -18966,15 +19355,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                        <div className={handCardFaceClipClass}>
                          {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{card.name}</span>}
                          
-                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
-                           <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
-                             상세 보기
-                           </button>
-                         </div>
-                       </div>
-                     ) : (
-                       <IconDeck className="w-8 h-8 text-rose-300 opacity-20" />
-                     )}
+                        <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
+                          <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
+                            상세 보기
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <IconDeck className="w-8 h-8 text-rose-300 opacity-20" />
+                    )}
                   </div>
                     {renderFlashOverlay(`hand-B-${i}`, "rounded-[8px]")}
                   </div>

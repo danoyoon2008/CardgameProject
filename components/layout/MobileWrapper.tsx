@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePreventUiTextSelection } from "../../hooks/usePreventUiTextSelection";
 import { preventImageContextMenu } from "../ui/GuardedImg";
 import { MOBILE_LOBBY_BASE_W } from "./mobile/mobileLobbyConstants";
 
@@ -11,6 +12,7 @@ type MobileWrapperProps = {
 };
 
 export default function MobileWrapper({ children }: MobileWrapperProps) {
+  usePreventUiTextSelection(true);
   const [mobileScale, setMobileScale] = useState(1);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const outerRef = useRef<HTMLDivElement>(null);
