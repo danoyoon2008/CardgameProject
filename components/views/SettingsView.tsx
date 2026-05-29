@@ -4,6 +4,9 @@
 import type { User } from "@supabase/supabase-js";
 import { IconSettings, IconUser } from "../ui/Icons";
 
+import MobileViewShell from "../layout/mobile/MobileViewShell";
+import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
+
 interface SettingsViewProps {
   isDarkMode: boolean;
   setIsDarkMode: (val: boolean) => void;
@@ -13,12 +16,95 @@ interface SettingsViewProps {
   handleEditNickname: () => void;
   handleLogout: () => void;
   handleResetData: () => void;
+  layoutMobile?: boolean;
 }
 
 export default function SettingsView({
   isDarkMode, setIsDarkMode, volume, setVolume,
-  user, handleEditNickname, handleLogout, handleResetData
+  user, handleEditNickname, handleLogout, handleResetData,
+  layoutMobile = false,
 }: SettingsViewProps) {
+  if (layoutMobile) {
+    const sectionStyle = {
+      width: MOBILE_LOBBY_CONTENT_W,
+      borderRadius: 16,
+      border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid #cbd5e1",
+      background: isDarkMode ? "rgba(255,255,255,0.05)" : "#fff",
+      padding: 20,
+      boxSizing: "border-box" as const,
+      marginBottom: 20,
+    };
+
+    return (
+      <MobileViewShell isDarkMode={isDarkMode}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 20px", color: isDarkMode ? "#fff" : "#0f172a" }}>환경 설정</h1>
+        <section style={sectionStyle}>
+          <h2 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: isDarkMode ? "#fff" : "#0f172a" }}>화면 및 사운드</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 500, color: isDarkMode ? "#e2e8f0" : "#334155" }}>다크 모드</div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>어두운 테마를 사용합니다</div>
+            </div>
+            <button type="button" onClick={() => setIsDarkMode(!isDarkMode)} style={{ width: 44, height: 24, borderRadius: 999, border: "none", background: isDarkMode ? "#0ea5e9" : "#cbd5e1", position: "relative" }}>
+              <span style={{ position: "absolute", top: 4, left: isDarkMode ? 24 : 4, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+            </button>
+          </div>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 500, color: isDarkMode ? "#e2e8f0" : "#334155" }}>전체 음량</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#0ea5e9" }}>{volume}%</span>
+            </div>
+            <input type="range" min={0} max={100} value={volume} onChange={e => setVolume(Number(e.target.value))} style={{ width: "100%", height: 8 }} />
+          </div>
+        </section>
+        <section style={sectionStyle}>
+          <h2 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: isDarkMode ? "#fff" : "#0f172a" }}>계정 관리</h2>
+          {[
+            { title: "닉네임 변경", desc: "게임 내 표시 이름", action: handleEditNickname, label: user ? "변경하기" : "비로그인", disabled: !user },
+            { title: "로그아웃", desc: "계정 세션 종료", action: handleLogout, label: user ? "로그아웃" : "비로그인", disabled: !user },
+            { title: "계정 정보 초기화", desc: "덱·재화 삭제", action: handleResetData, label: "데이터 초기화", danger: true },
+          ].map(row => (
+            <div
+              key={row.title}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                padding: 16,
+                borderRadius: 12,
+                border: row.danger ? "1px solid rgba(244,63,94,0.45)" : isDarkMode ? "1px solid #334155" : "1px solid #e2e8f0",
+                background: row.danger ? "rgba(76,5,25,0.35)" : isDarkMode ? "rgba(30,41,59,0.5)" : "#f8fafc",
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 500, color: row.danger ? "#fb7185" : isDarkMode ? "#e2e8f0" : "#334155" }}>{row.title}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{row.desc}</div>
+              </div>
+              <button
+                type="button"
+                onClick={row.action}
+                disabled={row.disabled}
+                style={{
+                  height: 40,
+                  borderRadius: 8,
+                  border: "none",
+                  background: row.danger ? "rgba(244,63,94,0.25)" : "#0ea5e9",
+                  color: row.danger ? "#fda4af" : "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  opacity: row.disabled ? 0.5 : 1,
+                }}
+              >
+                {row.label}
+              </button>
+            </div>
+          ))}
+        </section>
+      </MobileViewShell>
+    );
+  }
+
   return (
     <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 py-4 sm:py-8">
       <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8 tracking-tight">환경 설정</h1>

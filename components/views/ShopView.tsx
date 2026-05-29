@@ -2,6 +2,8 @@
 "use client";
 
 import { IconBook, IconGold, IconShard } from "../ui/Icons";
+import MobileViewShell from "../layout/mobile/MobileViewShell";
+import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
 
 interface ShopViewProps {
   gold: number;
@@ -10,6 +12,7 @@ interface ShopViewProps {
   handleGacha: (count: number) => void;
   setShowProbModal: (val: boolean) => void;
   setIsShardShopOpen: (val: boolean) => void;
+  layoutMobile?: boolean;
 }
 
 export default function ShopView({
@@ -18,8 +21,139 @@ export default function ShopView({
   isDarkMode,
   handleGacha,
   setShowProbModal,
-  setIsShardShopOpen
+  setIsShardShopOpen,
+  layoutMobile = false,
 }: ShopViewProps) {
+  if (layoutMobile) {
+    const panelBg = isDarkMode
+      ? "linear-gradient(180deg, #1e293b 0%, #0f172a 100%)"
+      : "#ffffff";
+    const panelBorder = isDarkMode ? "rgba(245,158,11,0.35)" : "#fcd34d";
+
+    return (
+      <MobileViewShell isDarkMode={isDarkMode}>
+        <header style={{ textAlign: "center", marginBottom: 28 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 900, margin: "0 0 8px", color: "#fbbf24" }}>차원 소환 상점</h1>
+          <p style={{ fontSize: 14, margin: 0, color: "#94a3b8" }}>골드를 사용하여 새로운 차원의 카드를 수집하세요.</p>
+        </header>
+
+        <div
+          style={{
+            width: MOBILE_LOBBY_CONTENT_W,
+            borderRadius: 24,
+            border: `2px solid ${panelBorder}`,
+            background: panelBg,
+            padding: 32,
+            boxSizing: "border-box",
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <IconBook className="h-20 w-20 text-amber-400 mb-4" />
+            <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 16px", color: isDarkMode ? "#fff" : "#0f172a" }}>일반 소환</h2>
+            <button
+              type="button"
+              onClick={() => setShowProbModal(true)}
+              style={{
+                height: 32,
+                paddingLeft: 12,
+                paddingRight: 12,
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(0,0,0,0.3)",
+                color: "rgba(253,230,138,0.9)",
+                fontSize: 12,
+                marginBottom: 28,
+              }}
+            >
+              상세 확률 보기
+            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
+              <button
+                type="button"
+                onClick={() => handleGacha(1)}
+                disabled={cardsLoading || gold < 300}
+                style={{
+                  width: "100%",
+                  height: 72,
+                  borderRadius: 16,
+                  border: "1px solid #475569",
+                  background: "rgba(51,65,85,0.55)",
+                  color: "#fff",
+                  fontSize: 16,
+                  fontWeight: 700,
+                }}
+              >
+                1회 소환 · 300
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGacha(10)}
+                disabled={cardsLoading || gold < 3000}
+                style={{
+                  width: "100%",
+                  height: 72,
+                  borderRadius: 16,
+                  border: "1px solid #fbbf24",
+                  background: "linear-gradient(180deg, #f59e0b 0%, #d97706 100%)",
+                  color: "#fff",
+                  fontSize: 16,
+                  fontWeight: 700,
+                }}
+              >
+                10회 연속 소환 · 3000
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsShardShopOpen(true)}
+          style={{
+            width: MOBILE_LOBBY_CONTENT_W,
+            height: 88,
+            borderRadius: 16,
+            border: "1px solid rgba(34,211,238,0.35)",
+            background: "linear-gradient(90deg, #1e293b 0%, #0a1628 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingLeft: 16,
+            paddingRight: 16,
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "#083344",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(34,211,238,0.45)",
+              }}
+            >
+              <IconShard className="h-6 w-6 text-cyan-400" />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff" }}>차원 파편 상점</h3>
+              <p style={{ margin: 0, marginTop: 4, fontSize: 12, color: "rgba(103,232,249,0.75)" }}>
+                중복 카드 파편으로 원하는 카드를 확정 획득
+              </p>
+            </div>
+          </div>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#22d3ee", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(34,211,238,0.25)", background: "rgba(8,51,68,0.65)" }}>
+            입장하기
+          </span>
+        </button>
+      </MobileViewShell>
+    );
+  }
+
   return (
     <div className="w-full max-w-5xl mx-auto px-2 sm:px-4 py-6 sm:py-8 flex flex-col items-center">
       <header className="mb-8 text-center">

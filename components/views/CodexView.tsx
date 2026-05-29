@@ -5,6 +5,9 @@ import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { getRarityWeight } from "../../utils/cardUtils";
 
+import MobileViewShell from "../layout/mobile/MobileViewShell";
+import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
+
 interface CodexViewProps {
   cards: CardRow[];
   loading: boolean;
@@ -16,13 +19,17 @@ interface CodexViewProps {
   setShowOutline: (val: boolean) => void;
   newCardIds: Set<number>;
   onOpenDetail: (card: CardRow) => void;
+  layoutMobile?: boolean;
+  isDarkMode?: boolean;
 }
 
 export default function CodexView({
   cards, loading, sortOption, setSortOption,
   filterOwnedFirst, setFilterOwnedFirst,
   showOutline, setShowOutline,
-  newCardIds, onOpenDetail
+  newCardIds, onOpenDetail,
+  layoutMobile = false,
+  isDarkMode = true,
 }: CodexViewProps) {
   
   const sortedCards = useMemo(() => {
@@ -40,6 +47,83 @@ export default function CodexView({
     });
     return arr;
   }, [cards, sortOption, filterOwnedFirst]);
+
+  if (layoutMobile) {
+    return (
+      <MobileViewShell isDarkMode={isDarkMode}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 16px", color: isDarkMode ? "#fff" : "#0f172a" }}>카드 도감</h1>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            marginBottom: 20,
+            paddingBottom: 16,
+            borderBottom: "1px solid rgba(255,255,255,0.1)",
+          }}
+        >
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: filterOwnedFirst ? "#7dd3fc" : "#94a3b8" }}>
+            <input type="checkbox" checked={filterOwnedFirst} onChange={e => setFilterOwnedFirst(e.target.checked)} style={{ width: 16, height: 16 }} />
+            획득 카드 우선
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: showOutline ? "#c4b5fd" : "#94a3b8" }}>
+            <input type="checkbox" checked={showOutline} onChange={e => setShowOutline(e.target.checked)} style={{ width: 16, height: 16 }} />
+            윤곽선 표시
+          </label>
+          <select
+            value={sortOption}
+            onChange={e => setSortOption(e.target.value)}
+            style={{
+              height: 40,
+              width: "100%",
+              maxWidth: MOBILE_LOBBY_CONTENT_W,
+              borderRadius: 8,
+              border: "1px solid #475569",
+              background: "#1e293b",
+              color: "#e2e8f0",
+              fontSize: 14,
+              paddingLeft: 12,
+              paddingRight: 12,
+            }}
+          >
+            <option value="number_asc">번호 오름차순</option>
+            <option value="number_desc">번호 내림차순</option>
+            <option value="rarity_asc">등급 오름차순</option>
+            <option value="rarity_desc">등급 내림차순</option>
+            <option value="cost_asc">코스트 오름차순</option>
+            <option value="cost_desc">코스트 내림차순</option>
+          </select>
+        </div>
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", color: "#38bdf8" }}>
+            <div style={{ width: 32, height: 32, border: "2px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", marginBottom: 16 }} />
+            <p style={{ fontSize: 14, margin: 0 }}>카드 목록 불러오는 중...</p>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 86px)",
+              gap: 12,
+              justifyContent: "space-between",
+              width: MOBILE_LOBBY_CONTENT_W,
+            }}
+          >
+            {sortedCards.map((card, index) => (
+              <div key={card.id ?? `card-${index}`} style={{ width: 86 }}>
+                <CardPlaceholder
+                  card={card}
+                  onOpenDetail={onOpenDetail}
+                  isNew={newCardIds.has(Number(card.id))}
+                  showOutline={showOutline}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </MobileViewShell>
+    );
+  }
 
   return (
     <div className="w-full px-2 pb-8 pt-2 sm:px-4 sm:pt-4">

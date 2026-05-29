@@ -5,6 +5,8 @@ import { RefObject } from "react";
 import { CardRow } from "../../types/game";
 import { CardPlaceholder } from "../ui/Card";
 import { IconDeck, IconBook } from "../ui/Icons";
+import MobileViewShell from "../layout/mobile/MobileViewShell";
+import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
 
 interface DeckViewProps {
   deck: number[];
@@ -21,14 +23,132 @@ interface DeckViewProps {
   sortOption: string;
   setSortOption: (val: string) => void;
   cardsLoading: boolean;
+  layoutMobile?: boolean;
+  isDarkMode?: boolean;
 }
+
+const MOBILE_DECK_SLOT_W = 58;
 
 export default function DeckView({
   deck, cards, deckAvailableCards, deckContainerRef,
   selectedForDeck, setSelectedForDeck, handleSlotReplace,
   handleOpenCardDetail, handleSelectForDeck,
-  showOutline, setShowOutline, sortOption, setSortOption, cardsLoading
+  showOutline, setShowOutline, sortOption, setSortOption, cardsLoading,
+  layoutMobile = false,
+  isDarkMode = true,
 }: DeckViewProps) {
+  if (layoutMobile) {
+    return (
+      <MobileViewShell isDarkMode={isDarkMode}>
+        <div ref={deckContainerRef}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 12 }}>
+            <div>
+              <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, color: isDarkMode ? "#fff" : "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
+                <IconDeck className="h-7 w-7 text-sky-400" /> 덱 구성
+              </h1>
+              <p style={{ fontSize: 14, margin: "6px 0 0", color: "#94a3b8" }}>전장에 나설 12장의 카드를 선택하세요.</p>
+            </div>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.35)", background: "rgba(69,26,3,0.45)" }}>
+              {deck.length} / 12
+            </span>
+          </div>
+
+          {selectedForDeck ? (
+            <div style={{ marginBottom: 16, padding: 14, borderRadius: 12, border: "1px solid rgba(245,158,11,0.5)", background: "rgba(245,158,11,0.15)", textAlign: "center" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#fde68a" }}>배치할 슬롯 선택: [{selectedForDeck.name}]</span>
+              <button type="button" onClick={() => setSelectedForDeck(null)} style={{ display: "block", margin: "10px auto 0", height: 32, padding: "0 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(0,0,0,0.35)", color: "#fff", fontSize: 13 }}>
+                선택 취소
+              </button>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(6, ${MOBILE_DECK_SLOT_W}px)`,
+              gap: 8,
+              justifyContent: "center",
+              padding: 16,
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(0,0,0,0.3)",
+              marginBottom: 28,
+            }}
+          >
+            {deck.map((cardId, index) => {
+              const card = cards.find(c => Number(c.id) === cardId);
+              return (
+                <div
+                  key={`deck-slot-${index}`}
+                  onClick={() => {
+                    if (selectedForDeck) handleSlotReplace(index);
+                  }}
+                  style={{
+                    width: MOBILE_DECK_SLOT_W,
+                    height: Math.round(MOBILE_DECK_SLOT_W * (85.6 / 53.98)),
+                    borderRadius: 8,
+                    cursor: selectedForDeck ? "pointer" : "default",
+                    boxShadow: selectedForDeck ? "0 0 12px rgba(251,191,36,0.45)" : undefined,
+                  }}
+                >
+                  {card ? (
+                    <CardPlaceholder card={card} showOutline={showOutline} onOpenDetail={handleOpenCardDetail} />
+                  ) : (
+                    <div style={{ width: "100%", height: "100%", borderRadius: 8, border: "2px dashed rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)", color: "rgba(255,255,255,0.35)", fontWeight: 700, fontSize: 16 }}>
+                      {index + 1}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px", color: isDarkMode ? "#e2e8f0" : "#334155", display: "flex", alignItems: "center", gap: 8 }}>
+            <IconBook className="h-5 w-5 text-indigo-400" /> 보유 카드
+          </h2>
+          <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: showOutline ? "#c4b5fd" : "#94a3b8" }}>
+              <input type="checkbox" checked={showOutline} onChange={e => setShowOutline(e.target.checked)} style={{ width: 16, height: 16 }} />
+              윤곽선 표시
+            </label>
+            <select
+              value={sortOption}
+              onChange={e => setSortOption(e.target.value)}
+              style={{ height: 40, width: "100%", borderRadius: 8, border: "1px solid #475569", background: "#1e293b", color: "#e2e8f0", fontSize: 14, padding: "0 12px" }}
+            >
+              <option value="number_asc">번호 오름차순</option>
+              <option value="number_desc">번호 내림차순</option>
+              <option value="rarity_asc">등급 오름차순</option>
+              <option value="rarity_desc">등급 내림차순</option>
+              <option value="cost_asc">코스트 오름차순</option>
+              <option value="cost_desc">코스트 내림차순</option>
+            </select>
+          </div>
+
+          {cardsLoading ? (
+            <p style={{ textAlign: "center", color: "#38bdf8", fontSize: 14, padding: "32px 0" }}>보유 카드를 불러오는 중...</p>
+          ) : deckAvailableCards.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#64748b", fontSize: 14, padding: "32px 0" }}>보유한 카드가 없습니다.</p>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 86px)", gap: 12, justifyContent: "space-between", width: MOBILE_LOBBY_CONTENT_W }}>
+              {deckAvailableCards.map((card, index) => (
+                <div key={card.id ?? `deck-card-${index}`} style={{ width: 86 }}>
+                  <CardPlaceholder
+                    card={card}
+                    onOpenDetail={handleOpenCardDetail}
+                    onSelectForDeck={handleSelectForDeck}
+                    showOutline={showOutline}
+                    inDeck={deck.includes(Number(card.id))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </MobileViewShell>
+    );
+  }
+
   return (
     <div className="w-full px-2 pb-8 pt-2 sm:px-4 sm:pt-4 scroll-mt-24" ref={deckContainerRef}>
       <div className="mx-auto max-w-6xl">

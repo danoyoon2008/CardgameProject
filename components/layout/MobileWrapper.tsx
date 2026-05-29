@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MOBILE_LOBBY_BASE_W } from "./mobile/mobileLobbyConstants";
 
-const MOBILE_BASE_W = 540;
 const MOBILE_LOBBY_CLASS = "pp-mobile-lobby";
 
 type MobileWrapperProps = {
@@ -16,7 +16,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
 
   useEffect(() => {
     const updateScale = () => {
-      setMobileScale(Math.min(window.innerWidth / MOBILE_BASE_W, 1));
+      setMobileScale(Math.min(window.innerWidth / MOBILE_LOBBY_BASE_W, 1));
     };
     updateScale();
     window.addEventListener("resize", updateScale);
@@ -43,6 +43,9 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
     if (!el) return;
 
     const onTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".pp-mobile-lobby-scroll")) return;
+
       const start = touchStartRef.current;
       const t = e.touches[0];
       if (!start || !t) return;
@@ -74,18 +77,25 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
     >
       <div
         style={{
-          width: MOBILE_BASE_W,
-          minHeight: "100vh",
+          width: MOBILE_LOBBY_BASE_W,
+          flexShrink: 0,
           transformOrigin: "top center",
           transform: `scale(${mobileScale})`,
-          flexShrink: 0,
-          overflowY: "auto",
-          overflowX: "hidden",
-          touchAction: "pan-y",
-          WebkitOverflowScrolling: "touch",
         }}
       >
-        {children}
+        <div
+          className="pp-mobile-lobby-scroll"
+          style={{
+            width: MOBILE_LOBBY_BASE_W,
+            height: "100vh",
+            overflowY: "scroll",
+            overflowX: "hidden",
+            touchAction: "pan-y",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

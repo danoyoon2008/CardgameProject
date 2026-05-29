@@ -19,7 +19,70 @@ import SettingsView from "../components/views/SettingsView";
 import BattleView from "../components/views/BattleView";
 import SimulationView from "../components/views/SimulationView"; 
 
-function LoginRequiredView({ onLogin, isDarkMode }: { onLogin: () => void, isDarkMode: boolean }) {
+function LoginRequiredView({
+  onLogin,
+  isDarkMode,
+  layoutMobile = false,
+}: {
+  onLogin: () => void;
+  isDarkMode: boolean;
+  layoutMobile?: boolean;
+}) {
+  if (layoutMobile) {
+    return (
+      <div
+        style={{
+          width: 768,
+          boxSizing: "border-box",
+          padding: "48px 20px 64px",
+          textAlign: "center",
+          background: isDarkMode
+            ? "linear-gradient(180deg, #0a1628 0%, #0d1f3c 45%, #050a14 100%)"
+            : "linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)",
+          minHeight: 480,
+        }}
+      >
+        <div
+          style={{
+            width: 80,
+            height: 80,
+            margin: "0 auto 24px",
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: isDarkMode ? "rgba(255,255,255,0.05)" : "#e2e8f0",
+          }}
+        >
+          <IconLock className="h-10 w-10 text-slate-500" />
+        </div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px", color: isDarkMode ? "#fff" : "#0f172a" }}>
+          로그인이 필요한 기능입니다.
+        </h2>
+        <p style={{ fontSize: 14, lineHeight: 1.5, margin: "0 0 32px", color: isDarkMode ? "#94a3b8" : "#64748b", maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
+          카드 도감 열람, 덱 구성 및 상점 이용을 위해 구글 계정으로 로그인해 주세요.
+        </p>
+        <button
+          type="button"
+          onClick={onLogin}
+          style={{
+            height: 48,
+            paddingLeft: 24,
+            paddingRight: 24,
+            borderRadius: 12,
+            border: "1px solid #e2e8f0",
+            background: "#fff",
+            color: "#0f172a",
+            fontSize: 16,
+            fontWeight: 600,
+          }}
+        >
+          구글 계정으로 로그인
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center p-6 text-center">
       <div className={`mb-6 flex h-20 w-20 items-center justify-center rounded-full transition-colors ${isDarkMode ? "bg-white/5 text-slate-500" : "bg-slate-200 text-slate-400"}`}>
@@ -72,6 +135,104 @@ export default function Home() {
           )}
         </main>
       </div>
+    </>
+  );
+
+  const mobileLobbyMain = game.shouldShowLoginRequired ? (
+    <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} layoutMobile />
+  ) : (
+    <>
+      {game.mainView === "battle" && (
+        <BattleView isDarkMode={game.isDarkMode} layoutMobile onStartSimulation={() => game.setMainView("simulation")} />
+      )}
+      {game.mainView === "shop" && (
+        <ShopView
+          layoutMobile
+          gold={game.gold}
+          cardsLoading={game.cardsLoading}
+          isDarkMode={game.isDarkMode}
+          handleGacha={game.handleGacha}
+          setShowProbModal={game.setShowProbModal}
+          setIsShardShopOpen={game.setIsShardShopOpen}
+        />
+      )}
+      {game.mainView === "codex" && (
+        <CodexView
+          layoutMobile
+          isDarkMode={game.isDarkMode}
+          cards={game.cards}
+          loading={game.cardsLoading}
+          sortOption={game.sortOption}
+          setSortOption={game.setSortOption}
+          filterOwnedFirst={game.filterOwnedFirst}
+          setFilterOwnedFirst={game.setFilterOwnedFirst}
+          showOutline={game.showOutline}
+          setShowOutline={game.setShowOutline}
+          newCardIds={game.newCardIds}
+          onOpenDetail={game.handleOpenCardDetail}
+        />
+      )}
+      {game.mainView === "deck" && (
+        <DeckView
+          layoutMobile
+          isDarkMode={game.isDarkMode}
+          deck={game.deck}
+          cards={game.cards}
+          deckAvailableCards={game.deckAvailableCards}
+          deckContainerRef={game.deckContainerRef}
+          selectedForDeck={game.selectedForDeck}
+          setSelectedForDeck={game.setSelectedForDeck}
+          handleSlotReplace={game.handleSlotReplace}
+          handleOpenCardDetail={game.handleOpenCardDetail}
+          handleSelectForDeck={game.handleSelectForDeck}
+          showOutline={game.showOutline}
+          setShowOutline={game.setShowOutline}
+          sortOption={game.sortOption}
+          setSortOption={game.setSortOption}
+          cardsLoading={game.cardsLoading}
+        />
+      )}
+      {game.mainView === "settings" && (
+        <SettingsView
+          layoutMobile
+          isDarkMode={game.isDarkMode}
+          setIsDarkMode={game.setIsDarkMode}
+          volume={game.volume}
+          setVolume={game.setVolume}
+          user={game.user}
+          handleEditNickname={game.handleEditNickname}
+          handleLogout={game.handleLogout}
+          handleResetData={game.handleResetData}
+        />
+      )}
+    </>
+  );
+
+  const mobileLobbyChrome = (
+    <>
+      <Header
+        layoutMobile
+        authReady={game.authReady}
+        user={game.user}
+        userAvatarUrl={game.userAvatarUrl}
+        currentDisplayName={game.currentDisplayName}
+        isDarkMode={game.isDarkMode}
+        gold={game.gold}
+        primeTokens={game.primeTokens}
+        cardShards={game.cardShards}
+        handleGoogleLogin={game.handleGoogleLogin}
+        handleEditGold={game.handleEditGold}
+        handleEditTokens={game.handleEditTokens}
+        handleEditShards={game.handleEditShards}
+      />
+      <Sidebar
+        layoutMobile
+        mainView={game.mainView}
+        setMainView={game.setMainView}
+        isDarkMode={game.isDarkMode}
+        newCardIdsSize={game.newCardIds.size}
+      />
+      {mobileLobbyMain}
     </>
   );
 
