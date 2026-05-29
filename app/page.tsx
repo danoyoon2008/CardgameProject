@@ -212,6 +212,9 @@ export default function Home() {
     <>
       <Header
         layoutMobile
+        mainView={game.mainView}
+        setMainView={game.setMainView}
+        newCardIdsSize={game.newCardIds.size}
         authReady={game.authReady}
         user={game.user}
         userAvatarUrl={game.userAvatarUrl}
@@ -224,13 +227,6 @@ export default function Home() {
         handleEditGold={game.handleEditGold}
         handleEditTokens={game.handleEditTokens}
         handleEditShards={game.handleEditShards}
-      />
-      <Sidebar
-        layoutMobile
-        mainView={game.mainView}
-        setMainView={game.setMainView}
-        isDarkMode={game.isDarkMode}
-        newCardIdsSize={game.newCardIds.size}
       />
       {mobileLobbyMain}
     </>
@@ -268,7 +264,7 @@ export default function Home() {
           )}
         </main>
       ) : useMobileLobbyWrapper ? (
-        <MobileWrapper>{lobbyChrome}</MobileWrapper>
+        <MobileWrapper>{mobileLobbyChrome}</MobileWrapper>
       ) : (
         lobbyChrome
       )}

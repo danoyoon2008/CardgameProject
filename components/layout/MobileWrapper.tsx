@@ -16,7 +16,8 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
 
   useEffect(() => {
     const updateScale = () => {
-      setMobileScale(Math.min(window.innerWidth / MOBILE_LOBBY_BASE_W, 1));
+      const shortSide = Math.min(window.innerWidth, window.innerHeight);
+      setMobileScale(Math.min(shortSide / MOBILE_LOBBY_BASE_W, 1));
     };
     updateScale();
     window.addEventListener("resize", updateScale);

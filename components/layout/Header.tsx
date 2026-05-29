@@ -1,8 +1,11 @@
 // components/layout/Header.tsx
 "use client";
 
+import { useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { MainView } from "../../types/game";
 import { IconUser, IconGold, IconToken, IconShard } from "../ui/Icons";
+import MobileLobbyDrawer from "./mobile/MobileLobbyDrawer";
 import {
   MOBILE_LOBBY_BASE_W,
   MOBILE_LOBBY_PAD_X,
@@ -12,6 +15,14 @@ import {
   MOBILE_HEADER_CURRENCY_H,
   MOBILE_HEADER_CURRENCY_FS,
 } from "./mobile/mobileLobbyConstants";
+
+function HamburgerIcon() {
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
 
 interface HeaderProps {
   authReady: boolean;
@@ -27,6 +38,9 @@ interface HeaderProps {
   handleEditTokens: () => void;
   handleEditShards: () => void;
   layoutMobile?: boolean;
+  mainView?: MainView;
+  setMainView?: (view: MainView) => void;
+  newCardIdsSize?: number;
 }
 
 export default function Header({
@@ -34,118 +48,174 @@ export default function Header({
   gold, primeTokens, cardShards,
   handleGoogleLogin, handleEditGold, handleEditTokens, handleEditShards,
   layoutMobile = false,
+  mainView = "battle",
+  setMainView,
+  newCardIdsSize = 0,
 }: HeaderProps) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
     const bg = isDarkMode ? "rgba(10,22,40,0.95)" : "#ffffff";
+    const textColor = isDarkMode ? "#fff" : "#1e293b";
+
+    const currencyItems = [
+      { onClick: handleEditGold, Icon: IconGold, value: gold, ring: "rgba(245,158,11,0.35)", color: "#fde68a", key: "gold" },
+      { onClick: handleEditShards, Icon: IconShard, value: cardShards, ring: "rgba(6,182,212,0.35)", color: "#a5f3fc", key: "shards" },
+      { onClick: handleEditTokens, Icon: IconToken, value: primeTokens, ring: "rgba(139,92,246,0.35)", color: "#ddd6fe", key: "tokens" },
+    ];
 
     return (
-      <header
-        style={{
-          width: MOBILE_LOBBY_BASE_W,
-          height: MOBILE_HEADER_H,
-          boxSizing: "border-box",
-          paddingLeft: MOBILE_LOBBY_PAD_X,
-          paddingRight: MOBILE_LOBBY_PAD_X,
-          borderBottom: `1px solid ${borderColor}`,
-          background: bg,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
-          {!authReady ? (
-            <span style={{ fontSize: 14, color: "#94a3b8" }}>로딩 중…</span>
-          ) : user ? (
-            <>
-              <div
-                style={{
-                  width: MOBILE_HEADER_AVATAR,
-                  height: MOBILE_HEADER_AVATAR,
-                  borderRadius: "50%",
-                  overflow: "hidden",
-                  flexShrink: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))",
-                  boxShadow: "0 0 0 2px rgba(255,255,255,0.15)",
-                }}
-              >
-                {userAvatarUrl ? (
-                  <img src={userAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                ) : (
-                  <IconUser className="h-[22px] w-[22px] text-sky-200" />
-                )}
-              </div>
-              <span
-                style={{
-                  fontSize: MOBILE_HEADER_NAME_FS,
-                  fontWeight: 600,
-                  color: isDarkMode ? "#fff" : "#1e293b",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {currentDisplayName}
-              </span>
-            </>
-          ) : (
+      <>
+        <header
+          style={{
+            width: MOBILE_LOBBY_BASE_W,
+            height: MOBILE_HEADER_H,
+            boxSizing: "border-box",
+            paddingLeft: MOBILE_LOBBY_PAD_X,
+            paddingRight: MOBILE_LOBBY_PAD_X,
+            borderBottom: `1px solid ${borderColor}`,
+            background: bg,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            flexShrink: 0,
+            position: "relative",
+            zIndex: 40,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
             <button
               type="button"
-              onClick={handleGoogleLogin}
+              aria-label="메뉴 열기"
+              aria-expanded={drawerOpen}
+              onClick={() => setDrawerOpen(true)}
               style={{
-                height: 40,
-                paddingLeft: 16,
-                paddingRight: 16,
-                borderRadius: 12,
-                border: "1px solid #e2e8f0",
-                background: "#fff",
-                color: "#0f172a",
-                fontSize: 14,
-                fontWeight: 600,
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                minHeight: 44,
+                padding: 0,
+                border: "none",
+                borderRadius: 10,
+                background: isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9",
+                color: textColor,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                cursor: "pointer",
               }}
             >
-              구글로 시작하기
+              <HamburgerIcon />
             </button>
-          )}
-        </div>
 
-        {user ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {[
-              { onClick: handleEditGold, Icon: IconGold, value: gold, ring: "rgba(245,158,11,0.35)", color: "#fde68a" },
-              { onClick: handleEditTokens, Icon: IconToken, value: primeTokens, ring: "rgba(139,92,246,0.35)", color: "#ddd6fe" },
-              { onClick: handleEditShards, Icon: IconShard, value: cardShards, ring: "rgba(6,182,212,0.35)", color: "#a5f3fc" },
-            ].map(({ onClick, Icon, value, ring, color }) => (
+            {!authReady ? (
+              <span style={{ fontSize: 14, color: "#94a3b8" }}>로딩 중…</span>
+            ) : user ? (
+              <>
+                <div
+                  style={{
+                    width: MOBILE_HEADER_AVATAR,
+                    height: MOBILE_HEADER_AVATAR,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))",
+                    boxShadow: "0 0 0 2px rgba(255,255,255,0.15)",
+                  }}
+                >
+                  {userAvatarUrl ? (
+                    <img src={userAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <IconUser className="h-[22px] w-[22px] text-sky-200" />
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontSize: MOBILE_HEADER_NAME_FS,
+                    fontWeight: 600,
+                    color: textColor,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {currentDisplayName}
+                </span>
+              </>
+            ) : (
               <button
-                key={onClick.name}
                 type="button"
-                onClick={onClick}
+                onClick={handleGoogleLogin}
                 style={{
-                  height: MOBILE_HEADER_CURRENCY_H,
-                  paddingLeft: 10,
-                  paddingRight: 10,
-                  borderRadius: 999,
-                  border: `1px solid ${ring}`,
-                  background: isDarkMode ? "rgba(0,0,0,0.4)" : "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
+                  height: 40,
+                  paddingLeft: 12,
+                  paddingRight: 12,
+                  borderRadius: 12,
+                  border: "1px solid #e2e8f0",
+                  background: "#fff",
+                  color: "#0f172a",
+                  fontSize: 13,
+                  fontWeight: 600,
                 }}
               >
-                <Icon className="h-[18px] w-[18px]" />
-                <span style={{ fontSize: MOBILE_HEADER_CURRENCY_FS, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>
-                  {value.toLocaleString()}
-                </span>
+                구글로 시작
               </button>
-            ))}
+            )}
           </div>
+
+          {user ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              {currencyItems.map(({ onClick, Icon, value, ring, color, key }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={onClick}
+                  style={{
+                    height: MOBILE_HEADER_CURRENCY_H,
+                    paddingLeft: 8,
+                    paddingRight: 8,
+                    borderRadius: 999,
+                    border: `1px solid ${ring}`,
+                    background: isDarkMode ? "rgba(0,0,0,0.4)" : "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span
+                    style={{
+                      fontSize: MOBILE_HEADER_CURRENCY_FS,
+                      fontWeight: 700,
+                      color,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {value.toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </header>
+
+        {setMainView ? (
+          <MobileLobbyDrawer
+            isOpen={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            mainView={mainView}
+            setMainView={setMainView}
+            isDarkMode={isDarkMode}
+            newCardIdsSize={newCardIdsSize}
+          />
         ) : null}
-      </header>
+      </>
     );
   }
 
