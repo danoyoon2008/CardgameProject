@@ -16361,8 +16361,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_HAND_H = Math.ceil(MOBILE_HAND_CARD_H) + MOBILE_HAND_PAD_Y * 2 + 4;
   const MOBILE_MID_H = MOBILE_BOARD_H - MOBILE_HP_BAR_H * 2 - MOBILE_HAND_H * 2;
   const MOBILE_LEFT_W = 60;
-  const MOBILE_CENTER_W = 380;
   const MOBILE_RIGHT_W = 100;
+  /** 오른쪽 사이드(더 넓은 쪽) 기준 대칭 여백 — 보드 정중앙 필드 */
+  const MOBILE_CENTER_W = MOBILE_BOARD_W - MOBILE_RIGHT_W * 2;
   const MOBILE_UNIT_W = 72;
   const MOBILE_UNIT_H = 114;
   const MOBILE_SPELL_W = 100;
@@ -18459,12 +18460,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               style={{
                 width: MOBILE_BOARD_W,
                 height: MOBILE_MID_H,
-                display: "flex",
-                flexDirection: "row",
+                position: "relative",
               }}
             >
               <div
                 style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
                   width: MOBILE_LEFT_W,
                   height: MOBILE_MID_H,
                   display: "flex",
@@ -18521,6 +18524,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
               <div
                 style={{
+                  position: "absolute",
+                  left: "50%",
+                  transform: "translateX(-50%)",
                   width: MOBILE_CENTER_W,
                   height: MOBILE_MID_H,
                   border: "2px solid rgba(217,119,6,0.35)",
@@ -18531,8 +18537,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  paddingTop: 8,
-                  paddingBottom: 8,
+                  paddingTop: 20,
+                  paddingBottom: 20,
+                  paddingLeft: 4,
+                  paddingRight: 4,
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -18574,7 +18582,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
                 <div
                   style={{
-                    width: 340,
+                    width: MOBILE_CENTER_W - 8,
                     height: 2,
                     background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.85), transparent)",
                   }}
@@ -18620,6 +18628,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
               <div
                 style={{
+                  position: "absolute",
+                  right: 0,
+                  top: 0,
                   width: MOBILE_RIGHT_W,
                   height: MOBILE_MID_H,
                   display: "flex",
