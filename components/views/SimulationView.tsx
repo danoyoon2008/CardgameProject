@@ -16192,7 +16192,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     card: FieldCard | null,
     isPlayerA: boolean = false,
     layout: "overlay" | "inline" = "overlay",
-    fieldSlot?: "is" | "m" | "os"
+    fieldSlot?: "is" | "m" | "os",
+    mobileFieldDims?: { width: number; height: number }
   ) => {
     if (!card || !card.hp || Number(card.hp) <= 0) return null;
     
@@ -16298,6 +16299,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const trackWarnClass = warnLowHpForExecute ? " pp-baekseu-exec-hpbar-track--warn" : "";
     
     if (layout === "inline") {
+      if (mobileFieldDims) {
+        return (
+          <div
+            data-mobile-field-unit-hp={isPlayerA ? "A" : "B"}
+            className={`relative z-[1] shrink-0 rounded-[3px] border overflow-hidden pointer-events-none ${hpTrackFrozenClass}${trackWarnClass}`}
+            style={{
+              width: mobileFieldDims.width,
+              height: mobileFieldDims.height,
+              minHeight: mobileFieldDims.height,
+              maxHeight: mobileFieldDims.height,
+              boxSizing: "border-box",
+            }}
+          >
+            {showBaekseuExecuteHpDecor ? (
+              <div className="pp-baekseu-hp-exec-threshold-line" aria-hidden />
+            ) : null}
+            {inner}
+          </div>
+        );
+      }
       return (
         <div
           className={`relative z-[1] h-3.5 shrink-0 ${fieldUnitWidthClass} rounded-[3px] border overflow-hidden pointer-events-none ${hpTrackFrozenClass}${trackWarnClass}`}
@@ -16353,6 +16374,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const MOBILE_BOARD_W = 540;
   const MOBILE_BOARD_H = 720;
+  /** data-mobile-board border 2px × 상하 — box-sizing:border-box 내부 가용 높이 */
+  const MOBILE_BOARD_BORDER_INSET = 4;
+  /** 모바일 시뮬 scale — 보드+헤더(40)보다 크게 잡아 세로 여유 확보 */
+  const MOBILE_SIM_SHELL_HEADER_H = 40;
+  const MOBILE_SCALE_BASE_W = MOBILE_BOARD_W;
+  const MOBILE_SCALE_BASE_H = MOBILE_BOARD_H + MOBILE_SIM_SHELL_HEADER_H + 40;
   const MOBILE_HP_BAR_H = 8;
   const MOBILE_HAND_CARD_ASPECT = 1.58;
   const MOBILE_HAND_OUTER_W_RATIO = 0.78;
@@ -16364,7 +16391,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_HAND_SLOT_W = (MOBILE_HAND_GRID_INNER_W - MOBILE_HAND_GRID_GAP * 5) / 6;
   const MOBILE_HAND_CARD_H = MOBILE_HAND_SLOT_W * MOBILE_HAND_CARD_ASPECT;
   const MOBILE_HAND_H = Math.ceil(MOBILE_HAND_CARD_H) + MOBILE_HAND_PAD_Y * 2 + 4;
-  const MOBILE_MID_H = MOBILE_BOARD_H - MOBILE_HP_BAR_H * 2 - MOBILE_HAND_H * 2;
   const MOBILE_LEFT_W = 60;
   const MOBILE_RIGHT_W = 100;
   /** 오른쪽 사이드(더 넓은 쪽) 기준 대칭 여백 — 보드 정중앙 필드 */
@@ -16379,6 +16405,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   /** 스펠↔유닛, 패↔필드 등 모바일 필드 스택 간격 (B/A 동일 값) */
   const MOBILE_FIELD_STACK_GAP = 8;
   const MOBILE_BOARD_EDGE_GAP = 8;
+  const MOBILE_MID_H =
+    MOBILE_BOARD_H -
+    MOBILE_BOARD_BORDER_INSET -
+    MOBILE_HP_BAR_H * 2 -
+    MOBILE_HAND_H * 2 -
+    MOBILE_BOARD_EDGE_GAP * 2;
+  /** scale 분모용 — 유닛 뱃지 overflow(~12px), 720px 보드 박스 밖 */
+  const MOBILE_BOARD_LAYOUT_BLEED = 12;
+  const MOBILE_BOARD_LAYOUT_H = MOBILE_BOARD_H + MOBILE_BOARD_LAYOUT_BLEED;
+  const MOBILE_SCALE_SAFETY_PAD = 24;
   const MOBILE_SPELL_SLOT_BOX_STYLE: React.CSSProperties = {
     width: MOBILE_SPELL_W,
     height: MOBILE_SPELL_H,
@@ -16386,6 +16422,79 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     overflow: "hidden",
     flexShrink: 0,
     boxSizing: "border-box",
+  };
+  /** 모바일 필드 유닛 체력바 — B/A 동일 두께 (PC h-3.5 ≈ 14px) */
+  const MOBILE_FIELD_UNIT_HP_H = 14;
+  const MOBILE_FIELD_HP_GAUGE_RESERVE_H = 14;
+  const mobileFieldUnitHpDims = { width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H };
+
+  const renderMobileFieldHpBar = (
+    card: FieldCard | null,
+    isPlayerA: boolean,
+    slot: "is" | "m" | "os"
+  ) => renderHpBar(card, isPlayerA, "inline", slot, mobileFieldUnitHpDims);
+
+  const renderMobileHpRowWithOptionalDKGauge = (
+    card: FieldCard | null,
+    isPlayerA: boolean,
+    fieldSlotKey: string,
+    slot: "is" | "m" | "os"
+  ) => {
+    const hpInner =
+      renderMobileFieldHpBar(card, isPlayerA, slot) ?? (
+        <div style={{ width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H }} aria-hidden />
+      );
+    const mobileHpColumnStyle: React.CSSProperties = {
+      width: MOBILE_UNIT_W,
+      flexShrink: 0,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 2,
+    };
+    const gaugeReserveStyle: React.CSSProperties = {
+      width: MOBILE_UNIT_W,
+      height: MOBILE_FIELD_HP_GAUGE_RESERVE_H,
+      flexShrink: 0,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      position: "relative",
+      pointerEvents: "none",
+    };
+
+    if (isPlayerA) {
+      return (
+        <div style={mobileHpColumnStyle}>
+          {hpInner}
+          <div style={gaugeReserveStyle}>
+            {card?.name === DARK_KNIGHT_ID ? (
+              renderDarkKnightSoulGaugeBelowHpFlow(card, fieldSlotKey)
+            ) : card?.name === EL_WING_ID ? (
+              renderElWingSinseokGaugeBelowHpFlow(card)
+            ) : card?.name === MAXELLAND_ID ? (
+              renderMaxellandTenacityGaugeBelowHpFlow(card, fieldSlotKey)
+            ) : card?.name === IVERSON_ID ? (
+              renderIversonWaitGaugeRowPlayerA(card)
+            ) : (
+              <div className="h-[10px] w-full shrink-0 rounded-[3px]" aria-hidden />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={mobileHpColumnStyle}>
+        <div style={gaugeReserveStyle}>
+          {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
+          {renderElWingSinseokGaugeAboveHpAbsolute(card, fieldSlotKey)}
+          {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
+          {renderIversonWaitGaugeAboveHpAbsolute(card)}
+        </div>
+        {hpInner}
+      </div>
+    );
   };
 
   const mobileFieldCardStyle =
@@ -16400,15 +16509,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!isMobile) return;
     const updateScale = () => {
-      const BASE_W = 540;
-      const BASE_H = 720;
-      const scaleX = window.innerWidth / BASE_W;
-      const scaleY = (window.innerHeight - 40) / BASE_H;
-      setMobileScale(Math.min(scaleX, scaleY));
+      const viewportW = window.visualViewport?.width ?? window.innerWidth;
+      const viewportH = window.visualViewport?.height ?? window.innerHeight;
+      const scaleX = viewportW / MOBILE_SCALE_BASE_W;
+      const scaleY = viewportH / MOBILE_SCALE_BASE_H;
+      const scaleBindH =
+        (viewportH - MOBILE_SIM_SHELL_HEADER_H - MOBILE_SCALE_SAFETY_PAD) / MOBILE_BOARD_LAYOUT_H;
+      const next = Math.min(scaleX, scaleY, scaleBindH);
+      setMobileScale(next);
     };
     updateScale();
     window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
+    window.visualViewport?.addEventListener("resize", updateScale);
+    return () => {
+      window.removeEventListener("resize", updateScale);
+      window.visualViewport?.removeEventListener("resize", updateScale);
+    };
   }, [isMobile]);
 
   const mobileModalOverlayStyle: React.CSSProperties = {
@@ -16712,14 +16828,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
           ) : null}
           {!isPlayerA
-            ? renderHpRowWithOptionalDKGauge(
-                card,
-                renderHpBar(card, false, "inline", slot) ?? (
-                  <div style={{ width: MOBILE_UNIT_W, height: 12 }} aria-hidden />
-                ),
-                false,
-                slotKey
-              )
+            ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot)
             : null}
           <div className={unitSlotOuterClass} style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
@@ -16794,14 +16903,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderBaekseuInvulnRing(card, "rounded-[6px]", player, slot)}
           </div>
           {isPlayerA
-            ? renderHpRowWithOptionalDKGauge(
-                card,
-                renderHpBar(card, true, "inline", slot) ?? (
-                  <div style={{ width: MOBILE_UNIT_W, height: 12 }} aria-hidden />
-                ),
-                true,
-                slotKey
-              )
+            ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot)
             : null}
           {isPlayerA ? (
             <div
@@ -18158,7 +18260,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           {/* 모바일 상단 헤더(단순) */}
           <div
             style={{
-              height: 40,
+              height: MOBILE_SIM_SHELL_HEADER_H,
               width: "100%",
               backgroundColor: "rgba(10,22,40,0.95)",
               display: "flex",
@@ -18369,24 +18471,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           {/* 헤더 아래 게임 영역 */}
           <div
+            data-mobile-game-area
             style={{
               width: "100%",
-              height: "calc(100% - 40px)",
-              marginTop: 40,
+              height: `calc(100% - ${MOBILE_SIM_SHELL_HEADER_H}px)`,
+              marginTop: MOBILE_SIM_SHELL_HEADER_H,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <div
+              data-mobile-board-scale-wrap
+              style={{
+                width: MOBILE_BOARD_W * mobileScale,
+                height: MOBILE_BOARD_LAYOUT_H * mobileScale,
+                flexShrink: 0,
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+            <div
+              data-mobile-board
               style={{
                 width: MOBILE_BOARD_W,
                 height: MOBILE_BOARD_H,
                 transform: `scale(${mobileScale})`,
-                transformOrigin: "center center",
-                position: "relative",
+                transformOrigin: "0 0",
+                position: "absolute",
+                left: 0,
+                top: 0,
                 overflow: "hidden",
-                flexShrink: 0,
                 background: "linear-gradient(180deg, #0a1628 0%, #050a14 100%)",
                 border: "2px solid #1e293b",
                 boxSizing: "border-box",
@@ -18561,10 +18676,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   borderRadius: 12,
                   background: "rgba(0,0,0,0.5)",
                   boxSizing: "border-box",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "space-between",
                   overflow: "visible",
                   paddingLeft: 4,
                   paddingRight: 4,
@@ -18574,7 +18685,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   style={{
                     display: "flex",
                     flexDirection: "column",
+                    justifyContent: "center",
                     alignItems: "center",
+                    height: "100%",
                     gap: MOBILE_FIELD_STACK_GAP,
                   }}
                 >
@@ -18635,24 +18748,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       </button>
                     ) : null}
                   </div>
-                </div>
 
-                <div
-                  style={{
-                    width: MOBILE_CENTER_W - 8,
-                    height: 2,
-                    background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.85), transparent)",
-                  }}
-                />
+                  <div
+                    style={{
+                      width: MOBILE_CENTER_W - 8,
+                      height: 2,
+                      background: "linear-gradient(90deg, transparent, rgba(245,158,11,0.85), transparent)",
+                    }}
+                  />
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: MOBILE_FIELD_STACK_GAP,
-                  }}
-                >
                   <div
                     data-mobile-spell-row="A"
                     style={{
@@ -18827,6 +18931,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderMobileHandRow("A")}
             {renderMobilePlayerHpBar("A")}
           </div>
+            </div>
           </div>
         </div>
         </div>
