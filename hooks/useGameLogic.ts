@@ -19,13 +19,14 @@ export function useGameLogic() {
   
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [volume, setVolume] = useState(50);
-  const [gold, setGold] = useState(10000); 
-  const [primeTokens, setPrimeTokens] = useState(10);
-  const [cardShards, setCardShards] = useState(0); 
-  const [nickname, setNickname] = useState<string>(""); 
-  
+  const [gold, setGold] = useState(0);
+  const [primeTokens, setPrimeTokens] = useState(0);
+  const [cardShards, setCardShards] = useState(0);
+  const [nickname, setNickname] = useState<string | null>(null);
+
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   
   const [sortOption, setSortOption] = useState<string>("number_asc");
   const [filterOwnedFirst, setFilterOwnedFirst] = useState<boolean>(false);
@@ -98,6 +99,110 @@ export function useGameLogic() {
     };
   }, []);
 
+  const resetProfileState = () => {
+    setGold(0);
+    setPrimeTokens(0);
+    setCardShards(0);
+    setNickname(null);
+    setProfileLoaded(false);
+  };
+
+  useEffect(() => {
+    if (!authReady) return;
+
+    if (!user) {
+      resetProfileState();
+      return;
+    }
+
+    let cancelled = false;
+    setProfileLoaded(false);
+
+    async function loadUserProfile() {
+      const supabase = createClient();
+      if (!supabase) {
+        console.error("[user_profiles] Supabase 클라이언트를 사용할 수 없습니다.");
+        if (!cancelled) setProfileLoaded(true);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("id", user!.id)
+        .single();
+
+      if (cancelled) return;
+
+      if (error && error.code !== "PGRST116") {
+        console.error("[user_profiles] 프로필 불러오기 실패:", error.message);
+        setProfileLoaded(true);
+        return;
+      }
+
+      if (data) {
+        setGold(Number(data.gold ?? 0));
+        setCardShards(Number(data.shards ?? 0));
+        setPrimeTokens(Number(data.tokens ?? 0));
+        setNickname(typeof data.nickname === "string" ? data.nickname : null);
+        setProfileLoaded(true);
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("user_profiles").insert({
+        id: user!.id,
+        gold: 10000,
+        shards: 0,
+        tokens: 0,
+        nickname: null,
+      });
+
+      if (cancelled) return;
+
+      if (insertError) {
+        console.error("[user_profiles] 프로필 생성 실패:", insertError.message);
+      } else {
+        setGold(10000);
+        setCardShards(0);
+        setPrimeTokens(0);
+        setNickname(null);
+      }
+      setProfileLoaded(true);
+    }
+
+    void loadUserProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authReady]);
+
+  useEffect(() => {
+    if (!user || !profileLoaded) return;
+
+    const timeoutId = window.setTimeout(async () => {
+      const supabase = createClient();
+      if (!supabase) {
+        console.error("[user_profiles] Supabase 클라이언트를 사용할 수 없습니다.");
+        return;
+      }
+
+      const { error } = await supabase.from("user_profiles").upsert({
+        id: user.id,
+        gold,
+        shards: cardShards,
+        tokens: primeTokens,
+        nickname,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.error("[user_profiles] 프로필 저장 실패:", error.message);
+      }
+    }, 1500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [user, profileLoaded, gold, cardShards, primeTokens, nickname]);
+
   useEffect(() => {
     if (!authReady) return; 
     const storageKey = user ? `powerprime_settings_${user.id}` : "powerprime_settings_guest";
@@ -107,11 +212,7 @@ export function useGameLogic() {
         const parsed = JSON.parse(savedData);
         if (typeof parsed.isDarkMode === "boolean") setIsDarkMode(parsed.isDarkMode);
         if (typeof parsed.volume === "number") setVolume(parsed.volume);
-        if (typeof parsed.gold === "number") setGold(parsed.gold);
-        if (typeof parsed.primeTokens === "number") setPrimeTokens(parsed.primeTokens);
-        if (typeof parsed.cardShards === "number") setCardShards(parsed.cardShards); 
-        if (typeof parsed.nickname === "string") setNickname(parsed.nickname); 
-        if (Array.isArray(parsed.newCardIds)) setNewCardIds(new Set(parsed.newCardIds)); 
+        if (Array.isArray(parsed.newCardIds)) setNewCardIds(new Set(parsed.newCardIds));
         if (typeof parsed.sortOption === "string") setSortOption(parsed.sortOption);
         if (typeof parsed.filterOwnedFirst === "boolean") setFilterOwnedFirst(parsed.filterOwnedFirst);
         if (typeof parsed.showOutline === "boolean") setShowOutline(parsed.showOutline);
@@ -124,11 +225,11 @@ export function useGameLogic() {
   useEffect(() => {
     if (!settingsLoaded) return; 
     const storageKey = user ? `powerprime_settings_${user.id}` : "powerprime_settings_guest";
-    localStorage.setItem(storageKey, JSON.stringify({ 
-      isDarkMode, volume, gold, primeTokens, cardShards, nickname, 
-      newCardIds: Array.from(newCardIds), sortOption, filterOwnedFirst, showOutline, deck 
+    localStorage.setItem(storageKey, JSON.stringify({
+      isDarkMode, volume,
+      newCardIds: Array.from(newCardIds), sortOption, filterOwnedFirst, showOutline, deck
     }));
-  }, [isDarkMode, volume, gold, primeTokens, cardShards, nickname, newCardIds, sortOption, filterOwnedFirst, showOutline, deck, user, settingsLoaded]);
+  }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, deck, user, settingsLoaded]);
 
   useEffect(() => {
     if (!["codex", "shop", "deck", "simulation"].includes(mainView) || !user) return; 
@@ -239,10 +340,11 @@ export function useGameLogic() {
     await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${origin}/`, queryParams: { prompt: 'select_account' } } });
   };
 
-  const handleLogout = async () => { 
-    const supabase = createClient(); 
-    if (!supabase) return; 
+  const handleLogout = async () => {
+    const supabase = createClient();
+    if (!supabase) return;
     await supabase.auth.signOut();
+    resetProfileState();
     setMainView("battle");
   };
 
@@ -251,7 +353,18 @@ export function useGameLogic() {
     if (!user) return alert("로그인 정보가 없습니다.");
     try {
       const supabase = createClient();
-      if (supabase) await supabase.from("user_cards").delete().eq("user_id", user.id);
+      if (supabase) {
+        await supabase.from("user_cards").delete().eq("user_id", user.id);
+        const { error: profileError } = await supabase.from("user_profiles").upsert({
+          id: user.id,
+          gold: 10000,
+          shards: 0,
+          tokens: 0,
+          nickname: null,
+          updated_at: new Date().toISOString(),
+        });
+        if (profileError) console.error("[user_profiles] 초기화 실패:", profileError.message);
+      }
       localStorage.removeItem(`powerprime_settings_${user.id}`);
       alert("계정이 완벽하게 초기화되었습니다.");
       window.location.reload();
@@ -261,7 +374,10 @@ export function useGameLogic() {
   const handleEditGold = () => { const val = prompt("테스트용 골드 수량을 입력하세요:", String(gold)); if (val !== null && !isNaN(parseInt(val, 10)) && parseInt(val, 10) >= 0) setGold(parseInt(val, 10)); };
   const handleEditTokens = () => { const val = prompt("테스트용 프라임 토큰 수량을 입력하세요:", String(primeTokens)); if (val !== null && !isNaN(parseInt(val, 10)) && parseInt(val, 10) >= 0) setPrimeTokens(parseInt(val, 10)); };
   const handleEditShards = () => { const val = prompt("테스트용 카드 파편 수량을 입력하세요:", String(cardShards)); if (val !== null && !isNaN(parseInt(val, 10)) && parseInt(val, 10) >= 0) setCardShards(parseInt(val, 10)); };
-  const handleEditNickname = () => { const val = prompt("새로운 닉네임을 입력하세요:", nickname || displayNameFromUser(user)); if (val !== null) setNickname(val.trim()); };
+  const handleEditNickname = () => {
+    const val = prompt("새로운 닉네임을 입력하세요:", nickname ?? displayNameFromUser(user));
+    if (val !== null) setNickname(val.trim() || null);
+  };
 
   const handleBuyCardFromShop = async (card: CardRow) => {
     const price = getShardShopPrice(card.rarity);
@@ -413,7 +529,7 @@ export function useGameLogic() {
 
   const isAllFlipped = flippedCards.length > 0 && flippedCards.every(Boolean);
   const userAvatarUrl = user ? profileImageUrl(user) : null;
-  const currentDisplayName = nickname.trim() ? nickname : displayNameFromUser(user);
+  const currentDisplayName = nickname?.trim() ? nickname : displayNameFromUser(user);
   const loginRequiredViews: MainView[] = ["shop", "deck", "codex", "simulation"]; 
   const isProtectedView = loginRequiredViews.includes(mainView);
   const shouldShowLoginRequired = !user && isProtectedView;
