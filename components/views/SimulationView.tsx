@@ -1456,14 +1456,14 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     startX: number;
     startY: number;
     isDragging: boolean;
-    ghostEl: HTMLElement | null;
+    dragLayerEls: HTMLElement[];
   }>({
     cardIndex: -1,
     player: "A",
     startX: 0,
     startY: 0,
     isDragging: false,
-    ghostEl: null,
+    dragLayerEls: [],
   });
   const mobileTouchSourceElRef = useRef<HTMLElement | null>(null);
   const mobileTouchTapHandlerRef = useRef<(() => void) | null>(null);
@@ -8636,28 +8636,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const MOBILE_TOUCH_DRAG_THRESHOLD_PX = 10;
 
-  const removeMobileTouchGhost = () => {
-    const ghost = touchDragRef.current.ghostEl;
-    if (!ghost) return;
-    try {
-      ghost.remove();
-    } catch {
-      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+  const removeMobileTouchDragLayers = () => {
+    for (const layer of touchDragRef.current.dragLayerEls) {
+      try {
+        layer.remove();
+      } catch {
+        if (layer.parentNode) layer.parentNode.removeChild(layer);
+      }
     }
-    touchDragRef.current.ghostEl = null;
-  };
-
-  const hideMobileTouchDragSource = () => {
+    touchDragRef.current.dragLayerEls = [];
     const sourceEl = mobileTouchSourceElRef.current;
-    if (!sourceEl) return;
-    sourceEl.style.visibility = "hidden";
-    sourceEl.style.pointerEvents = "none";
-  };
-
-  const restoreMobileTouchDragSource = (sourceEl: HTMLElement | null) => {
-    if (!sourceEl?.isConnected) return;
-    sourceEl.style.visibility = "";
-    sourceEl.style.pointerEvents = "";
+    if (sourceEl?.isConnected) {
+      sourceEl.style.visibility = "";
+      sourceEl.style.pointerEvents = "";
+    }
   };
 
   const applyGhostSubtreePointerEventsNone = (root: HTMLElement) => {
@@ -8667,15 +8659,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     });
   };
 
+  const sanitizeMobileTouchDragClone = (root: HTMLElement) => {
+    const stripDragHideClasses = (el: HTMLElement) => {
+      el.classList.remove("opacity-0", "pointer-events-none");
+      el.style.opacity = "1";
+      el.style.visibility = "visible";
+    };
+    stripDragHideClasses(root);
+    root.querySelectorAll(".opacity-0").forEach(node => {
+      if (node instanceof HTMLElement) stripDragHideClasses(node);
+    });
+  };
+
   const resetMobileTouchDragRef = () => {
-    removeMobileTouchGhost();
+    removeMobileTouchDragLayers();
     touchDragRef.current = {
       cardIndex: -1,
       player: "A",
       startX: 0,
       startY: 0,
       isDragging: false,
-      ghostEl: null,
+      dragLayerEls: [],
     };
     mobileTouchSourceElRef.current = null;
     mobileTouchTapHandlerRef.current = null;
@@ -8689,43 +8693,58 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return { width, height, offsetX: width / 2, offsetY: height / 2 };
   };
 
-  const createMobileTouchGhost = (sourceEl: HTMLElement) => {
-    removeMobileTouchGhost();
+  const createMobileTouchFixedLayer = (
+    sourceEl: HTMLElement,
+    opacity: string,
+    zIndex: string
+  ): HTMLElement => {
     const rect = sourceEl.getBoundingClientRect();
-    const ghost = document.createElement("div");
-    ghost.style.position = "fixed";
-    ghost.style.pointerEvents = "none";
-    ghost.style.opacity = "0.85";
-    ghost.style.zIndex = "9999";
-    ghost.style.left = `${rect.left}px`;
-    ghost.style.top = `${rect.top}px`;
-    ghost.style.width = `${rect.width}px`;
-    ghost.style.height = `${rect.height}px`;
-    ghost.style.margin = "0";
-    ghost.style.padding = "0";
-    ghost.style.boxSizing = "border-box";
-    ghost.style.overflow = "hidden";
-    ghost.style.transform = "translate(0px, 0px)";
-    ghost.style.willChange = "transform";
+    const layer = document.createElement("div");
+    layer.dataset.mobileTouchDragLayer = "1";
+    layer.style.position = "fixed";
+    layer.style.pointerEvents = "none";
+    layer.style.opacity = opacity;
+    layer.style.zIndex = zIndex;
+    layer.style.left = `${rect.left}px`;
+    layer.style.top = `${rect.top}px`;
+    layer.style.width = `${rect.width}px`;
+    layer.style.height = `${rect.height}px`;
+    layer.style.margin = "0";
+    layer.style.padding = "0";
+    layer.style.boxSizing = "border-box";
+    layer.style.overflow = "hidden";
+    layer.style.transform = "translate(0px, 0px)";
+    layer.style.willChange = "transform";
 
     const clone = sourceEl.cloneNode(true) as HTMLElement;
     clone.style.width = "100%";
     clone.style.height = "100%";
     clone.style.margin = "0";
     clone.style.boxSizing = "border-box";
+    sanitizeMobileTouchDragClone(clone);
     applyGhostSubtreePointerEventsNone(clone);
 
-    ghost.appendChild(clone);
-    document.body.appendChild(ghost);
-    touchDragRef.current.ghostEl = ghost;
+    layer.appendChild(clone);
+    document.body.appendChild(layer);
+    return layer;
   };
 
-  const moveMobileTouchGhost = (clientX: number, clientY: number) => {
-    const ghost = touchDragRef.current.ghostEl;
-    if (!ghost) return;
+  const beginMobileTouchDragLayers = (sourceEl: HTMLElement) => {
+    removeMobileTouchDragLayers();
+    const primary = createMobileTouchFixedLayer(sourceEl, "1", "10001");
+    const ghost = createMobileTouchFixedLayer(sourceEl, "0.85", "10002");
+    touchDragRef.current.dragLayerEls = [primary, ghost];
+    sourceEl.style.visibility = "hidden";
+    sourceEl.style.pointerEvents = "none";
+  };
+
+  const moveMobileTouchDragVisuals = (clientX: number, clientY: number) => {
     const dx = clientX - touchDragRef.current.startX;
     const dy = clientY - touchDragRef.current.startY;
-    ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+    const transform = `translate(${dx}px, ${dy}px)`;
+    for (const layer of touchDragRef.current.dragLayerEls) {
+      layer.style.transform = transform;
+    }
   };
 
   const syncActiveHandDragForMobileTouch = (clientX: number, clientY: number) => {
@@ -8778,14 +8797,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       touchDragRef.current.isDragging = true;
       setSelectedHandCard(null);
       const sourceEl = mobileTouchSourceElRef.current;
-      if (sourceEl) {
-        hideMobileTouchDragSource();
-        createMobileTouchGhost(sourceEl);
-      }
+      if (sourceEl) beginMobileTouchDragLayers(sourceEl);
       syncActiveHandDragForMobileTouch(clientX, clientY);
+      moveMobileTouchDragVisuals(clientX, clientY);
+      return;
     }
 
-    moveMobileTouchGhost(clientX, clientY);
+    moveMobileTouchDragVisuals(clientX, clientY);
     syncHandDragHover(clientX, clientY);
   };
 
@@ -8843,7 +8861,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const dragCardIndex = touchDragRef.current.cardIndex;
     const sourceEl = mobileTouchSourceElRef.current;
 
-    removeMobileTouchGhost();
+    removeMobileTouchDragLayers();
     detachMobileTouchDocumentListeners();
 
     if (wasDragging) {
@@ -8879,14 +8897,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
       }
 
-      queueMicrotask(() => {
-        const snap = simulationStateRef.current;
-        const hand =
-          dragPlayer === "A" ? snap?.playerA.hand : snap?.playerB.hand;
-        if (hand?.[dragCardIndex]) {
-          restoreMobileTouchDragSource(sourceEl);
-        }
-      });
     } else {
       mobileTouchTapHandlerRef.current?.();
 
@@ -8946,7 +8956,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       startX: t.clientX,
       startY: t.clientY,
       isDragging: false,
-      ghostEl: null,
+      dragLayerEls: [],
     };
     attachMobileTouchDocumentListeners();
   };
@@ -17181,7 +17191,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                                 ? "border border-sky-400/50 bg-black/30"
                                 : "border border-rose-400/40 bg-rose-950/60"
                       : "border border-dashed border-slate-700/50 bg-transparent"
-                  } ${isDragSource || isDanhaStealFlySource ? "opacity-0 pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
+                  } ${isDragSource || isDanhaStealFlySource ? (isMobile ? "pointer-events-none" : "opacity-0 pointer-events-none") : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
                   style={{ width: "100%", height: "100%", touchAction: "none" }}
                   data-mobile-hand-card="1"
                   data-hand-player={player}
@@ -17524,7 +17534,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           })()}
         </div>
       ) : null}
-      {handDrag && (
+      {handDrag && !isMobile && (
         <div
           aria-hidden
           className="fixed z-[90] pointer-events-none overflow-hidden rounded-[8px] border border-white/15 bg-black/40 shadow-2xl"
