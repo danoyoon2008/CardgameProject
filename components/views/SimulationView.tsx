@@ -1457,6 +1457,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     startY: number;
     isDragging: boolean;
     dragLayerEls: HTMLElement[];
+    startedOnDetailBtn: boolean;
   }>({
     cardIndex: -1,
     player: "A",
@@ -1464,6 +1465,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     startY: 0,
     isDragging: false,
     dragLayerEls: [],
+    startedOnDetailBtn: false,
   });
   const mobileTouchSourceElRef = useRef<HTMLElement | null>(null);
   const mobileTouchTapHandlerRef = useRef<(() => void) | null>(null);
@@ -8659,6 +8661,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     });
   };
 
+  const hideMobileHandDetailOverlayOnEl = (root: HTMLElement) => {
+    root.querySelectorAll("[data-mobile-hand-detail-overlay]").forEach(node => {
+      if (node instanceof HTMLElement) node.style.display = "none";
+    });
+  };
+
+  const stripMobileHandDetailOverlayFromEl = (root: HTMLElement) => {
+    // 클론 전용 — React가 관리하는 live DOM에서는 remove() 금지 (removeChild 충돌)
+    root.querySelectorAll("[data-mobile-hand-detail-overlay]").forEach(node => {
+      node.remove();
+    });
+  };
+
   const sanitizeMobileTouchDragClone = (root: HTMLElement) => {
     const stripDragHideClasses = (el: HTMLElement) => {
       el.classList.remove("opacity-0", "pointer-events-none");
@@ -8669,6 +8684,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     root.querySelectorAll(".opacity-0").forEach(node => {
       if (node instanceof HTMLElement) stripDragHideClasses(node);
     });
+    stripMobileHandDetailOverlayFromEl(root);
   };
 
   const resetMobileTouchDragRef = () => {
@@ -8680,6 +8696,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       startY: 0,
       isDragging: false,
       dragLayerEls: [],
+      startedOnDetailBtn: false,
     };
     mobileTouchSourceElRef.current = null;
     mobileTouchTapHandlerRef.current = null;
@@ -8795,9 +8812,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (!touchDragRef.current.isDragging) {
       touchDragRef.current.isDragging = true;
-      setSelectedHandCard(null);
+      // setSelectedHandCard(null)는 touchend까지 미룸 — 드래그 중 버튼 DOM 언마운트 시 touchmove 끊김 방지
       const sourceEl = mobileTouchSourceElRef.current;
-      if (sourceEl) beginMobileTouchDragLayers(sourceEl);
+      if (sourceEl) {
+        hideMobileHandDetailOverlayOnEl(sourceEl);
+        beginMobileTouchDragLayers(sourceEl);
+      }
       syncActiveHandDragForMobileTouch(clientX, clientY);
       moveMobileTouchDragVisuals(clientX, clientY);
       return;
@@ -8859,12 +8879,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const wasDragging = touchDragRef.current.isDragging;
     const dragPlayer = touchDragRef.current.player;
     const dragCardIndex = touchDragRef.current.cardIndex;
-    const sourceEl = mobileTouchSourceElRef.current;
+    const startedOnDetailBtn = touchDragRef.current.startedOnDetailBtn;
 
     removeMobileTouchDragLayers();
     detachMobileTouchDocumentListeners();
 
     if (wasDragging) {
+      setSelectedHandCard(null);
       const el = document.elementFromPoint(ended.clientX, ended.clientY);
       const slotEl = el?.closest("[data-slot]") as HTMLElement | null;
       if (slotEl) {
@@ -8900,7 +8921,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     } else {
       mobileTouchTapHandlerRef.current?.();
 
-      if (
+      if (startedOnDetailBtn && dragCardIndex >= 0 && state) {
+        const hand = dragPlayer === "A" ? state.playerA.hand : state.playerB.hand;
+        const detailCard = hand[dragCardIndex];
+        if (detailCard) {
+          openHandCardCodexDetail(detailCard);
+          setSelectedHandCard(null);
+        }
+      } else if (
         !pendingSkill &&
         dragCardIndex >= 0 &&
         (dragPlayer === "A" || dragPlayer === "B") &&
@@ -8926,9 +8954,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleMobileHandTouchStart = (ev: TouchEvent) => {
-    const cardEl = (ev.target as HTMLElement).closest("[data-mobile-hand-card]") as HTMLElement | null;
+    const target = ev.target as HTMLElement;
+    const cardEl = target.closest("[data-mobile-hand-card]") as HTMLElement | null;
     if (!cardEl) return;
-    if ((ev.target as HTMLElement).closest("button")) return;
+
+    const startedOnDetailBtn = !!target.closest("[data-mobile-hand-detail-btn]");
 
     const player = cardEl.dataset.handPlayer as "A" | "B" | undefined;
     const cardIndexRaw = cardEl.dataset.handIndex;
@@ -8957,9 +8987,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       startY: t.clientY,
       isDragging: false,
       dragLayerEls: [],
+      startedOnDetailBtn,
     };
     attachMobileTouchDocumentListeners();
   };
+
   mobileHandTouchStartRef.current = handleMobileHandTouchStart;
 
   const beginHandDrag = (e: React.PointerEvent, cardIndex: number, player: "A" | "B", card: CardRow) => {
@@ -17243,6 +17275,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   )}
                   {isSelected ? (
                     <div
+                      data-mobile-hand-detail-overlay="1"
                       style={{
                         position: "absolute",
                         inset: 0,
@@ -17253,15 +17286,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         justifyContent: "center",
                         zIndex: 30,
                         borderRadius: 6,
+                        pointerEvents: "none",
                       }}
                     >
                       <button
                         type="button"
+                        data-mobile-hand-detail-btn="1"
                         onClick={e => {
                           e.stopPropagation();
                           openHandCardCodexDetail(card);
                           setSelectedHandCard(null);
                         }}
+                        style={{ pointerEvents: "auto" }}
                         className={`px-3 py-1.5 bg-slate-900/90 text-white text-[9px] font-bold rounded-lg border border-white/20 shadow-lg ${
                           isPlayerA ? "hover:bg-sky-600" : "hover:bg-rose-600"
                         }`}
