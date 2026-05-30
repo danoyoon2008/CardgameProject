@@ -15488,7 +15488,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderGonchungSpellStackFace = (
     player: "A" | "B",
     field: PlayerState["field"],
-    opts?: { mobileFieldLayout?: boolean }
+    opts?: { mobileFieldLayout?: boolean; mobileSpellSlotW?: number; mobileSpellSlotH?: number }
   ) => {
     const display = gonchungSpellSlotDisplayCard(player, field);
     if (!display) return null;
@@ -15509,6 +15509,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
         ryeomhwaSuppressedOutlineGlow={ryeomhwaSuppressedOutlineGlow}
         mobileFieldLayout={opts?.mobileFieldLayout}
+        mobileSpellSlotW={opts?.mobileSpellSlotW}
+        mobileSpellSlotH={opts?.mobileSpellSlotH}
       />
     );
   };
@@ -16446,8 +16448,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   /** 유닛 3칸 행 너비 — 스펠 행과 좌/우 가장자리 정렬 */
   const MOBILE_UNIT_ROW_W = MOBILE_UNIT_W * 3 + MOBILE_UNIT_SLOT_GAP * 2;
   const MOBILE_UNIT_H = 114;
+  const MOBILE_SPELL_CARD_ASPECT = 1.58;
   const MOBILE_SPELL_W = 100;
-  const MOBILE_SPELL_H = 63;
+  const MOBILE_SPELL_H = Math.round(MOBILE_SPELL_W / MOBILE_SPELL_CARD_ASPECT);
   /** 스펠↔유닛, 패↔필드 등 모바일 필드 스택 간격 (B/A 동일 값) */
   const MOBILE_FIELD_STACK_GAP = 8;
   const MOBILE_BOARD_EDGE_GAP = 8;
@@ -16464,11 +16467,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_SPELL_SLOT_BOX_STYLE: React.CSSProperties = {
     width: MOBILE_SPELL_W,
     height: MOBILE_SPELL_H,
-    aspectRatio: `${MOBILE_SPELL_W} / ${MOBILE_SPELL_H}`,
+    aspectRatio: `${MOBILE_SPELL_CARD_ASPECT} / 1`,
     overflow: "hidden",
     flexShrink: 0,
     boxSizing: "border-box",
   };
+  /** 모바일 우측 타이머·턴 박스 너비 — 토큰 패널과 동일 */
+  const MOBILE_TIMER_BOX_W = 88;
+  const MOBILE_TIMER_BOX_PAD_X = 4;
+  const MOBILE_TIMER_INNER_W = MOBILE_TIMER_BOX_W - MOBILE_TIMER_BOX_PAD_X * 2;
+  const MOBILE_TOKEN_GAP = 2;
+  /** 5열×2행 — 패딩·gap 반영 후 살짝 여유 */
+  const MOBILE_TOKEN_SIZE = Math.floor((MOBILE_TIMER_INNER_W - MOBILE_TOKEN_GAP * 4) / 5) - 1;
   /** 모바일 필드 유닛 체력바 — B/A 동일 두께 (PC h-3.5 ≈ 14px) */
   const MOBILE_FIELD_UNIT_HP_H = 14;
   const MOBILE_FIELD_HP_GAUGE_RESERVE_H = 14;
@@ -16478,6 +16488,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_FIELD_BADGE_W = (MOBILE_UNIT_W - MOBILE_FIELD_BADGE_GAP * 3) / 4;
   const MOBILE_FIELD_BADGE_HP_GAP = 4;
   const mobileFieldUnitHpDims = { width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H };
+  const mobileFieldSpellFaceOpts = {
+    mobileFieldLayout: true as const,
+    mobileSpellSlotW: MOBILE_SPELL_W,
+    mobileSpellSlotH: MOBILE_SPELL_H,
+  };
   const mobileFieldBadgeRenderOpts = {
     mobileFieldLayout: true as const,
     zoneWidth: MOBILE_UNIT_W,
@@ -17166,12 +17181,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return (
       <div
         style={{
-          width: MOBILE_RIGHT_W,
+          width: MOBILE_TIMER_BOX_W,
           height: panelH,
           position: "relative",
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
+          alignItems: "center",
           borderRadius: 8,
           border: canAttack
             ? "2px solid #ffffff"
@@ -17182,8 +17198,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               : "2px solid #334155",
           background: canAttack ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.35)",
           boxSizing: "border-box",
-          paddingLeft: 6,
-          paddingRight: 6,
+          paddingLeft: MOBILE_TIMER_BOX_PAD_X,
+          paddingRight: MOBILE_TIMER_BOX_PAD_X,
+          overflow: "hidden",
           cursor: canAttack ? "crosshair" : "default",
         }}
         onClick={e => {
@@ -17194,23 +17211,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         {renderFlashOverlay(`player-${player}`, "rounded-lg")}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, width: 88, pointerEvents: "none" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: MOBILE_TOKEN_GAP,
+            width: MOBILE_TIMER_INNER_W,
+            overflow: "hidden",
+            pointerEvents: "none",
+            justifyContent: "center",
+          }}
+        >
           {Array.from({ length: 10 }).map((_, i) => (
             <div
               key={i}
               style={{
-                width: 14,
-                height: 8,
-                borderRadius: 2,
+                width: MOBILE_TOKEN_SIZE,
+                height: MOBILE_TOKEN_SIZE,
+                borderRadius: 3,
                 border: i < ps.tokens ? "1px solid #fdba74" : "1px solid #334155",
                 background: i < ps.tokens ? "#f97316" : "#1e293b",
+                flexShrink: 0,
+                boxSizing: "border-box",
               }}
             />
           ))}
         </div>
         <div
           className="pointer-events-none absolute inset-0 z-[80] overflow-visible rounded-lg"
-          style={{ width: MOBILE_RIGHT_W, height: panelH }}
+          style={{ width: MOBILE_TIMER_BOX_W, height: panelH }}
         >
           {renderCombatPopups(`player-${player}`)}
         </div>
@@ -18781,7 +18810,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     <div
                       className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
                       style={MOBILE_SPELL_SLOT_BOX_STYLE}
-                      data-mobile-spell-slot="B"
                       data-field-drop
                       data-field-player="B"
                       data-field-slot="spell"
@@ -18791,7 +18819,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
                     >
                       {renderFlashOverlay("B-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("B", state.playerB.field, { mobileFieldLayout: true })}
+                      {renderGonchungSpellStackFace("B", state.playerB.field, mobileFieldSpellFaceOpts)}
                       {renderFieldSpellDurationBadge(state.playerB.field, "B")}
                       {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
@@ -18841,7 +18869,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     <div
                       className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
                       style={MOBILE_SPELL_SLOT_BOX_STYLE}
-                      data-mobile-spell-slot="A"
                       data-field-drop
                       data-field-player="A"
                       data-field-slot="spell"
@@ -18851,7 +18878,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
                     >
                       {renderFlashOverlay("A-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("A", state.playerA.field, { mobileFieldLayout: true })}
+                      {renderGonchungSpellStackFace("A", state.playerA.field, mobileFieldSpellFaceOpts)}
                       {renderFieldSpellDurationBadge(state.playerA.field, "A")}
                       {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>

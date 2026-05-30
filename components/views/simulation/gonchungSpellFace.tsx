@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../../ui/GuardedImg";
 import type { FieldCard } from "../../../types/game";
 import { isHiddenSpellCard } from "../../../utils/battle";
@@ -23,8 +24,10 @@ type GonchungSpellFaceProps = {
   teslaCounterOutlineGlow?: boolean;
   /** No.41 렴화 — 상대 패시브로 히든 트리거가 막힌 뒷면 스펠 보라 윤곽 */
   ryeomhwaSuppressedOutlineGlow?: boolean;
-  /** 모바일 시뮬 필드 스펠 칸 — PC 회전·scale 없이 슬롯 안에 클리핑 */
+  /** 모바일 시뮬 필드 스펠 칸 — 회전 전 치수 스왑으로 슬롯(가로형)에 카드 전체 표시 */
   mobileFieldLayout?: boolean;
+  mobileSpellSlotW?: number;
+  mobileSpellSlotH?: number;
 };
 
 export function GonchungSpellStackTopFace({
@@ -36,11 +39,13 @@ export function GonchungSpellStackTopFace({
   teslaCounterOutlineGlow = false,
   ryeomhwaSuppressedOutlineGlow = false,
   mobileFieldLayout = false,
+  mobileSpellSlotW,
+  mobileSpellSlotH,
 }: GonchungSpellFaceProps) {
   if (!showFront && isHiddenSpellCard(spell)) {
     return (
       <div
-        className={`pointer-events-none absolute inset-0 rounded-[6px] ${mobileFieldLayout || !ryeomhwaSuppressedOutlineGlow ? "overflow-hidden" : "overflow-visible"}`}
+        className={`pointer-events-none absolute inset-0 rounded-[6px] ${mobileFieldLayout ? "overflow-hidden" : ryeomhwaSuppressedOutlineGlow ? "overflow-visible" : "overflow-hidden"}`}
       >
         <HiddenSpellCardBackFace className={ryeomhwaSuppressedOutlineGlow ? "relative z-[1]" : undefined} />
         {ryeomhwaSuppressedOutlineGlow ? (
@@ -58,13 +63,22 @@ export function GonchungSpellStackTopFace({
   }
 
   const flipSuffix = opponentCardFlipped ? " rotate-180" : "";
+  const rotateClass =
+    player === "B" ? `rotate-90${flipSuffix}` : `-rotate-90${flipSuffix}`;
   const imgRotate = mobileFieldLayout
-    ? player === "B"
-      ? `h-full w-full object-cover rotate-90${flipSuffix}`
-      : `h-full w-full object-cover -rotate-90${flipSuffix}`
+    ? `object-contain ${rotateClass}`
     : player === "B"
       ? `h-full w-full object-contain rotate-90 scale-[1.58]${flipSuffix}`
-      : `h-full w-full object-contain -rotate-90 scale-[1.58]`;
+      : `h-full w-full object-contain -rotate-90 scale-[1.58]${flipSuffix}`;
+  const mobileImgStyle: CSSProperties | undefined =
+    mobileFieldLayout && mobileSpellSlotW && mobileSpellSlotH
+      ? {
+          width: mobileSpellSlotH,
+          height: mobileSpellSlotW,
+          objectFit: "contain",
+          flexShrink: 0,
+        }
+      : undefined;
   const textRotate = player === "B" && opponentCardFlipped ? "rotate-180" : "";
 
   return (
@@ -85,7 +99,13 @@ export function GonchungSpellStackTopFace({
       ) : null}
       {revealGlow ? <div className="pp-gonchung-hidden-reveal-aura" aria-hidden /> : null}
       {spell.image_url ? (
-        <GuardedImg src={spell.image_url} alt="Spell" className={imgRotate} />
+        mobileFieldLayout ? (
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+            <GuardedImg src={spell.image_url} alt="Spell" className={imgRotate} style={mobileImgStyle} />
+          </div>
+        ) : (
+          <GuardedImg src={spell.image_url} alt="Spell" className={imgRotate} />
+        )
       ) : (
         <span
           className={`p-2 text-center text-xs font-bold leading-tight text-purple-200 ${textRotate}`}
