@@ -15711,7 +15711,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 if (onOpenDetail) onOpenDetail(rider);
                 setSelectedSlot(null);
               }}
-              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+              className={
+                isMobile
+                  ? "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[4px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+                  : "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+              }
             >
               상세 보기
             </button>
@@ -15720,7 +15724,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 e.stopPropagation();
                 setSelectedSlot(null);
               }}
-              className="absolute top-0 right-0.5 text-slate-300 hover:text-white text-[9px] font-bold leading-none z-[46]"
+              className={
+                isMobile
+                  ? "absolute top-0 right-0.5 text-slate-300 hover:text-white text-[5px] font-bold leading-none z-[46]"
+                  : "absolute top-0 right-0.5 text-slate-300 hover:text-white text-[9px] font-bold leading-none z-[46]"
+              }
               aria-label="메뉴 닫기"
             >
               ✕
@@ -15825,6 +15833,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const renderActionMenu = (player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
     if (!card || selectedSlot !== `${player}-${slot}`) return null;
+
+    const actionMenuBtnShellClass = isMobile
+      ? "px-3 py-1.5 text-[5px] font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]"
+      : "px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]";
+    const actionMenuDetailBtnClass = isMobile
+      ? "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[5px] font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
+      : "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50";
+    const actionMenuCloseBtnClass = isMobile
+      ? "absolute top-1 right-2 text-slate-400 hover:text-white text-[6px] font-bold p-1"
+      : "absolute top-1 right-2 text-slate-400 hover:text-white text-xs font-bold p-1";
     
     const isMyTurn = state?.currentTurn === player;
     
@@ -15939,7 +15957,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               setSelectedSlot(null); 
             }} 
             disabled={!canAttack}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${!canAttack ? ((isSilenced || stunned) ? (eondeokSilent ? 'bg-sky-950 text-sky-200 border-sky-400' : 'bg-purple-900 text-purple-300 border-purple-700') : iversonLocked ? 'bg-emerald-950 text-emerald-200 border-emerald-800' : 'bg-slate-700 text-slate-400 border-slate-600') + ' cursor-not-allowed opacity-80 shadow-none' : 'bg-rose-600 hover:bg-rose-500 text-white border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.6)] active:scale-95'}`}
+            className={`${actionMenuBtnShellClass} ${!canAttack ? ((isSilenced || stunned) ? (eondeokSilent ? 'bg-sky-950 text-sky-200 border-sky-400' : 'bg-purple-900 text-purple-300 border-purple-700') : iversonLocked ? 'bg-emerald-950 text-emerald-200 border-emerald-800' : 'bg-slate-700 text-slate-400 border-slate-600') + ' cursor-not-allowed opacity-80 shadow-none' : 'bg-rose-600 hover:bg-rose-500 text-white border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.6)] active:scale-95'}`}
           >
             {stunned
               ? '기절 (행동불가)'
@@ -15976,7 +15994,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }}
             disabled={momoSkillDisabled}
             aria-disabled={momoSkillDisabled}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none' :
               stunned ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none pointer-events-none' :
               momoOnCooldown ? 'bg-slate-800 text-amber-600 border-amber-900 cursor-not-allowed opacity-80 pointer-events-none' :
@@ -16026,7 +16044,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 onCooldown
               );
             })()}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none' :
               isStunned(card) ? 'bg-purple-900 text-purple-300 border-purple-700 cursor-not-allowed opacity-80 shadow-none' :
               ((state?.globalTurnCount || 1) - ((card as any).skillLastUsedGlobalTurn || -999) < 4) ? 'bg-slate-800 text-pink-600 border-pink-900 cursor-not-allowed opacity-80' :
@@ -16080,7 +16098,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 onCooldown
               );
             })()}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn
                 ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none"
                 : isStunned(card)
@@ -16146,7 +16164,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 return allyHand.length >= 6 || oppHand.length === 0;
               })()
             }
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn
                 ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
                 : isStunned(card)
@@ -16200,7 +16218,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }}
             disabled={sgtkSkillDisabled}
             aria-disabled={sgtkSkillDisabled}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn
                 ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
                 : stunned
@@ -16249,7 +16267,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             }}
             disabled={gonchungSkillDisabled}
             aria-disabled={gonchungSkillDisabled}
-            className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+            className={`${actionMenuBtnShellClass} ${
               !isMyTurn
                 ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
                 : stunned
@@ -16294,7 +16312,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }}
               disabled={sinseokFieldDisabled}
               aria-disabled={sinseokFieldDisabled}
-              className={`px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%] ${
+              className={`${actionMenuBtnShellClass} ${
                 isMyTurn
                   ? "bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed opacity-80 shadow-none pointer-events-none"
                   : stunned
@@ -16326,14 +16344,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             if (onOpenDetail) onOpenDetail(card); 
             setSelectedSlot(null); 
           }} 
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
+          className={actionMenuDetailBtnClass}
         >
           상세 보기
         </button>
 
         <button 
           onClick={(e) => { e.stopPropagation(); setSelectedSlot(null); }}
-          className="absolute top-1 right-2 text-slate-400 hover:text-white text-xs font-bold p-1"
+          className={actionMenuCloseBtnClass}
         >
           ✕
         </button>
