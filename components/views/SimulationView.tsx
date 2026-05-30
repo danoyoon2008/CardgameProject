@@ -8638,8 +8638,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const removeMobileTouchGhost = () => {
     const ghost = touchDragRef.current.ghostEl;
-    if (ghost?.parentNode) ghost.parentNode.removeChild(ghost);
+    if (!ghost) return;
+    try {
+      ghost.remove();
+    } catch {
+      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    }
     touchDragRef.current.ghostEl = null;
+  };
+
+  const hideMobileTouchDragSource = () => {
+    const sourceEl = mobileTouchSourceElRef.current;
+    if (!sourceEl) return;
+    sourceEl.style.visibility = "hidden";
+    sourceEl.style.pointerEvents = "none";
+  };
+
+  const restoreMobileTouchDragSource = (sourceEl: HTMLElement | null) => {
+    if (!sourceEl?.isConnected) return;
+    sourceEl.style.visibility = "";
+    sourceEl.style.pointerEvents = "";
+  };
+
+  const applyGhostSubtreePointerEventsNone = (root: HTMLElement) => {
+    root.style.pointerEvents = "none";
+    root.querySelectorAll("button, a, input, select, textarea, [role='button']").forEach(el => {
+      if (el instanceof HTMLElement) el.style.pointerEvents = "none";
+    });
   };
 
   const resetMobileTouchDragRef = () => {
@@ -8664,32 +8689,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return { width, height, offsetX: width / 2, offsetY: height / 2 };
   };
 
-  const createMobileTouchGhost = (sourceEl: HTMLElement, clientX: number, clientY: number) => {
+  const createMobileTouchGhost = (sourceEl: HTMLElement) => {
     removeMobileTouchGhost();
     const rect = sourceEl.getBoundingClientRect();
     const ghost = document.createElement("div");
     ghost.style.position = "fixed";
     ghost.style.pointerEvents = "none";
-    ghost.style.opacity = "0.7";
+    ghost.style.opacity = "0.85";
     ghost.style.zIndex = "9999";
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${rect.top}px`;
     ghost.style.width = `${rect.width}px`;
     ghost.style.height = `${rect.height}px`;
-    ghost.style.left = `${clientX - rect.width / 2}px`;
-    ghost.style.top = `${clientY - rect.height / 2}px`;
-    ghost.style.overflow = "hidden";
-    ghost.style.borderRadius = "6px";
+    ghost.style.margin = "0";
+    ghost.style.padding = "0";
     ghost.style.boxSizing = "border-box";
-    const img = sourceEl.querySelector("img");
-    if (img instanceof HTMLImageElement) {
-      const cloneImg = document.createElement("img");
-      cloneImg.src = img.src;
-      cloneImg.alt = img.alt;
-      cloneImg.style.width = "100%";
-      cloneImg.style.height = "100%";
-      cloneImg.style.objectFit = "cover";
-      if (img.style.transform) cloneImg.style.transform = img.style.transform;
-      ghost.appendChild(cloneImg);
-    }
+    ghost.style.overflow = "hidden";
+    ghost.style.transform = "translate(0px, 0px)";
+    ghost.style.willChange = "transform";
+
+    const clone = sourceEl.cloneNode(true) as HTMLElement;
+    clone.style.width = "100%";
+    clone.style.height = "100%";
+    clone.style.margin = "0";
+    clone.style.boxSizing = "border-box";
+    applyGhostSubtreePointerEventsNone(clone);
+
+    ghost.appendChild(clone);
     document.body.appendChild(ghost);
     touchDragRef.current.ghostEl = ghost;
   };
@@ -8697,10 +8723,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const moveMobileTouchGhost = (clientX: number, clientY: number) => {
     const ghost = touchDragRef.current.ghostEl;
     if (!ghost) return;
-    const w = parseFloat(ghost.style.width) || 64;
-    const h = parseFloat(ghost.style.height) || 101;
-    ghost.style.left = `${clientX - w / 2}px`;
-    ghost.style.top = `${clientY - h / 2}px`;
+    const dx = clientX - touchDragRef.current.startX;
+    const dy = clientY - touchDragRef.current.startY;
+    ghost.style.transform = `translate(${dx}px, ${dy}px)`;
   };
 
   const syncActiveHandDragForMobileTouch = (clientX: number, clientY: number) => {
@@ -8753,7 +8778,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       touchDragRef.current.isDragging = true;
       setSelectedHandCard(null);
       const sourceEl = mobileTouchSourceElRef.current;
-      if (sourceEl) createMobileTouchGhost(sourceEl, clientX, clientY);
+      if (sourceEl) {
+        hideMobileTouchDragSource();
+        createMobileTouchGhost(sourceEl);
+      }
       syncActiveHandDragForMobileTouch(clientX, clientY);
     }
 
@@ -8811,10 +8839,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     ev.preventDefault();
 
     const wasDragging = touchDragRef.current.isDragging;
+    const dragPlayer = touchDragRef.current.player;
+    const dragCardIndex = touchDragRef.current.cardIndex;
+    const sourceEl = mobileTouchSourceElRef.current;
+
     removeMobileTouchGhost();
     detachMobileTouchDocumentListeners();
-    clearHandDragVisual();
-    setHandDragHoverSlotKey(null);
 
     if (wasDragging) {
       const el = document.elementFromPoint(ended.clientX, ended.clientY);
@@ -8828,46 +8858,53 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         ) {
           handleDrop(slot, targetPlayer, ended.clientX, ended.clientY);
         }
-      } else {
-        const { cardIndex, player } = touchDragRef.current;
-        if (cardIndex >= 0 && state) {
-          const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
-          const card = hand[cardIndex];
-          if (card) {
-            const { width, height, offsetX, offsetY } = getMobileHandCardDragMetrics();
-            commitHandDragDrop(ended.clientX, ended.clientY, {
-              player,
-              cardIndex,
-              card,
-              width,
-              height,
-              offsetX,
-              offsetY,
-              clientX: ended.clientX,
-              clientY: ended.clientY,
-              pointerId: -1,
-              opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
-            });
-          }
+      } else if (dragCardIndex >= 0 && state) {
+        const hand = dragPlayer === "A" ? state.playerA.hand : state.playerB.hand;
+        const card = hand[dragCardIndex];
+        if (card) {
+          const { width, height, offsetX, offsetY } = getMobileHandCardDragMetrics();
+          commitHandDragDrop(ended.clientX, ended.clientY, {
+            player: dragPlayer,
+            cardIndex: dragCardIndex,
+            card,
+            width,
+            height,
+            offsetX,
+            offsetY,
+            clientX: ended.clientX,
+            clientY: ended.clientY,
+            pointerId: -1,
+            opponentCardFlipped: dragPlayer === "B" ? !!state.settings.isOpponentCardFlipped : false,
+          });
         }
       }
+
+      queueMicrotask(() => {
+        const snap = simulationStateRef.current;
+        const hand =
+          dragPlayer === "A" ? snap?.playerA.hand : snap?.playerB.hand;
+        if (hand?.[dragCardIndex]) {
+          restoreMobileTouchDragSource(sourceEl);
+        }
+      });
     } else {
-      const { cardIndex, player } = touchDragRef.current;
       mobileTouchTapHandlerRef.current?.();
 
       if (
         !pendingSkill &&
-        cardIndex >= 0 &&
-        (player === "A" || player === "B") &&
+        dragCardIndex >= 0 &&
+        (dragPlayer === "A" || dragPlayer === "B") &&
         state
       ) {
-        const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
-        if (hand[cardIndex]) {
-          setSelectedHandCard({ player, index: cardIndex });
+        const hand = dragPlayer === "A" ? state.playerA.hand : state.playerB.hand;
+        if (hand[dragCardIndex]) {
+          setSelectedHandCard({ player: dragPlayer, index: dragCardIndex });
         }
       }
     }
 
+    clearHandDragVisual();
+    setHandDragHoverSlotKey(null);
     resetMobileTouchDragRef();
   };
 
