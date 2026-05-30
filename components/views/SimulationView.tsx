@@ -1449,6 +1449,13 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
   const [selectedHandCard, setSelectedHandCard] = useState<{ player: "A" | "B"; index: number } | null>(null);
+  const [selectedBadge, setSelectedBadge] = useState<{
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    bgColor: string;
+  } | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const touchDragRef = useRef<{
     cardIndex: number;
@@ -15467,7 +15474,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const badgeList = (
       <>
-        {statuses.map((status, i) => (
+        {statuses.map((status, i) => {
+          const badgeId = `${player}-${slot}-${status}`;
+          const badgeLabel = statusTooltip(status);
+          return (
           <div
             key={`${status}-${i}`}
             title={statusTooltip(status)}
@@ -15481,6 +15491,30 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             style={mobileChipStyle}
             role="listitem"
             aria-label={statusTooltip(status)}
+            onTouchStart={
+              opts?.mobileFieldLayout
+                ? e => {
+                    e.stopPropagation();
+                    const t = e.touches[0];
+                    if (!t) return;
+                    const bgColor = window.getComputedStyle(e.currentTarget).backgroundColor;
+                    setSelectedBadge({
+                      id: badgeId,
+                      label: badgeLabel,
+                      x: t.clientX,
+                      y: t.clientY,
+                      bgColor,
+                    });
+                  }
+                : undefined
+            }
+            onClick={
+              opts?.mobileFieldLayout
+                ? e => {
+                    e.stopPropagation();
+                  }
+                : undefined
+            }
           >
             {status === BUFF_BAN_BADGE || status === SUPPRESSION_DEBUFF_BADGE ? (
               <svg
@@ -15540,7 +15574,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               {statusTooltip(status)}
             </span>
           </div>
-        ))}
+          );
+        })}
       </>
     );
 
@@ -15713,7 +15748,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }}
               className={
                 isMobile
-                  ? "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[4px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+                  ? "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[5px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
                   : "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
               }
             >
@@ -15726,7 +15761,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }}
               className={
                 isMobile
-                  ? "absolute top-0 right-0.5 text-slate-300 hover:text-white text-[5px] font-bold leading-none z-[46]"
+                  ? "absolute top-0 right-0.5 text-slate-300 hover:text-white text-[6px] font-bold leading-none z-[46]"
                   : "absolute top-0 right-0.5 text-slate-300 hover:text-white text-[9px] font-bold leading-none z-[46]"
               }
               aria-label="메뉴 닫기"
@@ -15835,13 +15870,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!card || selectedSlot !== `${player}-${slot}`) return null;
 
     const actionMenuBtnShellClass = isMobile
-      ? "px-3 py-1.5 text-[5px] font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]"
+      ? "px-3 py-1.5 text-[6px] font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]"
       : "px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]";
     const actionMenuDetailBtnClass = isMobile
-      ? "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[5px] font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
+      ? "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[6px] font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
       : "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50";
     const actionMenuCloseBtnClass = isMobile
-      ? "absolute top-1 right-2 text-slate-400 hover:text-white text-[6px] font-bold p-1"
+      ? "absolute top-1 right-2 text-slate-400 hover:text-white text-[7px] font-bold p-1"
       : "absolute top-1 right-2 text-slate-400 hover:text-white text-xs font-bold p-1";
     
     const isMyTurn = state?.currentTurn === player;
@@ -18496,6 +18531,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         <div
           ref={mobileSimulationShellRef}
           onContextMenu={preventImageContextMenu}
+          onTouchStart={() => setSelectedBadge(null)}
           style={{
             position: "fixed",
             inset: 0,
@@ -19324,6 +19360,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
           </div>
         </div>
+          {selectedBadge
+            ? (() => {
+                const margin = 8;
+                const gapAbove = 8;
+                const estTooltipH = 28;
+                const vw = typeof window !== "undefined" ? window.innerWidth : selectedBadge.x;
+                const left = Math.max(margin, Math.min(selectedBadge.x, vw - margin));
+                const top = Math.max(margin, selectedBadge.y - gapAbove - estTooltipH);
+                return (
+                  <div
+                    role="tooltip"
+                    aria-label={selectedBadge.label}
+                    style={{
+                      position: "fixed",
+                      left,
+                      top,
+                      transform: "translateX(-50%)",
+                      zIndex: 9999,
+                      backgroundColor: selectedBadge.bgColor,
+                      fontSize: 12,
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      whiteSpace: "nowrap",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {selectedBadge.label}
+                  </div>
+                );
+              })()
+            : null}
         </div>
       ) : null}
 
