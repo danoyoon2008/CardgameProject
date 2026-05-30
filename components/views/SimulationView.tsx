@@ -1448,6 +1448,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   const [winner, setWinner] = useState<"A" | "B" | null>(null);
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
+  const [selectedHandCard, setSelectedHandCard] = useState<{ player: "A" | "B"; index: number } | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const touchDragRef = useRef<{
     cardIndex: number;
@@ -8740,6 +8741,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (!touchDragRef.current.isDragging) {
       touchDragRef.current.isDragging = true;
+      setSelectedHandCard(null);
       const sourceEl = mobileTouchSourceElRef.current;
       if (sourceEl) createMobileTouchGhost(sourceEl, clientX, clientY);
       syncActiveHandDragForMobileTouch(clientX, clientY);
@@ -8840,7 +8842,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
       }
     } else {
+      const { cardIndex, player } = touchDragRef.current;
       mobileTouchTapHandlerRef.current?.();
+
+      if (
+        !pendingSkill &&
+        cardIndex >= 0 &&
+        (player === "A" || player === "B") &&
+        state
+      ) {
+        const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
+        if (hand[cardIndex]) {
+          setSelectedHandCard({ player, index: cardIndex });
+        }
+      }
     }
 
     resetMobileTouchDragRef();
@@ -17015,6 +17030,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return (
       <div
         ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
+        onClick={() => setSelectedHandCard(null)}
         style={{
           width: "78%",
           marginLeft: "auto",
@@ -17070,6 +17086,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const isDanhaStealFlySource =
               danhaStealFly?.victimPlayer === player && danhaStealFly.victimHandIndex === i;
 
+            const isSelected =
+              !!card &&
+              selectedHandCard?.player === player &&
+              selectedHandCard.index === i;
+
             mobileHandTapHandlersRef.current[`${player}-${i}`] = () => {
               if (simpanPick) {
                 resolveSimpanHandPick(player, i);
@@ -17088,6 +17109,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 ref={el => {
                   handRefs.current[i] = el;
                 }}
+                onClick={e => e.stopPropagation()}
                 style={{
                   width: "100%",
                   minWidth: 0,
@@ -17162,6 +17184,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : (
                     <IconDeck className={`w-5 h-5 opacity-20 ${isPlayerA ? "text-sky-300" : "text-rose-300"}`} />
                   )}
+                  {isSelected ? (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        backgroundColor: "rgba(0,0,0,0.7)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 30,
+                        borderRadius: 6,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          openHandCardCodexDetail(card);
+                          setSelectedHandCard(null);
+                        }}
+                        className={`px-3 py-1.5 bg-slate-900/90 text-white text-[10px] font-bold rounded-lg border border-white/20 shadow-lg ${
+                          isPlayerA ? "hover:bg-sky-600" : "hover:bg-rose-600"
+                        }`}
+                      >
+                        상세 보기
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 {renderFlashOverlay(`hand-${player}-${i}`, "rounded-[6px]")}
               </div>
@@ -17258,7 +17309,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         setAttackOptionOverride(null);
         setPendingSkill(null);
         setPendingLibutyAllEnemiesAttack(null);
-      }} 
+        setSelectedHandCard(null);
+      }}
     >
       {state?.simpanPeekReveal &&
       state.simpanPeekReveal.peekKind !== "opening" &&
