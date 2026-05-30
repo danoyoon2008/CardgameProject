@@ -1552,6 +1552,7 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
   /** 동일 피크에 대해 타임아웃·클릭 스킵이 중복 실행되지 않도록 */
   const simpanPeekRevealTransitionStartedRef = useRef(false);
   const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
+  const spellUsageSkipToFlyRef = useRef<(() => void) | null>(null);
   /** 게임 시작 초기 드로우 1장 연출 완료 시 resolve */
   const openingDrawWaitRef = useRef<(() => void) | null>(null);
   const openingSkipRequestedRef = useRef(false);
@@ -6097,6 +6098,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!spellUsageReveal) {
       spellUsageRevealTransitionStartedRef.current = false;
+      spellUsageSkipToFlyRef.current = null;
       return;
     }
 
@@ -6225,8 +6227,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       runAfterPreview();
       return () => {
         clearSpellUsageTimers();
+        spellUsageSkipToFlyRef.current = null;
       };
     }
+
+    const skipPreview = () => {
+      clearSpellUsageTimers();
+      runAfterPreview();
+    };
+    spellUsageSkipToFlyRef.current = skipPreview;
 
     spellUsageRevealTimerRef.current = window.setTimeout(() => {
       spellUsageRevealTimerRef.current = null;
@@ -6235,6 +6244,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return () => {
       clearSpellUsageTimers();
+      spellUsageSkipToFlyRef.current = null;
     };
   }, [spellUsageReveal, spellUsageRevealTick, finishSpellUsageSequence]);
 
@@ -17205,7 +17215,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                           openHandCardCodexDetail(card);
                           setSelectedHandCard(null);
                         }}
-                        className={`px-3 py-1.5 bg-slate-900/90 text-white text-[10px] font-bold rounded-lg border border-white/20 shadow-lg ${
+                        className={`px-3 py-1.5 bg-slate-900/90 text-white text-[9px] font-bold rounded-lg border border-white/20 shadow-lg ${
                           isPlayerA ? "hover:bg-sky-600" : "hover:bg-rose-600"
                         }`}
                       >
@@ -18821,6 +18831,147 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   paddingRight: 4,
                 }}
               >
+                {spellUsageReveal && !spellUsageFly ? (
+                  <>
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 z-[119] bg-black/20 backdrop-blur-[1px]"
+                    />
+                    <div
+                      className="pointer-events-none absolute inset-0 z-[121] flex items-center justify-center overflow-visible px-1"
+                      aria-live="polite"
+                    >
+                      <div
+                        className="relative flex items-center justify-center overflow-visible"
+                        style={{ width: MOBILE_UNIT_W + 48, height: MOBILE_UNIT_H + 48 }}
+                      >
+                        <div
+                          aria-hidden
+                          key={`su-h1-m-${spellUsageRevealTick}`}
+                          className={`${spellUsageCasterHaloLayerClass(spellUsageReveal.casterPlayer, 1)} !w-28 !blur-[28px] md:!w-28 md:!blur-[28px]`}
+                        />
+                        <div
+                          aria-hidden
+                          key={`su-h2-m-${spellUsageRevealTick}`}
+                          className={`${spellUsageCasterHaloLayerClass(spellUsageReveal.casterPlayer, 2)} !w-24 !blur-[22px] md:!w-24 md:!blur-[22px]`}
+                        />
+                        <div
+                          ref={spellUsageCardMeasureRef}
+                          className={`pp-simpan-pending-glow relative z-[2] overflow-hidden rounded-[6px] border-2 bg-black/85 ${spellUsageCasterCardShellClass(spellUsageReveal.casterPlayer)}`}
+                          style={{
+                            width: MOBILE_UNIT_W,
+                            height: MOBILE_UNIT_H,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <div
+                            ref={spellUsageCenterFlashRef}
+                            className={`relative h-full w-full overflow-hidden rounded-[6px] ${spellUsageMuhyohwaCounterGlow ? "ring-0" : ""}`}
+                          >
+                            {spellUsageMuhyohwaCounterGlow ? (
+                              <div className="pp-muhyohwa-counter-outline" aria-hidden />
+                            ) : null}
+                            {spellUsageReveal.centerShowsCardBack ? (
+                              <div
+                                className={
+                                  spellUsageMuhyohwaCounterResolve
+                                    ? "pp-muhyohwa-counter-vanish h-full w-full"
+                                    : "h-full w-full"
+                                }
+                              >
+                                <HiddenSpellCardBackFace />
+                              </div>
+                            ) : spellUsageReveal.previewCard.image_url ? (
+                              <GuardedImg
+                                src={spellUsageReveal.previewCard.image_url}
+                                alt={spellUsageReveal.previewCard.name}
+                                className={`h-full w-full object-contain ${
+                                  spellUsageReveal.casterPlayer === "B" && state.settings.isOpponentCardFlipped
+                                    ? "rotate-180"
+                                    : ""
+                                } ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
+                              />
+                            ) : (
+                              <div
+                                className={`flex h-full w-full items-center justify-center p-2 text-center text-[9px] font-bold ${spellUsageReveal.casterPlayer === "A" ? "text-sky-100" : "text-rose-100"} ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
+                              >
+                                {spellUsageReveal.previewCard.name}
+                              </div>
+                            )}
+                            {renderFlashOverlay(SPELL_USAGE_CENTER_KEY, "rounded-[6px]")}
+                          </div>
+                          <div className={fieldSlotCombatPopupOverlayClass}>
+                            {renderCombatPopups(SPELL_USAGE_CENTER_KEY)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      role="presentation"
+                      aria-label="터치하면 다음 단계로 진행합니다"
+                      className="absolute left-1/2 top-1/2 z-[122] -translate-x-1/2 -translate-y-1/2 touch-manipulation"
+                      style={{
+                        width: MOBILE_UNIT_W + 28,
+                        height: MOBILE_UNIT_H + 28,
+                      }}
+                      onPointerDown={e => {
+                        if (e.button !== 0) return;
+                        if (
+                          !isClientPointOverSpellUsageCenterCard(
+                            e.clientX,
+                            e.clientY,
+                            spellUsageCardMeasureRef.current
+                          )
+                        ) {
+                          return;
+                        }
+                        e.preventDefault();
+                        e.stopPropagation();
+                        spellUsageSkipToFlyRef.current?.();
+                      }}
+                    />
+                  </>
+                ) : null}
+                {simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
+                  <div
+                    className="pointer-events-none absolute inset-0 z-[120] flex flex-col items-center justify-center gap-2 px-1"
+                    aria-live="polite"
+                  >
+                    <div
+                      ref={simpanCenterDisplay.kind === "peek" ? simpanPeekCardMeasureRef : undefined}
+                      className={
+                        simpanCenterDisplay.kind === "peek" &&
+                        state.simpanPeekReveal?.peekKind === "opening"
+                          ? "relative overflow-visible rounded-[6px] border border-slate-600/55 bg-black/85 shadow-md"
+                          : "pp-simpan-pending-glow relative overflow-visible rounded-[6px] border-2 border-white/90 bg-black/85 shadow-[0_0_28px_rgba(255,255,255,0.45)]"
+                      }
+                      style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, flexShrink: 0 }}
+                    >
+                      <div className="absolute inset-0 overflow-hidden rounded-[6px]">
+                        {simpanCenterDisplay.card.image_url ? (
+                          <GuardedImg
+                            src={simpanCenterDisplay.card.image_url}
+                            alt={simpanCenterDisplay.card.name}
+                            className={`h-full w-full object-cover ${
+                              simpanCenterDisplay.player === "B" && state.settings.isOpponentCardFlipped
+                                ? "rotate-180"
+                                : ""
+                            }`}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center p-2 text-center text-[9px] font-bold text-amber-100">
+                            {simpanCenterDisplay.card.name}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {simpanCenterDisplay.kind === "replace" ? (
+                      <p className="max-w-full text-center text-[10px] font-black leading-tight tracking-wide text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]">
+                        교체할 카드를 선택
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div
                   style={{
                     display: "flex",
