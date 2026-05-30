@@ -15279,7 +15279,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     player: "A" | "B",
     slot: "is" | "m" | "os" | "spell",
     card: FieldCard | null,
-    isPlayerA: boolean
+    isPlayerA: boolean,
+    opts?: {
+      mobileFieldLayout?: boolean;
+      zoneWidth?: number;
+      badgeW?: number;
+      badgeH?: number;
+      badgeGap?: number;
+    }
   ) => {
     if (!card || !state || slot === "spell") return null;
     const oppPlayer = player === "A" ? "B" : "A";
@@ -15335,17 +15342,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return status;
     };
 
-    const chip =
-      "relative shrink-0 flex h-[18px] w-[18px] md:h-5 md:w-5 cursor-default rounded-[3px] border-2 pointer-events-auto";
+    const mobileBadgeGap = opts?.badgeGap ?? 2;
+    const mobileBadgeW = opts?.badgeW ?? 18;
+    const mobileBadgeH = opts?.badgeH ?? 16;
+    const chip = opts?.mobileFieldLayout
+      ? "relative shrink-0 flex cursor-default rounded-[3px] border-2 pointer-events-auto box-border justify-self-center"
+      : "relative shrink-0 flex h-[18px] w-[18px] md:h-5 md:w-5 cursor-default rounded-[3px] border-2 pointer-events-auto";
+    const mobileChipStyle: React.CSSProperties | undefined = opts?.mobileFieldLayout
+      ? {
+          width: mobileBadgeW,
+          height: mobileBadgeH,
+          maxWidth: "100%",
+          boxSizing: "border-box",
+        }
+      : undefined;
+    const mobileBadgeTextClass = "text-[8px] font-black tabular-nums leading-none";
+    const pcBadgeTextClass = "text-[8px] font-black tabular-nums leading-none md:text-[9px]";
     /* 체력바가 있는 쪽과 반대로 툴팁 — B: 뱃지↑·체력바↓ → 위로 / A: 카드·체력바↑·뱃지↓ → 아래로 */
     const tipPos = isPlayerA ? "top-full mt-1.5" : "bottom-full mb-1.5";
 
-    return (
-      <div
-        className={`z-[36] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
-        role="list"
-        aria-label="필드 효과"
-      >
+    const badgeList = (
+      <>
         {statuses.map((status, i) => (
           <div
             key={`${status}-${i}`}
@@ -15357,6 +15374,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ? "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950"
                   : getStatusBadgeSurfaceClassForCard(status, card, player)
             }`}
+            style={mobileChipStyle}
             role="listitem"
             aria-label={statusTooltip(status)}
           >
@@ -15377,35 +15395,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               </svg>
             ) : status === SUPPRESSION_DEBUFF_BADGE && isSuppressionActive(card) ? (
               <span
-                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                className={`pointer-events-none absolute inset-0 z-[1] flex items-center justify-center ${opts?.mobileFieldLayout ? mobileBadgeTextClass : pcBadgeTextClass} text-black`}
                 aria-hidden
               >
                 {`${Math.ceil((card.suppressionEndTurnTicksRemaining ?? 0) / 2)}*`}
               </span>
             ) : status === "침묵" && isEondeokSilenceActive(card) ? (
               <span
-                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                className={`pointer-events-none absolute inset-0 z-[1] flex items-center justify-center ${opts?.mobileFieldLayout ? mobileBadgeTextClass : pcBadgeTextClass} text-black`}
                 aria-hidden
               >
                 {`${Math.ceil((card.eondeokSilenceEndTurnTicksRemaining ?? 0) / 2)}*`}
               </span>
             ) : status === "기절" && isStunned(card) ? (
               <span
-                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.92)] md:text-[9px]"
+                className={`pointer-events-none absolute inset-0 z-[1] flex items-center justify-center ${opts?.mobileFieldLayout ? mobileBadgeTextClass : pcBadgeTextClass} text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.92)]`}
                 aria-hidden
               >
                 {`${Math.ceil((card.stunEndTurnTicksRemaining ?? 0) / 2)}*`}
               </span>
             ) : status === BANG_EOMAK_DEFENSE_BADGE && bangeomakTicks > 0 ? (
               <span
-                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-black md:text-[9px]"
+                className={`pointer-events-none absolute inset-0 z-[1] flex items-center justify-center ${opts?.mobileFieldLayout ? mobileBadgeTextClass : pcBadgeTextClass} text-black`}
                 aria-hidden
               >
                 {`${Math.ceil(bangeomakTicks / 2)}*`}
               </span>
             ) : status === BAEKSEU_INVULN_BADGE && invulnBadgeTicks > 0 ? (
               <span
-                className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center text-[8px] font-black tabular-nums leading-none text-slate-900 md:text-[9px]"
+                className={`pointer-events-none absolute inset-0 z-[1] flex items-center justify-center ${opts?.mobileFieldLayout ? mobileBadgeTextClass : pcBadgeTextClass} text-slate-900`}
                 aria-hidden
               >
                 {`${Math.ceil(invulnBadgeTicks / 2)}*`}
@@ -15419,6 +15437,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </span>
           </div>
         ))}
+      </>
+    );
+
+    if (opts?.mobileFieldLayout) {
+      const zoneWidth = opts.zoneWidth ?? 72;
+      return (
+        <div
+          className="z-[36] grid shrink-0"
+          style={{
+            maxWidth: zoneWidth,
+            width: zoneWidth,
+            gap: mobileBadgeGap,
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          }}
+          role="list"
+          aria-label="필드 효과"
+        >
+          {badgeList}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`z-[36] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
+        role="list"
+        aria-label="필드 효과"
+      >
+        {badgeList}
       </div>
     );
   };
@@ -16302,7 +16349,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (mobileFieldDims) {
         return (
           <div
-            data-mobile-field-unit-hp={isPlayerA ? "A" : "B"}
             className={`relative z-[1] shrink-0 rounded-[3px] border overflow-hidden pointer-events-none ${hpTrackFrozenClass}${trackWarnClass}`}
             style={{
               width: mobileFieldDims.width,
@@ -16426,7 +16472,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   /** 모바일 필드 유닛 체력바 — B/A 동일 두께 (PC h-3.5 ≈ 14px) */
   const MOBILE_FIELD_UNIT_HP_H = 14;
   const MOBILE_FIELD_HP_GAUGE_RESERVE_H = 14;
+  /** 모바일 효과 뱃지 — 4열×gap 2px이 슬롯(72px) 안에 들어가도록 (72-6)/4=16.5 */
+  const MOBILE_FIELD_BADGE_GAP = 2;
+  const MOBILE_FIELD_BADGE_H = 16;
+  const MOBILE_FIELD_BADGE_W = (MOBILE_UNIT_W - MOBILE_FIELD_BADGE_GAP * 3) / 4;
+  const MOBILE_FIELD_BADGE_HP_GAP = 4;
   const mobileFieldUnitHpDims = { width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H };
+  const mobileFieldBadgeRenderOpts = {
+    mobileFieldLayout: true as const,
+    zoneWidth: MOBILE_UNIT_W,
+    badgeW: MOBILE_FIELD_BADGE_W,
+    badgeH: MOBILE_FIELD_BADGE_H,
+    badgeGap: MOBILE_FIELD_BADGE_GAP,
+  };
 
   const renderMobileFieldHpBar = (
     card: FieldCard | null,
@@ -16440,10 +16498,35 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     fieldSlotKey: string,
     slot: "is" | "m" | "os"
   ) => {
+    const player: "A" | "B" = isPlayerA ? "A" : "B";
     const hpInner =
       renderMobileFieldHpBar(card, isPlayerA, slot) ?? (
         <div style={{ width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H }} aria-hidden />
       );
+    const badgeContent = renderStatusBadges(player, slot, card, isPlayerA, mobileFieldBadgeRenderOpts);
+    const badgeOverlay = badgeContent ? (
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          width: MOBILE_UNIT_W,
+          zIndex: 36,
+          pointerEvents: "none",
+          ...(isPlayerA
+            ? { top: "100%", marginTop: MOBILE_FIELD_BADGE_HP_GAP }
+            : { bottom: "100%", marginBottom: MOBILE_FIELD_BADGE_HP_GAP }),
+        }}
+      >
+        {badgeContent}
+      </div>
+    ) : null;
+    const hpBarAnchor = (
+      <div style={{ position: "relative", width: MOBILE_UNIT_W, flexShrink: 0 }}>
+        {!isPlayerA ? badgeOverlay : null}
+        {hpInner}
+        {isPlayerA ? badgeOverlay : null}
+      </div>
+    );
     const mobileHpColumnStyle: React.CSSProperties = {
       width: MOBILE_UNIT_W,
       flexShrink: 0,
@@ -16466,7 +16549,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (isPlayerA) {
       return (
         <div style={mobileHpColumnStyle}>
-          {hpInner}
+          {hpBarAnchor}
           <div style={gaugeReserveStyle}>
             {card?.name === DARK_KNIGHT_ID ? (
               renderDarkKnightSoulGaugeBelowHpFlow(card, fieldSlotKey)
@@ -16492,17 +16575,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
           {renderIversonWaitGaugeAboveHpAbsolute(card)}
         </div>
-        {hpInner}
+        {hpBarAnchor}
       </div>
     );
   };
 
   const mobileFieldCardStyle =
     "shrink-0 rounded-[6px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
-  const mobileFieldSlotBadgeZoneClassWithCard = (card: FieldCard | null, isPlayerA: boolean) =>
-    `flex flex-col items-center justify-center overflow-visible${
-      !isPlayerA && (card?.name === DARK_KNIGHT_ID || card?.name === MAXELLAND_ID) ? " -translate-y-1" : ""
-    }`;
   const mobileSpellCardStyle =
     "shrink-0 rounded-[6px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 
@@ -16819,17 +16898,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         <div style={{ width: MOBILE_UNIT_W, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-          {!isPlayerA ? (
-            <div
-              className={mobileFieldSlotBadgeZoneClassWithCard(card, false)}
-              style={{ width: MOBILE_UNIT_W, height: 28 }}
-            >
-              {renderStatusBadges(player, slot, card, false)}
-            </div>
-          ) : null}
-          {!isPlayerA
-            ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot)
-            : null}
+          {!isPlayerA ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot) : null}
           <div className={unitSlotOuterClass} style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
             <div
@@ -16902,17 +16971,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderIversonWaitAuraOverlay(card, "rounded-[6px]", slotKey)}
             {renderBaekseuInvulnRing(card, "rounded-[6px]", player, slot)}
           </div>
-          {isPlayerA
-            ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot)
-            : null}
-          {isPlayerA ? (
-            <div
-              className={mobileFieldSlotBadgeZoneClassWithCard(card, true)}
-              style={{ width: MOBILE_UNIT_W, height: 28 }}
-            >
-              {renderStatusBadges(player, slot, card, true)}
-            </div>
-          ) : null}
+          {isPlayerA ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot) : null}
           <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups(slotKey)}</div>
         </div>
       </div>
