@@ -20,16 +20,6 @@ interface MultiplayViewProps {
   cards: CardRow[];
 }
 
-type StoredGameState = SimulationState & {
-  lastUpdatedBy?: PlayerRole;
-  [key: string]: unknown;
-};
-
-function stripSyncMeta(stored: StoredGameState): SimulationState {
-  const { lastUpdatedBy: _lastUpdatedBy, ...gameState } = stored;
-  return gameState as SimulationState;
-}
-
 async function resolveDeckCatalog(
   cardsProp: CardRow[],
   client: SupabaseClient,
@@ -53,7 +43,7 @@ async function resolveDeckCatalog(
 }
 
 /** useSimulationLogic.runInitialization 과 동일한 최종 상태를 동기적으로 생성 */
-function createInitialGameState(initialDeck: CardRow[], authorRole: PlayerRole): StoredGameState {
+function createInitialGameState(initialDeck: CardRow[]): SimulationState {
   const currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
   const pAHand: CardRow[] = [];
   const pBHand: CardRow[] = [];
@@ -111,14 +101,13 @@ function createInitialGameState(initialDeck: CardRow[], authorRole: PlayerRole):
     spellUsagePending: null,
     guihwanPending: null,
     bubbleStationPending: null,
-    lastUpdatedBy: authorRole,
-  };
+  } as SimulationState;
 }
 
 type MultiplayGameSessionProps = {
   roomId: string;
   myRole: PlayerRole;
-  bootstrapSnapshot: StoredGameState;
+  bootstrapSnapshot: SimulationState;
   catalogForView: CardRow[];
   isDarkMode: boolean;
   onBackToLobby: () => void;
@@ -134,112 +123,117 @@ function MultiplayGameSession({
   onBackToLobby,
   opponentNickname,
 }: MultiplayGameSessionProps) {
-  const isRemoteUpdate = useRef(false);
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const isSyncing = useRef(false);
+  const stateRef = useRef<SimulationState | null>(null);
 
   const simulation = useSimulationLogic(catalogForView, { skipAutoInit: true, multiplay: true });
-  const { state, setState, isInitializing, setIsInitializing } = simulation;
+  const {
+    state,
+    setState,
+    isInitializing,
+    setIsInitializing,
+    handleEndTurn: rawHandleEndTurn,
+    handleDrop: rawHandleDrop,
+    handleFieldClick: rawHandleFieldClick,
+    handlePlayerAttack: rawHandlePlayerAttack,
+    handleSkillDiscard: rawHandleSkillDiscard,
+    executeDraw: rawExecuteDraw,
+  } = simulation;
+
+  stateRef.current = state;
+
+  const syncGameState = useCallback(
+    (newState: SimulationState) => {
+      if (isSyncing.current) {
+        console.log("[MultiplayView] syncGameState 건너뜀 (원격 동기화 중)");
+        return;
+      }
+
+      const channel = channelRef.current;
+      if (!channel) {
+        console.error("[MultiplayView] syncGameState — Broadcast 채널 없음");
+        return;
+      }
+
+      console.log("[MultiplayView] syncGameState Broadcast 전송", {
+        myRole,
+        currentTurn: newState.currentTurn,
+        globalTurnCount: newState.globalTurnCount,
+        handA: newState.playerA.hand.length,
+        handB: newState.playerB.hand.length,
+      });
+
+      void channel.send({
+        type: "broadcast",
+        event: "game_state_update",
+        payload: { game_state: newState },
+      });
+    },
+    [myRole],
+  );
+
+  const scheduleSyncAfterAction = useCallback(() => {
+    setTimeout(() => {
+      const latest = stateRef.current;
+      if (latest) syncGameState(latest);
+    }, 100);
+  }, [syncGameState]);
+
+  const wrapHandlerWithSync = <T extends (...args: never[]) => void>(fn: T): T =>
+    ((...args: Parameters<T>) => {
+      fn(...args);
+      scheduleSyncAfterAction();
+    }) as T;
+
+  void [
+    wrapHandlerWithSync(rawHandleEndTurn),
+    wrapHandlerWithSync(rawHandleDrop),
+    wrapHandlerWithSync(rawHandleFieldClick),
+    wrapHandlerWithSync(rawHandlePlayerAttack),
+    wrapHandlerWithSync(rawHandleSkillDiscard),
+    wrapHandlerWithSync(rawExecuteDraw),
+  ];
 
   const controlledSimulation: ControlledSimulationBinding = {
     state,
     setState,
     isInitializing,
     setIsInitializing,
+    syncAfterAction: scheduleSyncAfterAction,
   };
-
-  const syncGameState = useCallback(
-    async (newState: SimulationState) => {
-      const client = createClient();
-      if (!client) {
-        console.error("[MultiplayView] syncGameState — Supabase 클라이언트 없음");
-        return;
-      }
-
-      const payload: StoredGameState = {
-        ...(newState as StoredGameState),
-        lastUpdatedBy: myRole,
-      };
-
-      console.log("[MultiplayView] syncGameState 호출", {
-        myRole,
-        currentTurn: payload.currentTurn,
-        globalTurnCount: payload.globalTurnCount,
-        handA: payload.playerA.hand.length,
-        handB: payload.playerB.hand.length,
-      });
-
-      const { error } = await client
-        .from("game_rooms")
-        .update({
-          game_state: payload,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", roomId);
-
-      if (error) {
-        console.error("[MultiplayView] syncGameState 실패:", error.message, error);
-      } else {
-        console.log("[MultiplayView] syncGameState 성공 — roomId:", roomId);
-      }
-    },
-    [myRole, roomId],
-  );
 
   useEffect(() => {
     if (hasHydrated.current) return;
     hasHydrated.current = true;
-    isRemoteUpdate.current = true;
     setIsInitializing(false);
-    setState(stripSyncMeta(bootstrapSnapshot));
+    setState(bootstrapSnapshot);
     console.log("[MultiplayView] bootstrap game_state 주입 완료");
   }, [bootstrapSnapshot, setState, setIsInitializing]);
-
-  useEffect(() => {
-    if (!state || isInitializing) return;
-
-    if (isRemoteUpdate.current) {
-      isRemoteUpdate.current = false;
-      console.log("[MultiplayView] syncGameState 건너뜀 (원격 업데이트)");
-      return;
-    }
-
-    void syncGameState(state);
-  }, [state, isInitializing, syncGameState]);
 
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
 
     const channel = supabase
-      .channel(`game-room-sync-${roomId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "game_rooms",
-          filter: `id=eq.${roomId}`,
-        },
-        (payload) => {
-          const next = payload.new as { game_state?: StoredGameState | null };
-          const remote = next.game_state;
-          console.log("[MultiplayView] game_state Realtime 수신:", remote);
+      .channel(`game-room-${roomId}`)
+      .on("broadcast", { event: "game_state_update" }, ({ payload }) => {
+        const remote = (payload as { game_state?: SimulationState | null })?.game_state;
+        console.log("[MultiplayView] Broadcast game_state 수신:", remote);
 
-          if (!remote) return;
+        if (!remote) return;
 
-          if (remote.lastUpdatedBy === myRole) {
-            console.log("[MultiplayView] 자신이 보낸 변경 — 무시", { lastUpdatedBy: remote.lastUpdatedBy });
-            return;
-          }
-
-          console.log("[MultiplayView] 상대 변경 반영", { lastUpdatedBy: remote.lastUpdatedBy });
-          isRemoteUpdate.current = true;
-          setState(stripSyncMeta(remote));
-        },
-      )
+        isSyncing.current = true;
+        setState((prev) => ({
+          ...remote,
+          elapsedTime: prev?.elapsedTime ?? remote.elapsedTime ?? 0,
+          turnTimeLeft: prev?.turnTimeLeft ?? remote.turnTimeLeft ?? 60,
+        }));
+        isSyncing.current = false;
+      })
       .subscribe((status) => {
-        console.log("[MultiplayView] Realtime 구독 상태:", status);
+        console.log("[MultiplayView] Broadcast 구독 상태:", status);
       });
 
     channelRef.current = channel;
@@ -248,7 +242,7 @@ function MultiplayGameSession({
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [roomId, myRole, setState]);
+  }, [roomId, setState]);
 
   const opponentLabel = opponentNickname ?? "상대방";
   const myTeamLabel = myRole === "player_a" ? "Player A" : "Player B";
@@ -320,6 +314,24 @@ function MultiplayGameSession({
   );
 }
 
+async function fetchInitialGameState(
+  client: SupabaseClient,
+  roomId: string,
+): Promise<SimulationState | null> {
+  const { data, error } = await client
+    .from("game_rooms")
+    .select("game_state")
+    .eq("id", roomId)
+    .single();
+
+  if (error) {
+    console.error("[MultiplayView] game_state 조회 실패:", error.message);
+    return null;
+  }
+
+  return (data?.game_state as SimulationState | null) ?? null;
+}
+
 export default function MultiplayView({
   roomId,
   myRole,
@@ -327,7 +339,7 @@ export default function MultiplayView({
   isDarkMode,
   cards,
 }: MultiplayViewProps) {
-  const [bootstrapSnapshot, setBootstrapSnapshot] = useState<StoredGameState | null>(null);
+  const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
   const [opponentNickname, setOpponentNickname] = useState<string | null>(null);
 
@@ -377,13 +389,30 @@ export default function MultiplayView({
       if (room.game_state) {
         console.log("[MultiplayView] 기존 game_state 로드");
         if (!cancelled) {
-          setBootstrapSnapshot(room.game_state as StoredGameState);
+          setBootstrapSnapshot(room.game_state as SimulationState);
         }
         return;
       }
 
-      if (myRole !== "player_a") {
-        console.log("[MultiplayView] player_b — game_state Realtime 대기");
+      if (myRole === "player_b") {
+        console.log("[MultiplayView] player_b — 초기 game_state DB 조회 대기");
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          if (cancelled) return;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (cancelled) return;
+
+          const gameState = await fetchInitialGameState(client, roomId);
+          if (gameState) {
+            console.log("[MultiplayView] player_b 초기 game_state 조회 성공 — 시도:", attempt);
+            if (!cancelled) {
+              setBootstrapSnapshot(gameState);
+            }
+            return;
+          }
+
+          console.log("[MultiplayView] player_b game_state 아직 없음 — 재시도:", attempt);
+        }
+        console.warn("[MultiplayView] player_b 초기 game_state 조회 실패 — 최대 재시도 초과");
         return;
       }
 
@@ -392,7 +421,7 @@ export default function MultiplayView({
         return;
       }
 
-      const initialState = createInitialGameState(deckCards, myRole);
+      const initialState = createInitialGameState(deckCards);
       console.log("[MultiplayView] player_a 초기 game_state 생성", {
         deckRemaining: initialState.deckCards.length,
         handA: initialState.playerA.hand.length,
@@ -423,7 +452,7 @@ export default function MultiplayView({
       if (refetchError) {
         console.error("[MultiplayView] game_state 재조회 실패:", refetchError.message);
       } else if (!cancelled && refetch?.game_state) {
-        setBootstrapSnapshot(refetch.game_state as StoredGameState);
+        setBootstrapSnapshot(refetch.game_state as SimulationState);
       } else if (!cancelled && !updateError) {
         setBootstrapSnapshot(initialState);
       }
@@ -435,39 +464,6 @@ export default function MultiplayView({
       cancelled = true;
     };
   }, [roomId, myRole, cards]);
-
-  useEffect(() => {
-    if (bootstrapSnapshot || myRole !== "player_b") return;
-
-    const supabase = createClient();
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel(`game-room-bootstrap-${roomId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "game_rooms",
-          filter: `id=eq.${roomId}`,
-        },
-        (payload) => {
-          const next = payload.new as { game_state?: StoredGameState | null };
-          if (next.game_state) {
-            console.log("[MultiplayView] player_b bootstrap game_state 수신");
-            setBootstrapSnapshot(next.game_state);
-          }
-        },
-      )
-      .subscribe((status) => {
-        console.log("[MultiplayView] bootstrap Realtime 구독 상태:", status);
-      });
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [bootstrapSnapshot, myRole, roomId]);
 
   const catalogForView = deckCatalog.length > 0 ? deckCatalog : cards;
 

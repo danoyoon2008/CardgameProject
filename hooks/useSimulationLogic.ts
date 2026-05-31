@@ -137,6 +137,8 @@ export type ControlledSimulationBinding = {
   setState: Dispatch<SetStateAction<SimulationState | null>>;
   isInitializing: boolean;
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
+  /** 멀티플레이 — 게임 행동 후 Broadcast 동기화 예약 */
+  syncAfterAction?: () => void;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {

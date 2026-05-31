@@ -441,6 +441,8 @@ type ControlledSimulationBinding = {
   setState: Dispatch<SetStateAction<SimulationState | null>>;
   isInitializing: boolean;
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
+  /** 멀티플레이 — 게임 행동 후 Broadcast 동기화 예약 */
+  syncAfterAction?: () => void;
 };
 
 interface SimulationViewProps {
@@ -1309,6 +1311,9 @@ export default function SimulationView({
   const [localState, setLocalState] = useState<SimulationState | null>(null);
   const state = controlledSimulation ? controlledSimulation.state : localState;
   const setState = controlledSimulation ? controlledSimulation.setState : setLocalState;
+  const notifyMultiplaySync = () => {
+    controlledSimulation?.syncAfterAction?.();
+  };
 
   const multiplayMyTeam: "A" | "B" | null =
     multiplayMyRole === "player_a" ? "A" : multiplayMyRole === "player_b" ? "B" : null;
@@ -7168,6 +7173,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
       }
     }
+    notifyMultiplaySync();
   };
 
   const handleSkillDiscard = (cardIndex: number, player: "A" | "B") => {
@@ -7242,6 +7248,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (actualHeal > 0) {
       showHealNumber(healPopupKey, actualHeal);
     }
+    notifyMultiplaySync();
   };
 
   const handleDanhaSteal = (victimHandIndex: number, victimPlayer: "A" | "B") => {
@@ -7440,6 +7447,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     });
 
     setIsDrawModalOpen(false);
+    notifyMultiplaySync();
   };
 
   const completeOneNightWagerSettlement = useCallback(
@@ -8773,7 +8781,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const commitHandDragDrop = (clientX: number, clientY: number, saved: HandDragState) => {
     const snap = state;
     if (!snap) return;
-    if (attemptMuhyohwaCounterDrop(snap, saved, clientX, clientY)) return;
+    if (attemptMuhyohwaCounterDrop(snap, saved, clientX, clientY)) {
+      notifyMultiplaySync();
+      return;
+    }
     if (spellUsageReveal || spellUsageFly || danhaStealFly || spellUsageMotionActiveRef.current) return;
     if (snap.guihwanPending) return;
 
@@ -8788,14 +8799,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!targetPlayer || !slot) return;
     if (targetPlayer !== "A" && targetPlayer !== "B") return;
 
-    if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) return;
-    if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) return;
+    if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
+    if (attemptCastBeonggaeSpellDrop(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
+    if (attemptCastEondeokSpellDrop(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
+    if (attemptCastSomyeolSpellDrop(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
+    if (attemptCastHyperBeamSpellDrop(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
+    if (attemptAttachAebeolaeking(snap, saved, targetPlayer, slot)) {
+      notifyMultiplaySync();
+      return;
+    }
 
     placeHandCardFromHand(snap, saved.cardIndex, saved.player, slot, targetPlayer);
+    notifyMultiplaySync();
   };
 
   const MOBILE_TOUCH_DRAG_THRESHOLD_PX = 10;
@@ -10295,6 +10325,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             setWinner(pls.ownerPlayer);
           }
         }, 50);
+        notifyMultiplaySync();
         return;
       }
 
@@ -10303,6 +10334,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         phase: 2,
         hitTargets: [...pls.hitTargets, LEGENDARY_SWORD_HIT_PLAYER_MARK],
       });
+      notifyMultiplaySync();
       return;
     }
 
@@ -10595,6 +10627,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setAttackingSlot(null);
     setAttackOptionOverride(null);
     applyStartingWraithChainPending(null);
+    notifyMultiplaySync();
   };
 
   const commitLibutyAllEnemiesBasicAttack = () => {
@@ -11575,6 +11608,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       pushBanjitgoriBuffFloat(allySlotKey);
 
       setPendingSkill(null);
+      notifyMultiplaySync();
       return;
     }
 
@@ -11628,6 +11662,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       pushLimeBubbleBuffFloat(allySlotKey);
 
       setPendingSkill(null);
+      notifyMultiplaySync();
       return;
     }
 
@@ -11721,6 +11756,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
 
       setPendingSkill(null);
+      notifyMultiplaySync();
       return;
     }
 
@@ -11820,6 +11856,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
 
       setPendingSkill(null);
+      notifyMultiplaySync();
       return;
     }
 
@@ -11940,6 +11977,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       } else {
         flushSync(() => applyLegendarySwordStrikePending(null));
       }
+      notifyMultiplaySync();
       return;
     }
 
@@ -14106,6 +14144,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (!keepAttackingModeForStartingWraithChain) {
         setAttackingSlot(null);
       }
+      notifyMultiplaySync();
       return;
     }
 
