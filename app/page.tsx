@@ -104,6 +104,7 @@ export default function Home() {
   const isMobile = useIsMobile();
   const [multiplayRoomId, setMultiplayRoomId] = useState<string | null>(null);
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
+  const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
   const isFullScreenGame = isSimulation || isMultiplay;
@@ -131,6 +132,13 @@ export default function Home() {
     setMultiplayRole(null);
     game.setMainView("battle");
     void refreshActiveMultiplayRoom();
+  };
+
+  const handleRematchFromMultiplay = () => {
+    setMultiplayRoomId(null);
+    setMultiplayRole(null);
+    setAutoStartMatchmaking(true);
+    game.setMainView("battle");
   };
 
   usePreventUiTextSelection(!isMobile);
@@ -167,6 +175,8 @@ export default function Home() {
                   onStartMultiplay={handleStartMultiplay}
                   activeMultiplayRoom={activeMultiplayRoom}
                   onRejoinMultiplay={handleStartMultiplay}
+                  autoStartMatchmaking={autoStartMatchmaking}
+                  onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
                 />
               )}
               
@@ -194,6 +204,8 @@ export default function Home() {
           onStartMultiplay={handleStartMultiplay}
           activeMultiplayRoom={activeMultiplayRoom}
           onRejoinMultiplay={handleStartMultiplay}
+          autoStartMatchmaking={autoStartMatchmaking}
+          onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
         />
       )}
       {game.mainView === "shop" && (
@@ -315,6 +327,7 @@ export default function Home() {
                 roomId={multiplayRoomId}
                 myRole={multiplayRole}
                 onBackToLobby={handleBackFromMultiplay}
+                onRematchReady={handleRematchFromMultiplay}
                 isDarkMode={game.isDarkMode}
                 cards={game.cards}
                 onOpenDetail={game.handleOpenCardDetail}

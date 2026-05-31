@@ -461,8 +461,19 @@ interface SimulationViewProps {
   /** 멀티플레이 — 상대 연결 끊김 오버레이 */
   multiplayOpponentDisconnected?: boolean;
   multiplayDisconnectSecondsLeft?: number | null;
-  /** 멀티플레이 — 연결 끊김 자동 승리 등 외부 승자 지정 */
-  multiplayForcedWinner?: "A" | "B" | null;
+  /** 멀티플레이 — 세션 승자 (연결 끊김·포기 등, 마운트 시 null) */
+  multiplaySessionWinner?: "A" | "B" | null;
+  /** 멀티플레이 — HP 0 승리 시 DB 저장 콜백 */
+  onMultiplayWin?: (winner: "A" | "B") => void;
+  /** 멀티플레이 — 게임 종료 창 버튼·메시지 */
+  multiplayEndUi?: {
+    opponentLeft: boolean;
+    rematchStatus: "none" | "waiting" | "incoming";
+    onLeaveLobby: () => void;
+    onRematch: () => void;
+    onRematchAccept: () => void;
+    onRematchReject: () => void;
+  };
 }
 
 function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
@@ -1303,7 +1314,9 @@ export default function SimulationView({
   multiplayMyRole,
   multiplayOpponentDisconnected = false,
   multiplayDisconnectSecondsLeft = null,
-  multiplayForcedWinner = null,
+  multiplaySessionWinner = null,
+  onMultiplayWin,
+  multiplayEndUi,
 }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
@@ -1345,6 +1358,11 @@ export default function SimulationView({
   const canMultiplayHandDragPlayer = (player: "A" | "B"): boolean => {
     if (!multiplayMyTeam) return true;
     return player === multiplayMyTeam;
+  };
+
+  const canMultiplayDraw = (): boolean => {
+    if (!multiplayMyTeam || !state?.currentTurn) return true;
+    return state.currentTurn === multiplayMyTeam;
   };
 
   const shouldShowMultiplaySpellUsageBack = (casterPlayer: "A" | "B"): boolean =>
@@ -1623,12 +1641,15 @@ export default function SimulationView({
   const guihwanRestoreOnMountDoneRef = useRef(false);
   
   const [winner, setWinner] = useState<"A" | "B" | null>(null);
+  const multiplayWinReportedRef = useRef(false);
+
+  const displayWinner = multiplaySessionWinner ?? winner;
 
   useEffect(() => {
-    if (multiplayForcedWinner) {
-      setWinner(multiplayForcedWinner);
-    }
-  }, [multiplayForcedWinner]);
+    if (!winner || !multiplayMyRole || !onMultiplayWin || multiplayWinReportedRef.current) return;
+    multiplayWinReportedRef.current = true;
+    onMultiplayWin(winner);
+  }, [winner, multiplayMyRole, onMultiplayWin]);
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
   const [selectedHandCard, setSelectedHandCard] = useState<{ player: "A" | "B"; index: number } | null>(null);
@@ -7415,6 +7436,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
     if (!state || isInitializing || !state.currentTurn || winner) return;
+    if (!canMultiplayDraw()) return;
     if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
     if (
       state.simpanHandChoice ||
@@ -7447,6 +7469,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const executeDraw = (selectedCardIndex: number | null) => {
     setState(prev => {
       if (!prev) return prev;
+      if (multiplayMyTeam && prev.currentTurn !== multiplayMyTeam) return prev;
       if (prev.simpanHandChoice || prev.simpanPeekReveal || spellUsageMotionActiveRef.current) {
         return prev;
       }
@@ -17173,6 +17196,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const isDrawDisabled =
     isInitializing ||
     !state.currentTurn ||
+    !canMultiplayDraw() ||
     activePlayerState?.hasDrawnThisTurn ||
     activePlayerState?.hand.length >= 6 ||
     !!state.simpanPeekReveal ||
@@ -17189,6 +17213,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     !!witchTarotCoin;
   const isDrawHighlight =
     state.currentTurn &&
+    canMultiplayDraw() &&
     !isInitializing &&
     !activePlayerState?.hasDrawnThisTurn &&
     activePlayerState?.hand.length < 6 &&
@@ -17923,18 +17948,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         />
       ) : null}
 
-      {winner && (
+      {displayWinner && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden">
-          <div className={`absolute inset-0 animate-[pulse_1s_ease-in-out_infinite] mix-blend-screen pointer-events-none ${winner === 'A' ? 'bg-sky-500/40' : 'bg-rose-500/40'}`} />
+          <div className={`absolute inset-0 animate-[pulse_1s_ease-in-out_infinite] mix-blend-screen pointer-events-none ${displayWinner === 'A' ? 'bg-sky-500/40' : 'bg-rose-500/40'}`} />
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
           
-          <div className={`relative z-10 flex flex-col items-center justify-center p-16 md:p-24 lg:p-32 rounded-[4rem] border-8 ${winner === 'A' ? 'border-sky-500 shadow-[0_0_150px_rgba(14,165,233,0.8)] bg-sky-950/60' : 'border-rose-500 shadow-[0_0_150px_rgba(244,63,94,0.8)] bg-rose-950/60'} animate-[scaleIn_0.5s_ease-out]`}>
-            <h2 className={`text-6xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b ${winner === 'A' ? 'from-white to-sky-400' : 'from-white to-rose-400'} tracking-widest drop-shadow-[0_10px_20px_rgba(0,0,0,1)] mb-4 animate-[bounce_1.5s_ease-in-out_infinite]`}>
-              PLAYER {winner} WIN!
+          <div className={`relative z-10 flex flex-col items-center justify-center p-16 md:p-24 lg:p-32 rounded-[4rem] border-8 ${displayWinner === 'A' ? 'border-sky-500 shadow-[0_0_150px_rgba(14,165,233,0.8)] bg-sky-950/60' : 'border-rose-500 shadow-[0_0_150px_rgba(244,63,94,0.8)] bg-rose-950/60'} animate-[scaleIn_0.5s_ease-out]`}>
+            <h2 className={`text-6xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b ${displayWinner === 'A' ? 'from-white to-sky-400' : 'from-white to-rose-400'} tracking-widest drop-shadow-[0_10px_20px_rgba(0,0,0,1)] mb-4 animate-[bounce_1.5s_ease-in-out_infinite]`}>
+              PLAYER {displayWinner} WIN!
             </h2>
-            <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
-              상대 플레이어의 체력이 0이 되어 게임이 종료되었습니다.
-            </p>
+            {multiplayEndUi?.opponentLeft ? (
+              <p className="text-2xl md:text-3xl font-bold text-amber-300 mb-4 text-center drop-shadow-md">
+                상대방이 게임을 떠났습니다.
+              </p>
+            ) : (
+              <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
+                상대 플레이어의 체력이 0이 되어 게임이 종료되었습니다.
+              </p>
+            )}
+            {multiplayEndUi?.rematchStatus === "waiting" ? (
+              <p className="text-lg md:text-xl font-semibold text-sky-300 mb-4 text-center">
+                상대방의 응답을 기다리는 중...
+              </p>
+            ) : null}
+            {multiplayEndUi?.rematchStatus === "incoming" ? (
+              <p className="text-lg md:text-xl font-semibold text-amber-300 mb-4 text-center">
+                상대방이 다시 플레이를 요청했습니다.
+              </p>
+            ) : null}
             
             <p className="text-xl md:text-2xl font-mono font-black text-amber-400 mb-16 tracking-widest drop-shadow-lg">
               게임 시간 : {Math.floor((state?.elapsedTime || 0) / 60)}분 {(state?.elapsedTime || 0) % 60}초
@@ -17942,7 +17983,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
             <div className="flex flex-col sm:flex-row gap-6 sm:gap-10 w-full sm:w-auto">
               <button 
-                onClick={() => { if(onBackToLobby) onBackToLobby(); else window.location.href = '/'; }}
+                onClick={() => {
+                  if (multiplayEndUi) {
+                    multiplayEndUi.onLeaveLobby();
+                  } else if (onBackToLobby) {
+                    onBackToLobby();
+                  } else {
+                    window.location.href = '/';
+                  }
+                }}
                 className="px-10 py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-3xl font-black text-xl transition-colors border-2 border-slate-600 active:scale-95 shadow-2xl w-full sm:w-auto"
               >
                 로비로 돌아가기
@@ -17954,12 +18003,38 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               >
                 게임 통계
               </button>
-              <button 
-                onClick={handleReset}
-                className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto ${winner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
-              >
-                다시 플레이
-              </button>
+              {multiplayEndUi?.rematchStatus === "incoming" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={multiplayEndUi.onRematchAccept}
+                    className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
+                  >
+                    수락
+                  </button>
+                  <button
+                    type="button"
+                    onClick={multiplayEndUi.onRematchReject}
+                    className="px-10 py-5 bg-slate-700 hover:bg-slate-600 text-white rounded-3xl font-black text-xl transition-colors border-2 border-slate-500 active:scale-95 shadow-2xl w-full sm:w-auto"
+                  >
+                    거절
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => {
+                    if (multiplayEndUi) {
+                      multiplayEndUi.onRematch();
+                    } else {
+                      handleReset();
+                    }
+                  }}
+                  disabled={multiplayEndUi?.rematchStatus === "waiting"}
+                  className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
+                >
+                  다시 플레이
+                </button>
+              )}
             </div>
           </div>
         </div>

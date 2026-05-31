@@ -26,6 +26,8 @@ interface BattleViewProps {
   onStartMultiplay: (roomId: string, myRole: PlayerRole) => void;
   activeMultiplayRoom?: ActiveMultiplayRoom | null;
   onRejoinMultiplay?: (roomId: string, myRole: PlayerRole) => void;
+  autoStartMatchmaking?: boolean;
+  onAutoMatchStarted?: () => void;
   layoutMobile?: boolean;
 }
 
@@ -125,6 +127,8 @@ export default function BattleView({
   onStartMultiplay,
   activeMultiplayRoom = null,
   onRejoinMultiplay,
+  autoStartMatchmaking = false,
+  onAutoMatchStarted,
   layoutMobile = false,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
@@ -160,6 +164,13 @@ export default function BattleView({
       setBattlePhase("lobby");
     }
   }, [matchStatus, battlePhase]);
+
+  useEffect(() => {
+    if (!autoStartMatchmaking) return;
+    setBattlePhase("searching");
+    void startMatchmaking();
+    onAutoMatchStarted?.();
+  }, [autoStartMatchmaking, startMatchmaking, onAutoMatchStarted]);
 
   useEffect(() => {
     if (battlePhase !== "searching") return;

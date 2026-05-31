@@ -11,26 +11,18 @@ import {
   type ControlledSimulationBinding,
 } from "@/hooks/useSimulationLogic";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
+import {
+  MULTIPLAY_HEARTBEAT_INTERVAL_MS,
+  MY_CONNECTED_FIELD,
+  MY_LAST_SEEN_FIELD,
+  OPP_CONNECTED_FIELD,
+  type GameRoomConnectionRow,
+  parseOpponentLastSeenMs,
+  isOpponentHeartbeatStale,
+  sendDisconnectedKeepalive,
+} from "@/utils/multiplayConnection";
 
-const HEARTBEAT_INTERVAL_MS = 30_000;
 const DISCONNECT_FORFEIT_SECONDS = 60;
-
-const MY_CONNECTED_FIELD: Record<PlayerRole, "player_a_connected" | "player_b_connected"> = {
-  player_a: "player_a_connected",
-  player_b: "player_b_connected",
-};
-
-const OPP_CONNECTED_FIELD: Record<PlayerRole, "player_a_connected" | "player_b_connected"> = {
-  player_a: "player_b_connected",
-  player_b: "player_a_connected",
-};
-
-type GameRoomConnectionRow = {
-  player_a_connected?: boolean | null;
-  player_b_connected?: boolean | null;
-  status?: string | null;
-  winner?: string | null;
-};
 
 async function updateMyConnectionStatus(
   client: SupabaseClient,
@@ -38,12 +30,13 @@ async function updateMyConnectionStatus(
   myRole: PlayerRole,
   connected: boolean,
 ): Promise<void> {
-  const field = MY_CONNECTED_FIELD[myRole];
+  const now = new Date().toISOString();
   const { error } = await client
     .from("game_rooms")
     .update({
-      [field]: connected,
-      updated_at: new Date().toISOString(),
+      [MY_CONNECTED_FIELD[myRole]]: connected,
+      [MY_LAST_SEEN_FIELD[myRole]]: now,
+      updated_at: now,
     })
     .eq("id", roomId);
 
@@ -52,10 +45,30 @@ async function updateMyConnectionStatus(
   }
 }
 
+async function finishGameRoom(
+  client: SupabaseClient,
+  roomId: string,
+  winnerRole: PlayerRole,
+): Promise<void> {
+  const { error } = await client
+    .from("game_rooms")
+    .update({
+      status: "finished",
+      winner: winnerRole,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", roomId);
+
+  if (error) {
+    console.warn("[MultiplayView] 게임 종료 저장 실패:", error.message);
+  }
+}
+
 interface MultiplayViewProps {
   roomId: string;
   myRole: PlayerRole;
   onBackToLobby: () => void;
+  onRematchReady: () => void;
   isDarkMode: boolean;
   cards: CardRow[];
   onOpenDetail?: (card: CardRow) => void;
@@ -113,24 +126,18 @@ async function resolveDeckCatalog(
   client: SupabaseClient,
 ): Promise<CardRow[]> {
   if (cardsProp.length > 0) {
-    console.log("[MultiplayView] cards prop 사용, 길이:", cardsProp.length);
     return cardsProp;
   }
 
-  console.warn("[MultiplayView] cards prop 비어 있음 — Supabase cards 테이블 조회");
   const { data, error } = await client.from("cards").select("*");
-
   if (error) {
     console.error("[MultiplayView] cards 테이블 조회 실패:", error.message);
     return [];
   }
 
-  const fetched = (data ?? []) as CardRow[];
-  console.log("[MultiplayView] Supabase cards 조회 완료, 길이:", fetched.length);
-  return fetched;
+  return (data ?? []) as CardRow[];
 }
 
-/** useSimulationLogic.runInitialization 과 동일한 최종 상태를 동기적으로 생성 */
 function createInitialGameState(initialDeck: CardRow[]): SimulationState {
   const currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
   const pAHand: CardRow[] = [];
@@ -192,6 +199,8 @@ function createInitialGameState(initialDeck: CardRow[]): SimulationState {
   } as SimulationState;
 }
 
+type MultiplayRematchStatus = "none" | "waiting" | "incoming";
+
 type MultiplayGameSessionProps = {
   roomId: string;
   myRole: PlayerRole;
@@ -199,6 +208,7 @@ type MultiplayGameSessionProps = {
   catalogForView: CardRow[];
   isDarkMode: boolean;
   onBackToLobby: () => void;
+  onRematchReady: () => void;
   opponentNickname: string | null;
   onOpenDetail?: (card: CardRow) => void;
 };
@@ -210,6 +220,7 @@ function MultiplayGameSession({
   catalogForView,
   isDarkMode,
   onBackToLobby,
+  onRematchReady,
   opponentNickname,
   onOpenDetail,
 }: MultiplayGameSessionProps) {
@@ -220,47 +231,32 @@ function MultiplayGameSession({
   const stateRef = useRef<SimulationState | null>(null);
   const forfeitHandledRef = useRef(false);
   const roomDeletedRef = useRef(false);
+  const accessTokenRef = useRef<string | null>(null);
+  const opponentLastSeenMsRef = useRef<number | null>(null);
+  const gameFinishedRef = useRef(false);
+  const rematchBothReadyRef = useRef(false);
 
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
   const [disconnectSecondsLeft, setDisconnectSecondsLeft] = useState<number | null>(null);
-  const [multiplayForcedWinner, setMultiplayForcedWinner] = useState<"A" | "B" | null>(null);
+  const [sessionWinner, setSessionWinner] = useState<"A" | "B" | null>(null);
+  const [opponentLeft, setOpponentLeft] = useState(false);
+  const [rematchStatus, setRematchStatus] = useState<MultiplayRematchStatus>("none");
+  const [myRematchRequested, setMyRematchRequested] = useState(false);
+  const [opponentRematchRequested, setOpponentRematchRequested] = useState(false);
+
+  const opponentRole: PlayerRole = myRole === "player_a" ? "player_b" : "player_a";
 
   const simulation = useSimulationLogic(catalogForView, { skipAutoInit: true, multiplay: true });
-  const {
-    state,
-    setState,
-    isInitializing,
-    setIsInitializing,
-    handleEndTurn: rawHandleEndTurn,
-    handleDrop: rawHandleDrop,
-    handleFieldClick: rawHandleFieldClick,
-    handlePlayerAttack: rawHandlePlayerAttack,
-    handleSkillDiscard: rawHandleSkillDiscard,
-    executeDraw: rawExecuteDraw,
-  } = simulation;
+  const { state, setState, isInitializing, setIsInitializing } = simulation;
 
   stateRef.current = state;
 
   const syncGameState = useCallback(
     (newState: SimulationState) => {
-      if (isSyncing.current) {
-        console.log("[MultiplayView] syncGameState 건너뜀 (원격 동기화 중)");
-        return;
-      }
+      if (isSyncing.current || gameFinishedRef.current) return;
 
       const channel = channelRef.current;
-      if (!channel) {
-        console.error("[MultiplayView] syncGameState — Broadcast 채널 없음");
-        return;
-      }
-
-      console.log("[MultiplayView] syncGameState Broadcast 전송", {
-        myRole,
-        currentTurn: newState.currentTurn,
-        globalTurnCount: newState.globalTurnCount,
-        handA: newState.playerA.hand.length,
-        handB: newState.playerB.hand.length,
-      });
+      if (!channel) return;
 
       void channel.send({
         type: "broadcast",
@@ -268,7 +264,7 @@ function MultiplayGameSession({
         payload: { game_state: newState },
       });
     },
-    [myRole],
+    [],
   );
 
   const scheduleSyncAfterAction = useCallback(() => {
@@ -277,21 +273,6 @@ function MultiplayGameSession({
       if (latest) syncGameState(latest);
     }, 100);
   }, [syncGameState]);
-
-  const wrapHandlerWithSync = <T extends (...args: never[]) => void>(fn: T): T =>
-    ((...args: Parameters<T>) => {
-      fn(...args);
-      scheduleSyncAfterAction();
-    }) as T;
-
-  void [
-    wrapHandlerWithSync(rawHandleEndTurn),
-    wrapHandlerWithSync(rawHandleDrop),
-    wrapHandlerWithSync(rawHandleFieldClick),
-    wrapHandlerWithSync(rawHandlePlayerAttack),
-    wrapHandlerWithSync(rawHandleSkillDiscard),
-    wrapHandlerWithSync(rawExecuteDraw),
-  ];
 
   const controlledSimulation: ControlledSimulationBinding = {
     state,
@@ -306,19 +287,98 @@ function MultiplayGameSession({
     hasHydrated.current = true;
     setIsInitializing(false);
     setState(bootstrapSnapshot);
-    console.log("[MultiplayView] bootstrap game_state 주입 완료");
   }, [bootstrapSnapshot, setState, setIsInitializing]);
+
+  const markGameFinished = useCallback(
+    async (winnerRole: PlayerRole, winnerTeam: "A" | "B") => {
+      if (gameFinishedRef.current) return;
+      gameFinishedRef.current = true;
+      setSessionWinner(winnerTeam);
+
+      const supabase = createClient();
+      if (supabase) {
+        await finishGameRoom(supabase, roomId, winnerRole);
+      }
+    },
+    [roomId],
+  );
+
+  const handleMultiplayWin = useCallback(
+    (winnerTeam: "A" | "B") => {
+      const winnerRole: PlayerRole = winnerTeam === "A" ? "player_a" : "player_b";
+      void markGameFinished(winnerRole, winnerTeam);
+    },
+    [markGameFinished],
+  );
+
+  const triggerRematchIfBothReady = useCallback(() => {
+    if (rematchBothReadyRef.current) return;
+    if (!myRematchRequested || !opponentRematchRequested) return;
+    rematchBothReadyRef.current = true;
+    onRematchReady();
+  }, [myRematchRequested, opponentRematchRequested, onRematchReady]);
+
+  useEffect(() => {
+    triggerRematchIfBothReady();
+  }, [myRematchRequested, opponentRematchRequested, triggerRematchIfBothReady]);
+
+  const handleLeaveLobby = useCallback(async () => {
+    const supabase = createClient();
+    if (supabase && !gameFinishedRef.current) {
+      await finishGameRoom(supabase, roomId, opponentRole);
+      gameFinishedRef.current = true;
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "opponent_left",
+        payload: {},
+      });
+    }
+    onBackToLobby();
+  }, [roomId, opponentRole, onBackToLobby]);
+
+  const handleRematchRequest = useCallback(() => {
+    setMyRematchRequested(true);
+    setRematchStatus("waiting");
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "rematch_request",
+      payload: {},
+    });
+  }, []);
+
+  const handleRematchAccept = useCallback(() => {
+    setMyRematchRequested(true);
+    setRematchStatus("none");
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "rematch_accept",
+      payload: {},
+    });
+  }, []);
+
+  const handleRematchReject = useCallback(() => {
+    setRematchStatus("none");
+    setOpponentRematchRequested(false);
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "rematch_decline",
+      payload: {},
+    });
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
 
+    void supabase.auth.getSession().then(({ data }) => {
+      accessTokenRef.current = data.session?.access_token ?? null;
+    });
+
     const channel = supabase
       .channel(`game-room-${roomId}`)
       .on("broadcast", { event: "game_state_update" }, ({ payload }) => {
+        if (gameFinishedRef.current) return;
         const remote = (payload as { game_state?: SimulationState | null })?.game_state;
-        console.log("[MultiplayView] Broadcast game_state 수신:", remote);
-
         if (!remote) return;
 
         isSyncing.current = true;
@@ -329,9 +389,34 @@ function MultiplayGameSession({
         }));
         isSyncing.current = false;
       })
-      .subscribe((status) => {
-        console.log("[MultiplayView] Broadcast 구독 상태:", status);
-      });
+      .on("broadcast", { event: "opponent_left" }, () => {
+        setOpponentLeft(true);
+        if (!gameFinishedRef.current) {
+          gameFinishedRef.current = true;
+          const myWinnerTeam: "A" | "B" = myRole === "player_a" ? "A" : "B";
+          setSessionWinner(myWinnerTeam);
+        }
+      })
+      .on("broadcast", { event: "rematch_request" }, () => {
+        setMyRematchRequested((mine) => {
+          if (mine) {
+            setOpponentRematchRequested(true);
+            setRematchStatus("none");
+          } else {
+            setRematchStatus("incoming");
+          }
+          return mine;
+        });
+      })
+      .on("broadcast", { event: "rematch_accept" }, () => {
+        setOpponentRematchRequested(true);
+        setRematchStatus("none");
+      })
+      .on("broadcast", { event: "rematch_decline" }, () => {
+        setOpponentRematchRequested(false);
+        setRematchStatus("none");
+      })
+      .subscribe();
 
     channelRef.current = channel;
 
@@ -339,13 +424,25 @@ function MultiplayGameSession({
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [roomId, setState]);
+  }, [roomId, setState, myRematchRequested]);
 
-  const applyConnectionRow = useCallback(
+  const evaluateOpponentConnection = useCallback(
     (row: GameRoomConnectionRow) => {
       const oppField = OPP_CONNECTED_FIELD[myRole];
       const oppConnected = row[oppField] !== false;
-      setOpponentDisconnected(!oppConnected);
+      const lastSeenMs = parseOpponentLastSeenMs(row, myRole);
+      if (lastSeenMs != null) {
+        opponentLastSeenMsRef.current = lastSeenMs;
+      }
+      const stale = isOpponentHeartbeatStale(opponentLastSeenMsRef.current);
+      setOpponentDisconnected(!oppConnected || stale);
+    },
+    [myRole],
+  );
+
+  const applyConnectionRow = useCallback(
+    (row: GameRoomConnectionRow) => {
+      evaluateOpponentConnection(row);
 
       if (row.player_a_connected === false && row.player_b_connected === false && !roomDeletedRef.current) {
         roomDeletedRef.current = true;
@@ -356,39 +453,45 @@ function MultiplayGameSession({
             .delete()
             .eq("id", roomId)
             .then(({ error }) => {
-              if (error) {
-                console.warn("[MultiplayView] 양쪽 연결 끊김 — 방 삭제 실패:", error.message);
-                roomDeletedRef.current = false;
-              }
+              if (error) roomDeletedRef.current = false;
             });
         }
       }
-
-      if (row.status === "finished" && row.winner) {
-        const winnerTeam: "A" | "B" = row.winner === "player_a" ? "A" : "B";
-        setMultiplayForcedWinner(winnerTeam);
-      }
     },
-    [myRole, roomId],
+    [roomId, evaluateOpponentConnection],
   );
 
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
 
-    void updateMyConnectionStatus(supabase, roomId, myRole, true);
+    let visibilityDisconnectPending = false;
+
+    const markConnected = (connected: boolean) => {
+      void updateMyConnectionStatus(supabase, roomId, myRole, connected);
+    };
+
+    void markConnected(true);
     void supabase
       .from("game_rooms")
       .update({ status: "playing", updated_at: new Date().toISOString() })
       .eq("id", roomId);
 
     const heartbeatId = window.setInterval(() => {
-      void updateMyConnectionStatus(supabase, roomId, myRole, true);
-    }, HEARTBEAT_INTERVAL_MS);
+      void markConnected(true);
+    }, MULTIPLAY_HEARTBEAT_INTERVAL_MS);
+
+    const staleCheckId = window.setInterval(() => {
+      if (isOpponentHeartbeatStale(opponentLastSeenMsRef.current)) {
+        setOpponentDisconnected(true);
+      }
+    }, 5_000);
 
     void supabase
       .from("game_rooms")
-      .select("player_a_connected, player_b_connected, status, winner")
+      .select(
+        "player_a_connected, player_b_connected, player_a_last_seen, player_b_last_seen, status, winner, updated_at",
+      )
       .eq("id", roomId)
       .single()
       .then(({ data, error }) => {
@@ -410,9 +513,38 @@ function MultiplayGameSession({
 
     connectionChannelRef.current = connectionChannel;
 
+    const handleBeforeUnload = () => {
+      const token = accessTokenRef.current;
+      if (token) {
+        sendDisconnectedKeepalive(roomId, myRole, token);
+      } else {
+        void markConnected(false);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        visibilityDisconnectPending = true;
+        void markConnected(false);
+      } else if (document.visibilityState === "visible") {
+        visibilityDisconnectPending = false;
+        void markConnected(true);
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.clearInterval(heartbeatId);
-      void updateMyConnectionStatus(supabase, roomId, myRole, false);
+      window.clearInterval(staleCheckId);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (!visibilityDisconnectPending) {
+        void markConnected(false);
+      }
       void supabase.removeChannel(connectionChannel);
       connectionChannelRef.current = null;
     };
@@ -427,10 +559,7 @@ function MultiplayGameSession({
 
     setDisconnectSecondsLeft(DISCONNECT_FORFEIT_SECONDS);
     const intervalId = window.setInterval(() => {
-      setDisconnectSecondsLeft((prev) => {
-        if (prev === null) return null;
-        return Math.max(0, prev - 1);
-      });
+      setDisconnectSecondsLeft((prev) => (prev === null ? null : Math.max(0, prev - 1)));
     }, 1000);
 
     return () => window.clearInterval(intervalId);
@@ -441,25 +570,8 @@ function MultiplayGameSession({
 
     forfeitHandledRef.current = true;
     const myWinnerTeam: "A" | "B" = myRole === "player_a" ? "A" : "B";
-    setMultiplayForcedWinner(myWinnerTeam);
-
-    const supabase = createClient();
-    if (!supabase) return;
-
-    void supabase
-      .from("game_rooms")
-      .update({
-        status: "finished",
-        winner: myRole,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", roomId)
-      .then(({ error }) => {
-        if (error) {
-          console.warn("[MultiplayView] 연결 끊김 자동 승리 처리 실패:", error.message);
-        }
-      });
-  }, [opponentDisconnected, disconnectSecondsLeft, myRole, roomId]);
+    void markGameFinished(myRole, myWinnerTeam);
+  }, [opponentDisconnected, disconnectSecondsLeft, myRole, markGameFinished]);
 
   const opponentLabel = opponentNickname ?? ANONYMOUS_OPPONENT_LABEL;
   const myTeamLabel = myRole === "player_a" ? "Player A" : "Player B";
@@ -497,30 +609,29 @@ function MultiplayGameSession({
             <span className={isDarkMode ? "text-slate-500" : "text-slate-400"}>vs </span>
             <span className={isDarkMode ? "text-amber-300" : "text-amber-600"}>{opponentLabel}</span>
           </p>
-
-          <div
-            className={`hidden text-xs sm:block ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}
-            aria-hidden
-          >
-            {state?.currentTurn
-              ? `선공: ${state.currentTurn === (myRole === "player_a" ? "A" : "B") ? "나" : "상대"}`
-              : "게임 준비 중"}
-          </div>
         </div>
       </div>
 
-      <div className={`min-h-0 flex-1 ${opponentDisconnected ? "pointer-events-none" : ""}`}>
+      <div className={`min-h-0 flex-1 ${opponentDisconnected && !sessionWinner ? "pointer-events-none" : ""}`}>
         {state ? (
           <SimulationView
             isDarkMode={isDarkMode}
             cards={catalogForView}
-            onBackToLobby={onBackToLobby}
             onOpenDetail={onOpenDetail}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}
-            multiplayOpponentDisconnected={opponentDisconnected}
+            multiplayOpponentDisconnected={opponentDisconnected && !sessionWinner}
             multiplayDisconnectSecondsLeft={disconnectSecondsLeft}
-            multiplayForcedWinner={multiplayForcedWinner}
+            multiplaySessionWinner={sessionWinner}
+            onMultiplayWin={handleMultiplayWin}
+            multiplayEndUi={{
+              opponentLeft,
+              rematchStatus,
+              onLeaveLobby: () => void handleLeaveLobby(),
+              onRematch: handleRematchRequest,
+              onRematchAccept: handleRematchAccept,
+              onRematchReject: handleRematchReject,
+            }}
           />
         ) : (
           <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">
@@ -545,11 +656,7 @@ async function fetchInitialGameState(
     .eq("id", roomId)
     .single();
 
-  if (error) {
-    console.error("[MultiplayView] game_state 조회 실패:", error.message);
-    return null;
-  }
-
+  if (error) return null;
   return (data?.game_state as SimulationState | null) ?? null;
 }
 
@@ -557,6 +664,7 @@ export default function MultiplayView({
   roomId,
   myRole,
   onBackToLobby,
+  onRematchReady,
   isDarkMode,
   cards,
   onOpenDetail,
@@ -564,14 +672,36 @@ export default function MultiplayView({
   const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
   const [opponentNickname, setOpponentNickname] = useState<string | null>(null);
-
-  useEffect(() => {
-    console.log("[MultiplayView] 마운트 — cards prop 길이:", cards.length);
-  }, [cards.length]);
+  const [roomRejected, setRoomRejected] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const { data, error } = await supabase
+        .from("game_rooms")
+        .select("status")
+        .eq("id", roomId)
+        .single();
+
+      if (cancelled) return;
+      if (!error && data?.status === "finished") {
+        setRoomRejected(true);
+        onBackToLobby();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, onBackToLobby]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase || roomRejected) return;
 
     let cancelled = false;
 
@@ -582,55 +712,41 @@ export default function MultiplayView({
       if (myRole === "player_b") {
         const room = await fetchGameRoomPlayerIds(client, roomId);
         if (cancelled) return;
-
         const opponentId = room?.player_a_id;
         if (!opponentId) {
           setOpponentNickname(null);
           return;
         }
-
         const nickname = await fetchOpponentNickname(client, opponentId);
-        if (!cancelled) {
-          setOpponentNickname(nickname);
-        }
+        if (!cancelled) setOpponentNickname(nickname);
         return;
       }
 
       for (let attempt = 1; attempt <= 15; attempt++) {
         if (cancelled) return;
-
         const room = await fetchGameRoomPlayerIds(client, roomId);
         const opponentId = room?.player_b_id;
-
         if (typeof opponentId === "string" && opponentId.length > 0) {
           const nickname = await fetchOpponentNickname(client, opponentId);
-          if (!cancelled) {
-            setOpponentNickname(nickname);
-          }
+          if (!cancelled) setOpponentNickname(nickname);
           return;
         }
-
-        console.log("[MultiplayView] player_b_id 대기 — 재시도:", attempt);
         if (attempt < 15) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
-
-      if (!cancelled) {
-        setOpponentNickname(null);
-      }
+      if (!cancelled) setOpponentNickname(null);
     }
 
     void resolveOpponentNickname();
-
     return () => {
       cancelled = true;
     };
-  }, [roomId, myRole]);
+  }, [roomId, myRole, roomRejected]);
 
   useEffect(() => {
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase || roomRejected) return;
 
     let cancelled = false;
 
@@ -639,65 +755,44 @@ export default function MultiplayView({
       if (!client) return;
 
       const deckCards = await resolveDeckCatalog(cards, client);
-      if (!cancelled) {
-        setDeckCatalog(deckCards);
-      }
+      if (!cancelled) setDeckCatalog(deckCards);
 
       const { data: room, error } = await client
         .from("game_rooms")
-        .select("game_state, player_a_id, player_b_id")
+        .select("game_state, player_a_id, player_b_id, status")
         .eq("id", roomId)
         .single();
 
-      if (cancelled || error || !room) {
-        if (error) console.error("[MultiplayView] 방 조회 실패:", error.message);
+      if (cancelled || error || !room) return;
+
+      if (room.status === "finished") {
+        setRoomRejected(true);
+        onBackToLobby();
         return;
       }
 
       if (room.game_state) {
-        console.log("[MultiplayView] 기존 game_state 로드");
-        if (!cancelled) {
-          setBootstrapSnapshot(room.game_state as SimulationState);
-        }
+        if (!cancelled) setBootstrapSnapshot(room.game_state as SimulationState);
         return;
       }
 
       if (myRole === "player_b") {
-        console.log("[MultiplayView] player_b — 초기 game_state DB 조회 대기");
         for (let attempt = 1; attempt <= 10; attempt++) {
           if (cancelled) return;
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          if (cancelled) return;
-
           const gameState = await fetchInitialGameState(client, roomId);
           if (gameState) {
-            console.log("[MultiplayView] player_b 초기 game_state 조회 성공 — 시도:", attempt);
-            if (!cancelled) {
-              setBootstrapSnapshot(gameState);
-            }
+            if (!cancelled) setBootstrapSnapshot(gameState);
             return;
           }
-
-          console.log("[MultiplayView] player_b game_state 아직 없음 — 재시도:", attempt);
         }
-        console.warn("[MultiplayView] player_b 초기 game_state 조회 실패 — 최대 재시도 초과");
         return;
       }
 
-      if (deckCards.length === 0) {
-        console.error("[MultiplayView] 초기 상태 생성 불가 — 덱 카드 없음");
-        return;
-      }
+      if (deckCards.length === 0) return;
 
       const initialState = createInitialGameState(deckCards);
-      console.log("[MultiplayView] player_a 초기 game_state 생성", {
-        deckRemaining: initialState.deckCards.length,
-        handA: initialState.playerA.hand.length,
-        handB: initialState.playerB.hand.length,
-        firstTurn: initialState.currentTurn,
-      });
-
-      const { error: updateError } = await client
+      await client
         .from("game_rooms")
         .update({
           game_state: initialState,
@@ -708,33 +803,26 @@ export default function MultiplayView({
         })
         .eq("id", roomId);
 
-      if (updateError) {
-        console.error("[MultiplayView] game_rooms update 실패:", updateError.message, updateError);
-      } else {
-        console.log("[MultiplayView] game_rooms update 성공 — roomId:", roomId);
-      }
-
-      const { data: refetch, error: refetchError } = await client
+      const { data: refetch } = await client
         .from("game_rooms")
         .select("game_state")
         .eq("id", roomId)
         .single();
 
-      if (refetchError) {
-        console.error("[MultiplayView] game_state 재조회 실패:", refetchError.message);
-      } else if (!cancelled && refetch?.game_state) {
-        setBootstrapSnapshot(refetch.game_state as SimulationState);
-      } else if (!cancelled && !updateError) {
-        setBootstrapSnapshot(initialState);
+      if (!cancelled) {
+        setBootstrapSnapshot((refetch?.game_state as SimulationState | null) ?? initialState);
       }
     }
 
     void bootstrapRoom();
-
     return () => {
       cancelled = true;
     };
-  }, [roomId, myRole, cards]);
+  }, [roomId, myRole, cards, roomRejected, onBackToLobby]);
+
+  if (roomRejected) {
+    return null;
+  }
 
   const catalogForView = deckCatalog.length > 0 ? deckCatalog : cards;
 
@@ -748,6 +836,7 @@ export default function MultiplayView({
           catalogForView={catalogForView}
           isDarkMode={isDarkMode}
           onBackToLobby={onBackToLobby}
+          onRematchReady={onRematchReady}
           opponentNickname={opponentNickname}
           onOpenDetail={onOpenDetail}
         />
