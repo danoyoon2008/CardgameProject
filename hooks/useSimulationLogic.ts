@@ -1,5 +1,5 @@
 // hooks/useSimulationLogic.ts
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { CardRow, FieldCard } from "../types/game";
 import {
   applyPostAttackSkills,
@@ -127,7 +127,21 @@ export interface SimulationState {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export function useSimulationLogic(cards: CardRow[]) {
+export type SimulationLogicOptions = {
+  skipAutoInit?: boolean;
+  multiplay?: boolean;
+};
+
+export type ControlledSimulationBinding = {
+  state: SimulationState | null;
+  setState: Dispatch<SetStateAction<SimulationState | null>>;
+  isInitializing: boolean;
+  setIsInitializing: Dispatch<SetStateAction<boolean>>;
+};
+
+export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {
+  const isMultiplay = options?.multiplay === true;
+  const skipAutoInit = options?.skipAutoInit === true || isMultiplay;
   const [state, setState] = useState<SimulationState | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [coinTossDisplay, setCoinTossDisplay] = useState<"A" | "B" | "FLIPPING" | null>(null);
@@ -194,6 +208,7 @@ export function useSimulationLogic(cards: CardRow[]) {
   }, [state?.playerA.field, state?.playerB.field]);
 
   useEffect(() => {
+    if (isMultiplay) return;
     if (!state || winner || isInitializing) return;
     setState(prev => {
       if (!prev) return prev;
@@ -319,6 +334,7 @@ export function useSimulationLogic(cards: CardRow[]) {
   const isGameActive = state?.currentTurn !== null && !winner && !isInitializing;
   
   useEffect(() => {
+    if (isMultiplay) return;
     let interval: NodeJS.Timeout;
     if (isGameActive) {
       interval = setInterval(() => {
@@ -342,6 +358,7 @@ export function useSimulationLogic(cards: CardRow[]) {
   }, [isGameActive]);
 
   useEffect(() => {
+    if (isMultiplay) return;
     if (state?.settings?.isTimeLimitEnabled && state.turnTimeLeft === 0 && state.currentTurn && !winner && !isInitializing) {
       if (state && state.currentTurn) {
         handleEndTurn(state.currentTurn);
@@ -351,6 +368,7 @@ export function useSimulationLogic(cards: CardRow[]) {
   }, [state?.turnTimeLeft]); 
 
   useEffect(() => {
+    if (skipAutoInit) return;
     if (!cards || cards.length === 0) return;
     if (initialized.current) return;
     
@@ -378,15 +396,17 @@ export function useSimulationLogic(cards: CardRow[]) {
       runInitialization(cards);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards]);
+  }, [cards, skipAutoInit]);
 
   useEffect(() => {
+    if (isMultiplay) return;
     if (state && !isInitializing && state.currentTurn !== null && !winner) {
       localStorage.setItem("pp_sim_save", JSON.stringify(state));
     }
   }, [state, isInitializing, winner]);
 
   useEffect(() => {
+    if (isMultiplay) return;
     if (!state) return;
     setState(prev => {
       if (!prev) return prev;
@@ -400,9 +420,10 @@ export function useSimulationLogic(cards: CardRow[]) {
         playerB: { ...prev.playerB, field: nextB },
       };
     });
-  }, [state]);
+  }, [state, isMultiplay]);
 
   useEffect(() => {
+    if (isMultiplay) return;
     if (!state) return;
     setState(prev => {
       if (!prev) return prev;

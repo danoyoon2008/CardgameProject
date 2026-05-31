@@ -1,8 +1,9 @@
 // app/page.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useGameLogic } from "../hooks/useGameLogic";
+import type { PlayerRole } from "../hooks/useMatchmaking";
 import { getGlowColor, getShardShopPrice } from "../utils/cardUtils";
 import { IconShard, IconDeck, IconBook, IconLock } from "../components/ui/Icons";
 
@@ -18,7 +19,8 @@ import ShopView from "../components/views/ShopView";
 import DeckView from "../components/views/DeckView";
 import SettingsView from "../components/views/SettingsView";
 import BattleView from "../components/views/BattleView";
-import SimulationView from "../components/views/SimulationView"; 
+import SimulationView from "../components/views/SimulationView";
+import MultiplayView from "../components/views/MultiplayView";
 
 function LoginRequiredView({
   onLogin,
@@ -99,14 +101,30 @@ function LoginRequiredView({
 export default function Home() {
   const game = useGameLogic();
   const isMobile = useIsMobile();
+  const [multiplayRoomId, setMultiplayRoomId] = useState<string | null>(null);
+  const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
   const isSimulation = game.mainView === "simulation";
-  const useMobileLobbyWrapper = isMobile && !isSimulation;
+  const isMultiplay = game.mainView === "multiplay";
+  const isFullScreenGame = isSimulation || isMultiplay;
+  const useMobileLobbyWrapper = isMobile && !isFullScreenGame;
+
+  const handleStartMultiplay = (roomId: string, myRole: PlayerRole) => {
+    setMultiplayRoomId(roomId);
+    setMultiplayRole(myRole);
+    game.setMainView("multiplay");
+  };
+
+  const handleBackFromMultiplay = () => {
+    setMultiplayRoomId(null);
+    setMultiplayRole(null);
+    game.setMainView("battle");
+  };
 
   usePreventUiTextSelection(!isMobile);
 
   /** 시뮬레이션 이탈 시 모바일 터치 잠금 클래스가 남지 않도록 보장 */
   useEffect(() => {
-    if (game.mainView === "simulation") return;
+    if (game.mainView === "simulation" || game.mainView === "multiplay") return;
     document.documentElement.classList.remove("pp-simulation-mobile-touch-lock");
     document.body.classList.remove("pp-simulation-mobile-touch-lock");
   }, [game.mainView]);
@@ -128,7 +146,14 @@ export default function Home() {
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
           ) : (
             <>
-              {game.mainView === "battle" && <BattleView isDarkMode={game.isDarkMode} onStartSimulation={() => game.setMainView("simulation")} />}
+              {game.mainView === "battle" && (
+                <BattleView
+                  isDarkMode={game.isDarkMode}
+                  cards={game.cards}
+                  onStartSimulation={() => game.setMainView("simulation")}
+                  onStartMultiplay={handleStartMultiplay}
+                />
+              )}
               
               {game.mainView === "shop" && <ShopView gold={game.gold} cardsLoading={game.cardsLoading} isDarkMode={game.isDarkMode} handleGacha={game.handleGacha} setShowProbModal={game.setShowProbModal} setIsShardShopOpen={game.setIsShardShopOpen} />}
               {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
@@ -146,7 +171,13 @@ export default function Home() {
   ) : (
     <>
       {game.mainView === "battle" && (
-        <BattleView isDarkMode={game.isDarkMode} layoutMobile onStartSimulation={() => game.setMainView("simulation")} />
+        <BattleView
+          isDarkMode={game.isDarkMode}
+          layoutMobile
+          cards={game.cards}
+          onStartSimulation={() => game.setMainView("simulation")}
+          onStartMultiplay={handleStartMultiplay}
+        />
       )}
       {game.mainView === "shop" && (
         <ShopView
@@ -252,7 +283,7 @@ export default function Home() {
         @keyframes flyFromDeck { 0% { opacity: 0; transform: translateY(60vh) scale(0.1) rotateZ(-20deg); } 50% { opacity: 1; transform: translateY(-5vh) scale(1.05) rotateZ(5deg); } 100% { opacity: 1; transform: translateY(0) scale(1) rotateZ(0deg); } }
       `}} />
 
-      {isSimulation ? (
+      {isFullScreenGame ? (
         <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 justify-center`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
@@ -261,12 +292,22 @@ export default function Home() {
               <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
               <p className="text-sky-400 font-bold animate-pulse tracking-widest">전장 세팅을 위해 카드를 불러오는 중...</p>
             </div>
+          ) : isMultiplay ? (
+            multiplayRoomId && multiplayRole ? (
+              <MultiplayView
+                roomId={multiplayRoomId}
+                myRole={multiplayRole}
+                onBackToLobby={handleBackFromMultiplay}
+                isDarkMode={game.isDarkMode}
+                cards={game.cards}
+              />
+            ) : null
           ) : (
-            <SimulationView 
-              isDarkMode={game.isDarkMode} 
-              cards={game.cards} 
-              onBackToLobby={() => game.setMainView("battle")} 
-              onOpenDetail={game.handleOpenCardDetail} 
+            <SimulationView
+              isDarkMode={game.isDarkMode}
+              cards={game.cards}
+              onBackToLobby={() => game.setMainView("battle")}
+              onOpenDetail={game.handleOpenCardDetail}
             />
           )}
         </main>

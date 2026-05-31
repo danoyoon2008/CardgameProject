@@ -12,13 +12,18 @@ import {
   MOBILE_BATTLE_SIM_BTN_H,
 } from "../layout/mobile/mobileLobbyConstants";
 import { useMatchmaking } from "@/hooks/useMatchmaking";
+import type { PlayerRole } from "@/hooks/useMatchmaking";
 import { createClient } from "@/utils/supabase/client";
+import type { CardRow } from "@/types/game";
+import MultiplayView from "./MultiplayView";
 
 type BattlePhase = "lobby" | "modeSelect" | "searching" | "countdown";
 
 interface BattleViewProps {
   isDarkMode: boolean;
   onStartSimulation: () => void;
+  cards: CardRow[];
+  onStartMultiplay: (roomId: string, myRole: PlayerRole) => void;
   layoutMobile?: boolean;
 }
 
@@ -111,12 +116,19 @@ function LoadingSpinner({ size = 56, color = "#0ea5e9" }: { size?: number; color
   );
 }
 
-export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile = false }: BattleViewProps) {
+export default function BattleView({
+  isDarkMode,
+  onStartSimulation,
+  cards: _cards,
+  onStartMultiplay,
+  layoutMobile = false,
+}: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
   const [countdownValue, setCountdownValue] = useState<number | null>(null);
 
-  const { matchStatus, opponentNickname, startMatchmaking, cancelMatchmaking } = useMatchmaking();
+  const { matchStatus, roomId, myRole, opponentNickname, startMatchmaking, cancelMatchmaking } =
+    useMatchmaking();
 
   const fetchOnlineCount = useCallback(async () => {
     const supabase = createClient();
@@ -160,7 +172,9 @@ export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile
     if (battlePhase !== "countdown" || countdownValue === null) return;
 
     if (countdownValue === 0) {
-      onStartSimulation();
+      if (roomId && myRole) {
+        onStartMultiplay(roomId, myRole);
+      }
       return;
     }
 
@@ -169,7 +183,7 @@ export default function BattleView({ isDarkMode, onStartSimulation, layoutMobile
     }, 1000);
 
     return () => window.clearTimeout(timeoutId);
-  }, [battlePhase, countdownValue, onStartSimulation]);
+  }, [battlePhase, countdownValue, onStartMultiplay, roomId, myRole]);
 
   const handleCancelMatchmaking = useCallback(async () => {
     await cancelMatchmaking();

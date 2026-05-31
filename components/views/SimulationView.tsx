@@ -1,7 +1,7 @@
 ﻿// components/views/SimulationView.tsx
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { flushSync } from "react-dom";
 import { IconBook, IconDeck, IconHome, IconUser, IconSettings } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
@@ -435,11 +435,55 @@ interface SimulationState {
   bubbleStationPending: BubbleStationPendingSave | null;
 }
 
+type ControlledSimulationBinding = {
+  state: SimulationState | null;
+  setState: Dispatch<SetStateAction<SimulationState | null>>;
+  isInitializing: boolean;
+  setIsInitializing: Dispatch<SetStateAction<boolean>>;
+};
+
 interface SimulationViewProps {
   isDarkMode: boolean;
   cards: CardRow[];
   onBackToLobby?: () => void;
   onOpenDetail?: (card: CardRow) => void;
+  /** 멀티플레이 등 외부에서 주입하는 초기 스냅샷 — 있으면 runInitialization/localStorage 복원을 건너뜀 */
+  initialGameState?: SimulationState | null;
+  /** 멀티플레이 — useSimulationLogic state/setState를 UI에 연결 */
+  controlledSimulation?: ControlledSimulationBinding;
+}
+
+function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
+  const parsed = { ...raw };
+  parsed.elapsedTime = parsed.elapsedTime || 0;
+  parsed.turnTimeLeft = parsed.turnTimeLeft ?? 60;
+  parsed.settings = parsed.settings || {
+    isTimeLimitEnabled: false,
+    isOpponentCardFlipped: false,
+    drawMode: "SELECT",
+  };
+  parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false;
+  parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
+  parsed.globalTurnCount = parsed.globalTurnCount ?? 1;
+  parsed.unitCombatStats = parsed.unitCombatStats ?? {};
+  parsed.unitStatsOrder = parsed.unitStatsOrder ?? [];
+  parsed.spellDeployLog = parsed.spellDeployLog ?? [];
+  parsed.simpanHandChoice = parsed.simpanHandChoice ?? null;
+  parsed.simpanHandChoiceQueue = parsed.simpanHandChoiceQueue ?? [];
+  parsed.simpanPeekReveal = parsed.simpanPeekReveal ?? null;
+  parsed.simpanPeekQueue = parsed.simpanPeekQueue ?? [];
+  parsed.simpanPeekTick = typeof parsed.simpanPeekTick === "number" ? parsed.simpanPeekTick : 0;
+  parsed.witchTarotPending = parsed.witchTarotPending ?? null;
+  parsed.legendarySwordPending = parsed.legendarySwordPending ?? null;
+  parsed.startingWraithChainPending = parsed.startingWraithChainPending ?? null;
+  parsed.oneNightWagerPending = parsed.oneNightWagerPending ?? null;
+  parsed.spellUsagePending = parsed.spellUsagePending ?? null;
+  parsed.guihwanPending = parsed.guihwanPending ?? null;
+  parsed.bubbleStationPending = parsed.bubbleStationPending ?? null;
+  parsed.rewindCards = parsed.rewindCards ?? [];
+  parsed.playerA = { ...parsed.playerA, field: migratePlayerFieldSpellStack(parsed.playerA.field) };
+  parsed.playerB = { ...parsed.playerB, field: migratePlayerFieldSpellStack(parsed.playerB.field) };
+  return parsed;
 }
 
 /** 게임 통계 모달 — 유닛 표 정렬 키 */
@@ -1237,7 +1281,14 @@ function applySimpanForBothPlayersAfterSpell(s: SimulationState, nextGlowToken: 
   return primeSimpanPeekReveal(out);
 }
 
-export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpenDetail }: SimulationViewProps) {
+export default function SimulationView({
+  isDarkMode,
+  cards,
+  onBackToLobby,
+  onOpenDetail,
+  initialGameState,
+  controlledSimulation,
+}: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
 
@@ -1251,7 +1302,9 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
-  const [state, setState] = useState<SimulationState | null>(null);
+  const [localState, setLocalState] = useState<SimulationState | null>(null);
+  const state = controlledSimulation ? controlledSimulation.state : localState;
+  const setState = controlledSimulation ? controlledSimulation.setState : setLocalState;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
@@ -1333,7 +1386,9 @@ export default function SimulationView({ isDarkMode, cards, onBackToLobby, onOpe
     });
   };
   
-  const [isInitializing, setIsInitializing] = useState(false);
+  const [localIsInitializing, setLocalIsInitializing] = useState(false);
+  const isInitializing = controlledSimulation ? controlledSimulation.isInitializing : localIsInitializing;
+  const setIsInitializing = controlledSimulation ? controlledSimulation.setIsInitializing : setLocalIsInitializing;
   const [coinTossDisplay, setCoinTossDisplay] = useState<"A" | "B" | "FLIPPING" | null>(null);
   const [coinFlipSide, setCoinFlipSide] = useState<"A" | "B">("A");
   
@@ -6395,6 +6450,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   ]);
 
   useEffect(() => {
+    if (controlledSimulation) return;
+    if (initialGameState) {
+      if (initialized.current) return;
+      initialized.current = true;
+      setState(normalizeBootstrapSimulationState(initialGameState));
+      return;
+    }
+
     if (!cards || cards.length === 0) return;
     if (initialized.current) return;
     
@@ -6535,9 +6598,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       runInitialization(cards);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards]);
+  }, [cards, initialGameState, controlledSimulation]);
 
   useEffect(() => {
+    if (controlledSimulation) return;
     if (state && !isInitializing && state.currentTurn !== null && !winner) {
       const merged = mergeSimulationPersistedSequences(
         state,

@@ -232,7 +232,7 @@ export function useGameLogic() {
   }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, deck, user, settingsLoaded]);
 
   useEffect(() => {
-    if (!["codex", "shop", "deck", "simulation"].includes(mainView) || !user) return; 
+    if (!["codex", "shop", "deck", "simulation", "multiplay"].includes(mainView) || !user) return; 
     let cancelled = false;
 
     async function loadCardsAndInventory() {
@@ -530,7 +530,7 @@ export function useGameLogic() {
   const isAllFlipped = flippedCards.length > 0 && flippedCards.every(Boolean);
   const userAvatarUrl = user ? profileImageUrl(user) : null;
   const currentDisplayName = nickname?.trim() ? nickname : displayNameFromUser(user);
-  const loginRequiredViews: MainView[] = ["shop", "deck", "codex", "simulation"]; 
+  const loginRequiredViews: MainView[] = ["shop", "deck", "codex", "simulation", "multiplay"]; 
   const isProtectedView = loginRequiredViews.includes(mainView);
   const shouldShowLoginRequired = !user && isProtectedView;
 

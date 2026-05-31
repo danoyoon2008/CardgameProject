@@ -161,4 +161,4 @@ export interface PullResult extends CardRow {
 // ─────────────────────────────────────────
 // 메인 화면 뷰 타입
 // ─────────────────────────────────────────
-export type MainView = "battle" | "shop" | "deck" | "codex" | "simulation" | "settings";
+export type MainView = "battle" | "shop" | "deck" | "codex" | "simulation" | "multiplay" | "settings";
