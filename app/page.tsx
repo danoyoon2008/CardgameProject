@@ -21,6 +21,7 @@ import SettingsView from "../components/views/SettingsView";
 import BattleView from "../components/views/BattleView";
 import SimulationView from "../components/views/SimulationView";
 import MultiplayView from "../components/views/MultiplayView";
+import { useActiveMultiplayRoom } from "../hooks/useActiveMultiplayRoom";
 
 function LoginRequiredView({
   onLogin,
@@ -108,6 +109,17 @@ export default function Home() {
   const isFullScreenGame = isSimulation || isMultiplay;
   const useMobileLobbyWrapper = isMobile && !isFullScreenGame;
 
+  const { activeRoom: activeMultiplayRoom, refreshActiveMultiplayRoom } = useActiveMultiplayRoom(
+    game.user?.id,
+    game.mainView === "battle" && !!game.user,
+  );
+
+  useEffect(() => {
+    if (game.mainView === "battle" && game.user) {
+      void refreshActiveMultiplayRoom();
+    }
+  }, [game.mainView, game.user, refreshActiveMultiplayRoom]);
+
   const handleStartMultiplay = (roomId: string, myRole: PlayerRole) => {
     setMultiplayRoomId(roomId);
     setMultiplayRole(myRole);
@@ -118,6 +130,7 @@ export default function Home() {
     setMultiplayRoomId(null);
     setMultiplayRole(null);
     game.setMainView("battle");
+    void refreshActiveMultiplayRoom();
   };
 
   usePreventUiTextSelection(!isMobile);
@@ -152,6 +165,8 @@ export default function Home() {
                   cards={game.cards}
                   onStartSimulation={() => game.setMainView("simulation")}
                   onStartMultiplay={handleStartMultiplay}
+                  activeMultiplayRoom={activeMultiplayRoom}
+                  onRejoinMultiplay={handleStartMultiplay}
                 />
               )}
               
@@ -177,6 +192,8 @@ export default function Home() {
           cards={game.cards}
           onStartSimulation={() => game.setMainView("simulation")}
           onStartMultiplay={handleStartMultiplay}
+          activeMultiplayRoom={activeMultiplayRoom}
+          onRejoinMultiplay={handleStartMultiplay}
         />
       )}
       {game.mainView === "shop" && (

@@ -12,6 +12,46 @@ import {
 } from "@/hooks/useSimulationLogic";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
 
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const DISCONNECT_FORFEIT_SECONDS = 60;
+
+const MY_CONNECTED_FIELD: Record<PlayerRole, "player_a_connected" | "player_b_connected"> = {
+  player_a: "player_a_connected",
+  player_b: "player_b_connected",
+};
+
+const OPP_CONNECTED_FIELD: Record<PlayerRole, "player_a_connected" | "player_b_connected"> = {
+  player_a: "player_b_connected",
+  player_b: "player_a_connected",
+};
+
+type GameRoomConnectionRow = {
+  player_a_connected?: boolean | null;
+  player_b_connected?: boolean | null;
+  status?: string | null;
+  winner?: string | null;
+};
+
+async function updateMyConnectionStatus(
+  client: SupabaseClient,
+  roomId: string,
+  myRole: PlayerRole,
+  connected: boolean,
+): Promise<void> {
+  const field = MY_CONNECTED_FIELD[myRole];
+  const { error } = await client
+    .from("game_rooms")
+    .update({
+      [field]: connected,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", roomId);
+
+  if (error) {
+    console.warn("[MultiplayView] 연결 상태 업데이트 실패:", error.message);
+  }
+}
+
 interface MultiplayViewProps {
   roomId: string;
   myRole: PlayerRole;
@@ -175,8 +215,15 @@ function MultiplayGameSession({
 }: MultiplayGameSessionProps) {
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const connectionChannelRef = useRef<RealtimeChannel | null>(null);
   const isSyncing = useRef(false);
   const stateRef = useRef<SimulationState | null>(null);
+  const forfeitHandledRef = useRef(false);
+  const roomDeletedRef = useRef(false);
+
+  const [opponentDisconnected, setOpponentDisconnected] = useState(false);
+  const [disconnectSecondsLeft, setDisconnectSecondsLeft] = useState<number | null>(null);
+  const [multiplayForcedWinner, setMultiplayForcedWinner] = useState<"A" | "B" | null>(null);
 
   const simulation = useSimulationLogic(catalogForView, { skipAutoInit: true, multiplay: true });
   const {
@@ -294,6 +341,126 @@ function MultiplayGameSession({
     };
   }, [roomId, setState]);
 
+  const applyConnectionRow = useCallback(
+    (row: GameRoomConnectionRow) => {
+      const oppField = OPP_CONNECTED_FIELD[myRole];
+      const oppConnected = row[oppField] !== false;
+      setOpponentDisconnected(!oppConnected);
+
+      if (row.player_a_connected === false && row.player_b_connected === false && !roomDeletedRef.current) {
+        roomDeletedRef.current = true;
+        const supabase = createClient();
+        if (supabase) {
+          void supabase
+            .from("game_rooms")
+            .delete()
+            .eq("id", roomId)
+            .then(({ error }) => {
+              if (error) {
+                console.warn("[MultiplayView] 양쪽 연결 끊김 — 방 삭제 실패:", error.message);
+                roomDeletedRef.current = false;
+              }
+            });
+        }
+      }
+
+      if (row.status === "finished" && row.winner) {
+        const winnerTeam: "A" | "B" = row.winner === "player_a" ? "A" : "B";
+        setMultiplayForcedWinner(winnerTeam);
+      }
+    },
+    [myRole, roomId],
+  );
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+
+    void updateMyConnectionStatus(supabase, roomId, myRole, true);
+    void supabase
+      .from("game_rooms")
+      .update({ status: "playing", updated_at: new Date().toISOString() })
+      .eq("id", roomId);
+
+    const heartbeatId = window.setInterval(() => {
+      void updateMyConnectionStatus(supabase, roomId, myRole, true);
+    }, HEARTBEAT_INTERVAL_MS);
+
+    void supabase
+      .from("game_rooms")
+      .select("player_a_connected, player_b_connected, status, winner")
+      .eq("id", roomId)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data) {
+          applyConnectionRow(data as GameRoomConnectionRow);
+        }
+      });
+
+    const connectionChannel = supabase
+      .channel(`game-room-connection-${roomId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "game_rooms", filter: `id=eq.${roomId}` },
+        (payload) => {
+          applyConnectionRow((payload.new ?? {}) as GameRoomConnectionRow);
+        },
+      )
+      .subscribe();
+
+    connectionChannelRef.current = connectionChannel;
+
+    return () => {
+      window.clearInterval(heartbeatId);
+      void updateMyConnectionStatus(supabase, roomId, myRole, false);
+      void supabase.removeChannel(connectionChannel);
+      connectionChannelRef.current = null;
+    };
+  }, [roomId, myRole, applyConnectionRow]);
+
+  useEffect(() => {
+    if (!opponentDisconnected) {
+      setDisconnectSecondsLeft(null);
+      forfeitHandledRef.current = false;
+      return;
+    }
+
+    setDisconnectSecondsLeft(DISCONNECT_FORFEIT_SECONDS);
+    const intervalId = window.setInterval(() => {
+      setDisconnectSecondsLeft((prev) => {
+        if (prev === null) return null;
+        return Math.max(0, prev - 1);
+      });
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [opponentDisconnected]);
+
+  useEffect(() => {
+    if (!opponentDisconnected || disconnectSecondsLeft !== 0 || forfeitHandledRef.current) return;
+
+    forfeitHandledRef.current = true;
+    const myWinnerTeam: "A" | "B" = myRole === "player_a" ? "A" : "B";
+    setMultiplayForcedWinner(myWinnerTeam);
+
+    const supabase = createClient();
+    if (!supabase) return;
+
+    void supabase
+      .from("game_rooms")
+      .update({
+        status: "finished",
+        winner: myRole,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", roomId)
+      .then(({ error }) => {
+        if (error) {
+          console.warn("[MultiplayView] 연결 끊김 자동 승리 처리 실패:", error.message);
+        }
+      });
+  }, [opponentDisconnected, disconnectSecondsLeft, myRole, roomId]);
+
   const opponentLabel = opponentNickname ?? ANONYMOUS_OPPONENT_LABEL;
   const myTeamLabel = myRole === "player_a" ? "Player A" : "Player B";
 
@@ -342,7 +509,7 @@ function MultiplayGameSession({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className={`min-h-0 flex-1 ${opponentDisconnected ? "pointer-events-none" : ""}`}>
         {state ? (
           <SimulationView
             isDarkMode={isDarkMode}
@@ -351,6 +518,9 @@ function MultiplayGameSession({
             onOpenDetail={onOpenDetail}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}
+            multiplayOpponentDisconnected={opponentDisconnected}
+            multiplayDisconnectSecondsLeft={disconnectSecondsLeft}
+            multiplayForcedWinner={multiplayForcedWinner}
           />
         ) : (
           <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">
@@ -531,6 +701,9 @@ export default function MultiplayView({
         .from("game_rooms")
         .update({
           game_state: initialState,
+          status: "playing",
+          player_a_connected: true,
+          player_b_connected: true,
           updated_at: new Date().toISOString(),
         })
         .eq("id", roomId);

@@ -337,6 +337,7 @@ import {
   HiddenSpellCardBackFace,
   MultiplayCardBackFace,
 } from "./simulation/gonchungSpellFace";
+import MultiplayDisconnectOverlay from "./simulation/MultiplayDisconnectOverlay";
 import OneNightWagerModal from "./SimulationView/modals/OneNightWagerModal";
 import WitchTarotCoinOverlay from "./SimulationView/modals/WitchTarotCoinOverlay";
 import RewindModal from "./SimulationView/modals/RewindModal";
@@ -457,6 +458,11 @@ interface SimulationViewProps {
   controlledSimulation?: ControlledSimulationBinding;
   /** 멀티플레이 시 자신의 진영 — player_b면 화면을 뒤집어 항상 자신이 아래 */
   multiplayMyRole?: PlayerRole;
+  /** 멀티플레이 — 상대 연결 끊김 오버레이 */
+  multiplayOpponentDisconnected?: boolean;
+  multiplayDisconnectSecondsLeft?: number | null;
+  /** 멀티플레이 — 연결 끊김 자동 승리 등 외부 승자 지정 */
+  multiplayForcedWinner?: "A" | "B" | null;
 }
 
 function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
@@ -1295,6 +1301,9 @@ export default function SimulationView({
   initialGameState,
   controlledSimulation,
   multiplayMyRole,
+  multiplayOpponentDisconnected = false,
+  multiplayDisconnectSecondsLeft = null,
+  multiplayForcedWinner = null,
 }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
@@ -1614,6 +1623,12 @@ export default function SimulationView({
   const guihwanRestoreOnMountDoneRef = useRef(false);
   
   const [winner, setWinner] = useState<"A" | "B" | null>(null);
+
+  useEffect(() => {
+    if (multiplayForcedWinner) {
+      setWinner(multiplayForcedWinner);
+    }
+  }, [multiplayForcedWinner]);
 
   const [handDrag, setHandDrag] = useState<HandDragState | null>(null);
   const [selectedHandCard, setSelectedHandCard] = useState<{ player: "A" | "B"; index: number } | null>(null);
@@ -19219,6 +19234,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   paddingRight: 4,
                 }}
               >
+                {multiplayOpponentDisconnected ? (
+                  <MultiplayDisconnectOverlay secondsLeft={multiplayDisconnectSecondsLeft} />
+                ) : null}
                 {spellUsageReveal && !spellUsageFly ? (
                   <>
                     <div
@@ -19783,6 +19801,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         {/* ===================== 2. 중앙 영역 (메인 필드) ===================== */}
         <div className="shrink-0 flex flex-col items-center justify-center relative h-full pl-2 lg:pl-6">
           <div className="border-2 border-amber-600/30 bg-black/50 rounded-[2.5rem] px-6 py-6 flex flex-col items-center justify-center relative shadow-[inset_0_0_80px_rgba(0,0,0,0.7)]">
+            {multiplayOpponentDisconnected ? (
+              <MultiplayDisconnectOverlay secondsLeft={multiplayDisconnectSecondsLeft} />
+            ) : null}
             {spellUsageReveal && !spellUsageFly ? (
               <div
                 className="pointer-events-none absolute inset-x-0 top-[48%] z-[121] flex -translate-y-1/2 flex-col items-center justify-center gap-2 overflow-visible px-4"

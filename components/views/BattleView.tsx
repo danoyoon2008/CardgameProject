@@ -13,9 +13,9 @@ import {
 } from "../layout/mobile/mobileLobbyConstants";
 import { useMatchmaking } from "@/hooks/useMatchmaking";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
+import type { ActiveMultiplayRoom } from "@/hooks/useActiveMultiplayRoom";
 import { createClient } from "@/utils/supabase/client";
 import type { CardRow } from "@/types/game";
-import MultiplayView from "./MultiplayView";
 
 type BattlePhase = "lobby" | "modeSelect" | "searching" | "countdown";
 
@@ -24,6 +24,8 @@ interface BattleViewProps {
   onStartSimulation: () => void;
   cards: CardRow[];
   onStartMultiplay: (roomId: string, myRole: PlayerRole) => void;
+  activeMultiplayRoom?: ActiveMultiplayRoom | null;
+  onRejoinMultiplay?: (roomId: string, myRole: PlayerRole) => void;
   layoutMobile?: boolean;
 }
 
@@ -121,6 +123,8 @@ export default function BattleView({
   onStartSimulation,
   cards: _cards,
   onStartMultiplay,
+  activeMultiplayRoom = null,
+  onRejoinMultiplay,
   layoutMobile = false,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
@@ -467,6 +471,15 @@ export default function BattleView({
   };
 
   const renderLobby = (mobile: boolean) => {
+    const canRejoin = !!activeMultiplayRoom && !!onRejoinMultiplay;
+    const handleGlobalPlayClick = () => {
+      if (canRejoin && activeMultiplayRoom) {
+        onRejoinMultiplay(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
+        return;
+      }
+      setBattlePhase("modeSelect");
+    };
+
     if (mobile) {
       return (
         <>
@@ -491,13 +504,13 @@ export default function BattleView({
           <div style={{ display: "flex", flexDirection: "row", gap: 12, width: "100%" }}>
             <button
               type="button"
-              onClick={() => setBattlePhase("modeSelect")}
+              onClick={handleGlobalPlayClick}
               style={{
                 flex: 1,
                 minWidth: 0,
                 height: MOBILE_BATTLE_MODE_BTN_H,
                 borderRadius: 16,
-                border: modeBtnBorder("#0ea5e9"),
+                border: canRejoin ? "2px solid #f97316" : modeBtnBorder("#0ea5e9"),
                 background: modeBtnBg,
                 display: "flex",
                 flexDirection: "column",
@@ -507,11 +520,23 @@ export default function BattleView({
                 padding: "8px 6px",
                 boxSizing: "border-box",
                 cursor: "pointer",
+                boxShadow: canRejoin ? "0 0 18px rgba(249,115,22,0.65)" : undefined,
               }}
             >
-              <IconGlobe className="h-10 w-10 text-sky-500 shrink-0" />
-              <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>글로벌 플레이</span>
-              <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(14,165,233,0.85)", textAlign: "center" }}>자동 매칭</span>
+              <IconGlobe className={`h-10 w-10 shrink-0 ${canRejoin ? "text-orange-400" : "text-sky-500"}`} />
+              <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>
+                {canRejoin ? "게임 재접속" : "글로벌 플레이"}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: canRejoin ? "rgba(251,146,60,0.95)" : "rgba(14,165,233,0.85)",
+                  textAlign: "center",
+                }}
+              >
+                {canRejoin ? "진행 중인 대전" : "자동 매칭"}
+              </span>
             </button>
 
             <button
@@ -620,12 +645,26 @@ export default function BattleView({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 w-full">
           <button
             type="button"
-            onClick={() => setBattlePhase("modeSelect")}
-            className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${isDarkMode ? "border-sky-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-sky-400" : "border-sky-200 bg-white shadow-sm hover:border-sky-400"}`}
+            onClick={handleGlobalPlayClick}
+            className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${
+              canRejoin
+                ? isDarkMode
+                  ? "border-orange-500 bg-gradient-to-b from-slate-800 to-slate-900 shadow-[0_0_22px_rgba(249,115,22,0.55)] hover:border-orange-400"
+                  : "border-orange-400 bg-white shadow-[0_0_22px_rgba(249,115,22,0.45)] hover:border-orange-500"
+                : isDarkMode
+                  ? "border-sky-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-sky-400"
+                  : "border-sky-200 bg-white shadow-sm hover:border-sky-400"
+            }`}
           >
-            <IconGlobe className="h-12 w-12 text-sky-500 group-hover:scale-110 transition-transform duration-300" />
-            <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>글로벌 플레이</span>
-            <span className="text-xs text-sky-500/80 font-medium">자동 매칭 시스템</span>
+            <IconGlobe
+              className={`h-12 w-12 ${canRejoin ? "text-orange-400" : "text-sky-500"} group-hover:scale-110 transition-transform duration-300`}
+            />
+            <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+              {canRejoin ? "게임 재접속" : "글로벌 플레이"}
+            </span>
+            <span className={`text-xs font-medium ${canRejoin ? "text-orange-400/90" : "text-sky-500/80"}`}>
+              {canRejoin ? "진행 중인 대전" : "자동 매칭 시스템"}
+            </span>
           </button>
 
           <button
