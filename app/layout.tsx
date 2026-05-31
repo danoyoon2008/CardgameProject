@@ -20,7 +20,7 @@ export const metadata: Metadata = {
       { url: "/favicon.ico", sizes: "any" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-touch-icon-v2.png", sizes: "180x180", type: "image/png" },
     ],
   },
 };
@@ -45,7 +45,7 @@ export default function RootLayout({
     >
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon-v2.png" />
         <meta name="screen-orientation" content="portrait" />
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
