@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { IconBook, IconDeck, IconHome, IconUser, IconSettings } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
 import { CardRow, FieldCard } from "../../types/game";
+import type { PlayerRole } from "@/hooks/useMatchmaking";
 import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
 import {
   createSimulationStatsInstanceId,
@@ -451,6 +452,8 @@ interface SimulationViewProps {
   initialGameState?: SimulationState | null;
   /** 멀티플레이 — useSimulationLogic state/setState를 UI에 연결 */
   controlledSimulation?: ControlledSimulationBinding;
+  /** 멀티플레이 시 자신의 진영 — player_b면 화면을 뒤집어 항상 자신이 아래 */
+  multiplayMyRole?: PlayerRole;
 }
 
 function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
@@ -1288,6 +1291,7 @@ export default function SimulationView({
   onOpenDetail,
   initialGameState,
   controlledSimulation,
+  multiplayMyRole,
 }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
@@ -1305,6 +1309,93 @@ export default function SimulationView({
   const [localState, setLocalState] = useState<SimulationState | null>(null);
   const state = controlledSimulation ? controlledSimulation.state : localState;
   const setState = controlledSimulation ? controlledSimulation.setState : setLocalState;
+
+  const multiplayMyTeam: "A" | "B" | null =
+    multiplayMyRole === "player_a" ? "A" : multiplayMyRole === "player_b" ? "B" : null;
+  const multiplayOppTeam: "A" | "B" | null = multiplayMyTeam
+    ? multiplayMyTeam === "A"
+      ? "B"
+      : "A"
+    : null;
+  const multiplayFlipBoard = multiplayMyRole === "player_b";
+
+  const shouldFlipOpponentCard = (player: "A" | "B"): boolean => {
+    if (!state) return false;
+    if (multiplayMyRole) return false;
+    return player === "B" && !!state.settings.isOpponentCardFlipped;
+  };
+
+  const opponentCardRotateClass = (player: "A" | "B"): string =>
+    shouldFlipOpponentCard(player) ? "rotate-180" : "";
+
+  const isTopPlayerInView = (player: "A" | "B"): boolean =>
+    multiplayFlipBoard ? player === "A" : player === "B";
+
+  /** true: 유닛 3칸이 위, 스펠이 아래 (A시점 B진영 / B시점 A진영·자신 B진영은 false) */
+  const fieldUnitsBeforeSpell = (player: "A" | "B"): boolean =>
+    multiplayFlipBoard ? player === "A" : player === "B";
+
+  /** 화면 위치 기준 체력바·뱃지 배치 — true: 카드 아래(A진영), false: 카드 위(B진영) */
+  const fieldSlotIsPlayerA = (player: "A" | "B"): boolean =>
+    multiplayFlipBoard ? player === "B" : player === "A";
+
+  const mobileFieldRowOrder = (player: "A" | "B", row: "units" | "spell"): number => {
+    if (player === "B") {
+      if (multiplayFlipBoard) return row === "units" ? 5 : 4;
+      return row === "units" ? 1 : 2;
+    }
+    if (multiplayFlipBoard) return row === "units" ? 1 : 2;
+    return row === "units" ? 5 : 4;
+  };
+
+  const mobileFieldRowOrderClass = (player: "A" | "B", row: "units" | "spell"): string => {
+    const order = mobileFieldRowOrder(player, row);
+    const map: Record<number, string> = {
+      1: "order-1",
+      2: "order-2",
+      3: "order-3",
+      4: "order-4",
+      5: "order-5",
+    };
+    return map[order] ?? "order-1";
+  };
+
+  const desktopFieldBlockOrderClass = (player: "A" | "B", block: "units" | "spell"): string =>
+    fieldUnitsBeforeSpell(player)
+      ? block === "units"
+        ? "order-1"
+        : "order-2"
+      : block === "spell"
+        ? "order-1"
+        : "order-2";
+
+  const isMyTurnInView =
+    !!state && (multiplayMyTeam ? state.currentTurn === multiplayMyTeam : state.currentTurn === "A");
+  const myEndTurnPlayer: "A" | "B" = multiplayMyTeam ?? "A";
+  const oppEndTurnPlayer: "A" | "B" = multiplayOppTeam ?? "B";
+  const myTurnColorClass = myEndTurnPlayer === "A" ? "text-sky-400" : "text-rose-400";
+  const oppTurnColorClass = oppEndTurnPlayer === "A" ? "text-sky-400" : "text-rose-400";
+  const desktopTurnColorClass = !state?.currentTurn
+    ? "text-slate-500"
+    : isMyTurnInView
+      ? myTurnColorClass
+      : oppTurnColorClass;
+  const desktopTurnLabel = !state?.currentTurn
+    ? "READY"
+    : isMyTurnInView
+      ? "MY\nTURN"
+      : "OPP\nTURN";
+  const mobileTurnLabel = !state?.currentTurn ? "READY" : isMyTurnInView ? "MY TURN" : "OPP TURN";
+  const mobileTurnColor = !state?.currentTurn
+    ? "#64748b"
+    : isMyTurnInView
+      ? myEndTurnPlayer === "A"
+        ? "#38bdf8"
+        : "#fb7185"
+      : oppEndTurnPlayer === "A"
+        ? "#38bdf8"
+        : "#fb7185";
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
@@ -8864,7 +8955,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       clientX,
       clientY,
       pointerId: -1,
-      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
+      opponentCardFlipped: shouldFlipOpponentCard(player),
     };
     activeHandDragRef.current = next;
     setHandDrag(next);
@@ -8922,7 +9013,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       clientX,
       clientY,
       pointerId: -1,
-      opponentCardFlipped: player === "B" ? !!state.settings.isOpponentCardFlipped : false,
+      opponentCardFlipped: shouldFlipOpponentCard(player),
     };
     commitHandDragDrop(clientX, clientY, saved);
   };
@@ -8984,7 +9075,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             clientX: ended.clientX,
             clientY: ended.clientY,
             pointerId: -1,
-            opponentCardFlipped: dragPlayer === "B" ? !!state.settings.isOpponentCardFlipped : false,
+            opponentCardFlipped: shouldFlipOpponentCard(dragPlayer),
           });
         }
       }
@@ -9092,7 +9183,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       clientX: e.clientX,
       clientY: e.clientY,
       pointerId: e.pointerId,
-      opponentCardFlipped: player === "B" ? !!state!.settings.isOpponentCardFlipped : false,
+      opponentCardFlipped: shouldFlipOpponentCard(player),
     };
     activeHandDragRef.current = next;
     setHandDrag(next);
@@ -14977,6 +15068,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   /** 필드 유닛 카드와 동일 가로 폭 (체력바·효과 뱃지 줄 정렬용) */
   const fieldUnitWidthClass = "w-[85px] md:w-[100px] lg:w-[120px]";
+  const fieldSlotColumnReverseClass = (player: "A" | "B") => {
+    const needsReverse =
+      player === "B" ? fieldSlotIsPlayerA("B") : !fieldSlotIsPlayerA("A");
+    return needsReverse ? " flex-col-reverse" : "";
+  };
   /** 뱃지 최대 2줄 기준 고정 높이 — 빈 슬롯/체력만/뱃지+체력 모두 카드 밑면 동일 높이 */
   const fieldSlotBadgeZoneClass = `flex h-12 shrink-0 flex-col items-center justify-center overflow-visible ${fieldUnitWidthClass}`;
   /** 상대 진영(B): 게이지가 체력 위로 돌출 → 뱃지를 살짝 위로. 아군(A): 게이지는 체력 아래라 뱃지 이동 없음 */
@@ -15704,7 +15800,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       <GonchungSpellStackTopFace
         player={player}
         spell={display}
-        opponentCardFlipped={player === "B" ? state!.settings.isOpponentCardFlipped : false}
+        opponentCardFlipped={shouldFlipOpponentCard(player)}
         revealGlow={false}
         showFront={showFront}
         teslaCounterOutlineGlow={
@@ -15733,7 +15829,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   ) => {
     if (!host || !hasAebeolaekingRider(host)) return null;
     const rider = host.parasiteRider!;
-    const isTopPlayer = ownerPlayer === "B";
+    const isTopPlayer = isTopPlayerInView(ownerPlayer);
     const riderSlotKey = aebeolaekingRiderSlotKey(ownerPlayer, slot);
     const menuOpen = selectedSlot === riderSlotKey;
 
@@ -15787,7 +15883,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             src={rider.image_url}
             alt={rider.name}
             className={`w-full h-full object-cover ${
-              state?.settings.isOpponentCardFlipped && isTopPlayer ? "rotate-180" : ""
+              shouldFlipOpponentCard(ownerPlayer) ? "rotate-180" : ""
             }`}
           />
         ) : (
@@ -17121,7 +17217,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const field = isPlayerA ? state.playerA.field : state.playerB.field;
     const card = field[slot];
     const slotKey = `${player}-${slot}`;
-    const flipOpp = !isPlayerA && state.settings.isOpponentCardFlipped;
+    const flipOpp = shouldFlipOpponentCard(player);
 
     return (
       <div
@@ -17134,7 +17230,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         <div style={{ width: MOBILE_UNIT_W, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-          {!isPlayerA ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot) : null}
+          {!fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot) : null}
           <div className={unitSlotOuterClass} style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
             <div
@@ -17207,7 +17303,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderIversonWaitAuraOverlay(card, "rounded-[6px]", slotKey)}
             {renderBaekseuInvulnRing(card, "rounded-[6px]", player, slot)}
           </div>
-          {isPlayerA ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot) : null}
+          {fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot) : null}
           <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups(slotKey)}</div>
         </div>
       </div>
@@ -17369,7 +17465,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                             width: "100%",
                             height: "100%",
                             objectFit: "cover",
-                            transform: !isPlayerA && state.settings.isOpponentCardFlipped ? "rotate(180deg)" : undefined,
+                            transform: shouldFlipOpponentCard(player) ? "rotate(180deg)" : undefined,
                           }}
                         />
                       ) : (
@@ -17380,7 +17476,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                             textAlign: "center",
                             padding: 4,
                             color: isPlayerA ? "#bae6fd" : "#fecdd3",
-                            transform: !isPlayerA && state.settings.isOpponentCardFlipped ? "rotate(180deg)" : undefined,
+                            transform: shouldFlipOpponentCard(player) ? "rotate(180deg)" : undefined,
                           }}
                         >
                           {card.name}
@@ -17564,11 +17660,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             <GuardedImg
               src={simpanPeekFly.pendingCard.image_url}
               alt={simpanPeekFly.pendingCard.name}
-              className={`h-full w-full object-cover ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
+              className={`h-full w-full object-cover ${opponentCardRotateClass(simpanPeekFly.player)}`}
             />
           ) : (
             <div
-              className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100 ${simpanPeekFly.player === "B" && state.settings.isOpponentCardFlipped ? "rotate-180" : ""}`}
+              className={`flex h-full w-full items-center justify-center p-2 text-center text-[10px] font-bold text-amber-100 ${opponentCardRotateClass(simpanPeekFly.player)}`}
             >
               {simpanPeekFly.pendingCard.name}
             </div>
@@ -18211,6 +18307,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </button>
               </div>
 
+              {!multiplayMyRole ? (
               <div
                 className={`flex items-center justify-between w-full bg-slate-800/50 rounded-xl border border-slate-700 ${
                   isMobile ? "p-3" : "p-4"
@@ -18236,6 +18333,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300 ${state?.settings?.isOpponentCardFlipped ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
+              ) : null}
             </div>
 
             <button 
@@ -18946,7 +19044,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
           )}
 
-          <div style={{ opacity: isInitializing ? 0.5 : 1, pointerEvents: isInitializing ? "none" : "auto" }}>
+          <div
+            style={{
+              opacity: isInitializing ? 0.5 : 1,
+              pointerEvents: isInitializing ? "none" : "auto",
+              display: "flex",
+              flexDirection: multiplayFlipBoard ? "column-reverse" : "column",
+            }}
+          >
             {renderMobilePlayerHpBar("B")}
             {renderMobileHandRow("B")}
 
@@ -19087,9 +19192,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                                 src={spellUsageReveal.previewCard.image_url}
                                 alt={spellUsageReveal.previewCard.name}
                                 className={`h-full w-full object-contain ${
-                                  spellUsageReveal.casterPlayer === "B" && state.settings.isOpponentCardFlipped
-                                    ? "rotate-180"
-                                    : ""
+                                  opponentCardRotateClass(spellUsageReveal.casterPlayer)
                                 } ${spellUsageTeslaHideOppCenterCard ? "brightness-0" : ""} ${spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish" : ""}`}
                               />
                             ) : (
@@ -19154,9 +19257,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                             src={simpanCenterDisplay.card.image_url}
                             alt={simpanCenterDisplay.card.name}
                             className={`h-full w-full object-cover ${
-                              simpanCenterDisplay.player === "B" && state.settings.isOpponentCardFlipped
-                                ? "rotate-180"
-                                : ""
+                              opponentCardRotateClass(simpanCenterDisplay.player)
                             }`}
                           />
                         ) : (
@@ -19185,6 +19286,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 >
                   <div
                     data-mobile-units-row="B"
+                    className={mobileFieldRowOrderClass("B", "units")}
                     style={{
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
@@ -19201,6 +19303,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   </div>
                   <div
                     data-mobile-spell-row="B"
+                    className={mobileFieldRowOrderClass("B", "spell")}
                     style={{
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
@@ -19241,6 +19344,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   </div>
 
                   <div
+                    className="order-3"
                     style={{
                       width: MOBILE_CENTER_W - 8,
                       height: 2,
@@ -19250,6 +19354,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
                   <div
                     data-mobile-spell-row="A"
+                    className={mobileFieldRowOrderClass("A", "spell")}
                     style={{
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
@@ -19290,6 +19395,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   </div>
                   <div
                     data-mobile-units-row="A"
+                    className={mobileFieldRowOrderClass("A", "units")}
                     style={{
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
@@ -19315,7 +19421,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   width: MOBILE_RIGHT_W,
                   height: MOBILE_MID_H,
                   display: "flex",
-                  flexDirection: "column",
+                  flexDirection: multiplayFlipBoard ? "column-reverse" : "column",
                   alignItems: "center",
                   justifyContent: "space-between",
                   paddingTop: 4,
@@ -19323,39 +19429,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   boxSizing: "border-box",
                 }}
               >
-                {renderMobilePlayerTokenPanel("B")}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
-                  {state.settings.isTimeLimitEnabled ? (
-                    <span
+                {multiplayFlipBoard ? renderMobilePlayerTokenPanel(myEndTurnPlayer) : renderMobilePlayerTokenPanel(oppEndTurnPlayer)}
+                {!multiplayMyRole ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
+                    {state.settings.isTimeLimitEnabled ? (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontFamily: "monospace",
+                          fontWeight: 900,
+                          color:
+                            state.currentTurn === oppEndTurnPlayer && state.turnTimeLeft <= 15
+                              ? "#ef4444"
+                              : oppEndTurnPlayer === "B"
+                                ? "#fda4af"
+                                : "#7dd3fc",
+                        }}
+                      >
+                        {state.currentTurn === oppEndTurnPlayer
+                          ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}`
+                          : "00:60"}
+                      </span>
+                    ) : null}
+                    <button
+                      onClick={() => handleEndTurn(oppEndTurnPlayer)}
+                      disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing}
                       style={{
-                        fontSize: 9,
-                        fontFamily: "monospace",
+                        width: 88,
+                        height: 44,
+                        borderRadius: 8,
                         fontWeight: 900,
-                        color: state.currentTurn === "B" && state.turnTimeLeft <= 15 ? "#ef4444" : "#fda4af",
+                        fontSize: 9,
+                        border: "2px solid",
+                        borderColor:
+                          state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#fb923c" : "#334155",
+                        background:
+                          state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#ea580c" : "#1e293b",
+                        color: state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#fff" : "#64748b",
+                        opacity: state.currentTurn === oppEndTurnPlayer && !isInitializing ? 1 : 0.5,
                       }}
                     >
-                      {state.currentTurn === "B" ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}` : "00:60"}
-                    </span>
-                  ) : null}
-                  <button
-                    onClick={() => handleEndTurn("B")}
-                    disabled={state.currentTurn !== "B" || isInitializing}
-                    style={{
-                      width: 88,
-                      height: 44,
-                      borderRadius: 8,
-                      fontWeight: 900,
-                      fontSize: 9,
-                      border: "2px solid",
-                      borderColor: state.currentTurn === "B" && !isInitializing ? "#fb923c" : "#334155",
-                      background: state.currentTurn === "B" && !isInitializing ? "#ea580c" : "#1e293b",
-                      color: state.currentTurn === "B" && !isInitializing ? "#fff" : "#64748b",
-                      opacity: state.currentTurn === "B" && !isInitializing ? 1 : 0.5,
-                    }}
-                  >
-                    상대 턴 종료
-                  </button>
-                </div>
+                      상대 턴 종료
+                    </button>
+                  </div>
+                ) : null}
                 <div
                   style={{
                     width: 88,
@@ -19375,17 +19492,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     style={{
                       fontSize: 11,
                       fontWeight: 900,
-                      color: state.currentTurn === "A" ? "#38bdf8" : state.currentTurn === "B" ? "#fb7185" : "#64748b",
+                      color: mobileTurnColor,
                     }}
                   >
-                    {state.currentTurn === "A" ? "MY TURN" : state.currentTurn === "B" ? "OPP TURN" : "READY"}
+                    {mobileTurnLabel}
                   </span>
                   <span style={{ fontSize: 10, fontFamily: "monospace", color: "#cbd5e1" }}>{formatTime(state.elapsedTime || 0)}</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
                   <button
-                    onClick={() => handleEndTurn("A")}
-                    disabled={state.currentTurn !== "A" || isInitializing}
+                    onClick={() => handleEndTurn(myEndTurnPlayer)}
+                    disabled={state.currentTurn !== myEndTurnPlayer || isInitializing}
                     style={{
                       width: 88,
                       height: 44,
@@ -19393,10 +19510,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       fontWeight: 900,
                       fontSize: 9,
                       border: "2px solid",
-                      borderColor: state.currentTurn === "A" && !isInitializing ? "#fb923c" : "#334155",
-                      background: state.currentTurn === "A" && !isInitializing ? "#ea580c" : "#1e293b",
-                      color: state.currentTurn === "A" && !isInitializing ? "#fff" : "#64748b",
-                      opacity: state.currentTurn === "A" && !isInitializing ? 1 : 0.5,
+                      borderColor:
+                        state.currentTurn === myEndTurnPlayer && !isInitializing ? "#fb923c" : "#334155",
+                      background:
+                        state.currentTurn === myEndTurnPlayer && !isInitializing ? "#ea580c" : "#1e293b",
+                      color: state.currentTurn === myEndTurnPlayer && !isInitializing ? "#fff" : "#64748b",
+                      opacity: state.currentTurn === myEndTurnPlayer && !isInitializing ? 1 : 0.5,
                     }}
                   >
                     내 턴 종료
@@ -19407,14 +19526,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         fontSize: 9,
                         fontFamily: "monospace",
                         fontWeight: 900,
-                        color: state.currentTurn === "A" && state.turnTimeLeft <= 15 ? "#ef4444" : "#7dd3fc",
+                        color:
+                          state.currentTurn === myEndTurnPlayer && state.turnTimeLeft <= 15
+                            ? "#ef4444"
+                            : myEndTurnPlayer === "A"
+                              ? "#7dd3fc"
+                              : "#fda4af",
                       }}
                     >
-                      {state.currentTurn === "A" ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}` : "00:60"}
+                      {state.currentTurn === myEndTurnPlayer
+                        ? `00:${state.turnTimeLeft.toString().padStart(2, "0")}`
+                        : "00:60"}
                     </span>
                   ) : null}
                 </div>
-                {renderMobilePlayerTokenPanel("A")}
+                {multiplayFlipBoard ? renderMobilePlayerTokenPanel(oppEndTurnPlayer) : renderMobilePlayerTokenPanel(myEndTurnPlayer)}
               </div>
             </div>
 
@@ -19653,15 +19779,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             ) : null}
             
             {/* ⭐️ Player B 영역 (상단) */}
-            <div className="flex flex-col gap-2 z-10 w-full">
-              <div className="flex justify-between gap-4 w-full items-stretch">
+            <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-3" : "order-1"}`}>
+              <div className={`flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("B", "units")}`}>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, false)}>{renderStatusBadges("B", "is", state.playerB.field.is, false)}</div>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "is", state.playerB.field.is, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.is,
-                     renderHpBar(state.playerB.field.is, false, "inline", "is") ?? fieldSlotHpPlaceholder,
-                     false,
+                     renderHpBar(state.playerB.field.is, fieldSlotIsPlayerA("B"), "inline", "is") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("B"),
                      "B-is"
                    )}
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
@@ -19669,7 +19795,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "is", state.playerB.field.is)}
                     <div className={getSlotClassName("B", "is", state.playerB.field.is)} data-field-drop data-field-player="B" data-field-slot="is" onClick={(e) => handleFieldClick(e, "B", "is", state.playerB.field.is)}>
                     {state.playerB.field.is ? (
-                      state.playerB.field.is.image_url ? <GuardedImg src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.is.name}</span>
+                      state.playerB.field.is.image_url ? <GuardedImg src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.is.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
                     {renderActionMenu("B", "is", state.playerB.field.is)}
                     </div>
@@ -19701,12 +19827,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                  </div>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.m, false)}>{renderStatusBadges("B", "m", state.playerB.field.m, false)}</div>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.m, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "m", state.playerB.field.m, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.m,
-                     renderHpBar(state.playerB.field.m, false, "inline", "m") ?? fieldSlotHpPlaceholder,
-                     false,
+                     renderHpBar(state.playerB.field.m, fieldSlotIsPlayerA("B"), "inline", "m") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("B"),
                      "B-m"
                    )}
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
@@ -19714,7 +19840,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "m", state.playerB.field.m)}
                     <div className={getSlotClassName("B", "m", state.playerB.field.m)} data-field-drop data-field-player="B" data-field-slot="m" onClick={(e) => handleFieldClick(e, "B", "m", state.playerB.field.m)}>
                     {state.playerB.field.m ? (
-                      state.playerB.field.m.image_url ? <GuardedImg src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.m.name}</span>
+                      state.playerB.field.m.image_url ? <GuardedImg src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.m.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
                     {renderActionMenu("B", "m", state.playerB.field.m)}
                     </div>
@@ -19746,12 +19872,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                  </div>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.os, false)}>{renderStatusBadges("B", "os", state.playerB.field.os, false)}</div>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.os, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "os", state.playerB.field.os, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.os,
-                     renderHpBar(state.playerB.field.os, false, "inline", "os") ?? fieldSlotHpPlaceholder,
-                     false,
+                     renderHpBar(state.playerB.field.os, fieldSlotIsPlayerA("B"), "inline", "os") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("B"),
                      "B-os"
                    )}
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
@@ -19759,7 +19885,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderMaengsugyeonPoFacingEnemyRect("B", "os", state.playerB.field.os)}
                     <div className={getSlotClassName("B", "os", state.playerB.field.os)} data-field-drop data-field-player="B" data-field-slot="os" onClick={(e) => handleFieldClick(e, "B", "os", state.playerB.field.os)}>
                     {state.playerB.field.os ? (
-                      state.playerB.field.os.image_url ? <GuardedImg src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{state.playerB.field.os.name}</span>
+                      state.playerB.field.os.image_url ? <GuardedImg src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.os.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
                     {renderActionMenu("B", "os", state.playerB.field.os)}
                     </div>
@@ -19791,7 +19917,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                  </div>
               </div>
-              <div className="flex justify-start w-full mt-2">
+              <div
+                className={`flex w-full ${fieldUnitsBeforeSpell("B") ? "mt-2 justify-start" : "mb-2 justify-start"} ${desktopFieldBlockOrderClass("B", "spell")}`}
+              >
                 <div className="flex flex-row items-center gap-1">
                   <div
                     className={`${spellCardStyle} !overflow-visible border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}${getTopSpellFromField(state.playerB.field) && !attackingSlot ? " cursor-pointer hover:border-purple-400/80" : state.currentTurn === "B" && !attackingSlot ? " transition-colors hover:border-purple-400" : ""}`}
@@ -19823,11 +19951,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
 
             {/* 중앙선 */}
-            <div className="w-[120%] h-[2px] bg-gradient-to-r from-transparent via-amber-500/80 to-transparent shadow-[0_0_20px_rgba(245,158,11,0.9)] shrink-0 my-5 z-0"></div>
+            <div className="order-2 w-[120%] h-[2px] bg-gradient-to-r from-transparent via-amber-500/80 to-transparent shadow-[0_0_20px_rgba(245,158,11,0.9)] shrink-0 my-5 z-0"></div>
 
             {/* ⭐️ Player A 영역 (하단) */}
-            <div className="flex flex-col gap-2 z-10 w-full">
-              <div className="mb-2 flex w-full justify-end">
+            <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-1" : "order-3"}`}>
+              <div
+                className={`flex w-full justify-end ${fieldUnitsBeforeSpell("A") ? "mt-2" : "mb-2"} ${desktopFieldBlockOrderClass("A", "spell")}`}
+              >
                 <div className="flex flex-row items-center gap-1">
                   {normalizeSpellStack(state.playerA.field).length > 1 ? (
                     <button
@@ -19856,15 +19986,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   </div>
                 </div>
               </div>
-              <div className="flex justify-between gap-4 w-full items-stretch">
+              <div className={`flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("A", "units")}`}>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "is", state.playerA.field.is)}
                     <div className={getSlotClassName("A", "is", state.playerA.field.is)} data-field-drop data-field-player="A" data-field-slot="is" onClick={(e) => handleFieldClick(e, "A", "is", state.playerA.field.is)}>
                     {state.playerA.field.is ? (
-                      state.playerA.field.is.image_url ? <GuardedImg src={state.playerA.field.is.image_url} alt="Is" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.is.name}</span>
+                      state.playerA.field.is.image_url ? <GuardedImg src={state.playerA.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.is.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
                     {renderActionMenu("A", "is", state.playerA.field.is)}
                     </div>
@@ -19894,22 +20024,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.is,
-                     renderHpBar(state.playerA.field.is, true, "inline", "is") ?? fieldSlotHpPlaceholder,
-                     true,
+                     renderHpBar(state.playerA.field.is, fieldSlotIsPlayerA("A"), "inline", "is") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("A"),
                      "A-is"
                    )}
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.is, true)}>{renderStatusBadges("A", "is", state.playerA.field.is, true)}</div>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.is, fieldSlotIsPlayerA("A"))}>{renderStatusBadges("A", "is", state.playerA.field.is, fieldSlotIsPlayerA("A"))}</div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-is")}</div>
                    </div>
                  </div>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "m", state.playerA.field.m)}
                     <div className={getSlotClassName("A", "m", state.playerA.field.m)} data-field-drop data-field-player="A" data-field-slot="m" onClick={(e) => handleFieldClick(e, "A", "m", state.playerA.field.m)}>
                     {state.playerA.field.m ? (
-                      state.playerA.field.m.image_url ? <GuardedImg src={state.playerA.field.m.image_url} alt="M" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.m.name}</span>
+                      state.playerA.field.m.image_url ? <GuardedImg src={state.playerA.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.m.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
                     {renderActionMenu("A", "m", state.playerA.field.m)}
                     </div>
@@ -19939,22 +20069,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.m,
-                     renderHpBar(state.playerA.field.m, true, "inline", "m") ?? fieldSlotHpPlaceholder,
-                     true,
+                     renderHpBar(state.playerA.field.m, fieldSlotIsPlayerA("A"), "inline", "m") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("A"),
                      "A-m"
                    )}
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.m, true)}>{renderStatusBadges("A", "m", state.playerA.field.m, true)}</div>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.m, fieldSlotIsPlayerA("A"))}>{renderStatusBadges("A", "m", state.playerA.field.m, fieldSlotIsPlayerA("A"))}</div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-m")}</div>
                    </div>
                  </div>
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
-                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}`}>
+                   <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
                    <div className={unitSlotOuterClass}>
                      {renderMaengsugyeonPoFacingEnemyRect("A", "os", state.playerA.field.os)}
                     <div className={getSlotClassName("A", "os", state.playerA.field.os)} data-field-drop data-field-player="A" data-field-slot="os" onClick={(e) => handleFieldClick(e, "A", "os", state.playerA.field.os)}>
                     {state.playerA.field.os ? (
-                      state.playerA.field.os.image_url ? <GuardedImg src={state.playerA.field.os.image_url} alt="Os" className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-center leading-tight p-2 text-sky-200">{state.playerA.field.os.name}</span>
+                      state.playerA.field.os.image_url ? <GuardedImg src={state.playerA.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.os.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
                     {renderActionMenu("A", "os", state.playerA.field.os)}
                     </div>
@@ -19984,11 +20114,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.os,
-                     renderHpBar(state.playerA.field.os, true, "inline", "os") ?? fieldSlotHpPlaceholder,
-                     true,
+                     renderHpBar(state.playerA.field.os, fieldSlotIsPlayerA("A"), "inline", "os") ?? fieldSlotHpPlaceholder,
+                     fieldSlotIsPlayerA("A"),
                      "A-os"
                    )}
-                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.os, true)}>{renderStatusBadges("A", "os", state.playerA.field.os, true)}</div>
+                   <div className={fieldSlotBadgeZoneClassWithCard(state.playerA.field.os, fieldSlotIsPlayerA("A"))}>{renderStatusBadges("A", "os", state.playerA.field.os, fieldSlotIsPlayerA("A"))}</div>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-os")}</div>
                    </div>
                  </div>
@@ -19999,7 +20129,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
 
         {/* ===================== 3. 우측 영역 (패, 토큰, 타이머, 종료 버튼) ===================== */}
-        <div className={`flex-1 flex flex-col justify-between h-full py-2 pl-4 lg:pl-10 transition-opacity ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`flex-1 flex flex-col justify-between h-full py-2 pl-4 lg:pl-10 transition-opacity ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'} ${multiplayFlipBoard ? 'flex-col-reverse' : ''}`}>
           
           {/* 우측 상단: 상대(Player B) 패 */}
           <div className={`border-2 rounded-2xl p-4 flex items-center justify-center gap-3 h-[200px] lg:h-[250px] ${state.currentTurn === 'B' ? 'border-rose-500/60 bg-rose-950/30 shadow-[inset_0_0_30px_rgba(244,63,94,0.15)]' : 'border-slate-700/50 bg-black/20'}`}>
@@ -20077,7 +20207,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${state.settings.isOpponentCardFlipped ? 'rotate-180' : ''}`}>{card.name}</span>}
+                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("B")}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{card.name}</span>}
                          
                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
                           <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
@@ -20099,7 +20229,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           {/* 우측 중단: 종합 컨트롤 패널 */}
           <div className="flex flex-row items-stretch justify-between gap-4 h-[150px] lg:h-[170px] max-w-[800px] mx-auto w-full my-auto px-4">
             
-            <div className="flex flex-col justify-between gap-3 flex-1">
+            <div className={`flex flex-col justify-between gap-3 flex-1 ${multiplayFlipBoard ? 'flex-col-reverse' : ''}`}>
               <div 
                 className={`relative flex flex-col overflow-visible border-2 rounded-xl py-3 h-full justify-center transition-colors 
                   ${canAttackPlayerB ? 'border-[3px] border-white bg-white/20 shadow-[0_0_25px_rgba(255,255,255,0.9)] animate-pulse cursor-crosshair' : 
@@ -20169,32 +20299,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
             <div className="border-2 border-slate-700 bg-black/60 rounded-xl p-4 flex flex-col items-center justify-center w-[150px] shrink-0 shadow-inner">
               <span className="text-xs text-slate-400 font-black tracking-widest mb-2">TURN {state.turnCount}</span>
-              <span className={`text-2xl font-black text-center leading-tight ${state.currentTurn === 'A' ? 'text-sky-400' : state.currentTurn === 'B' ? 'text-rose-400' : 'text-slate-500'} ${!isInitializing && 'animate-pulse'}`}>{state.currentTurn === 'A' ? 'MY\nTURN' : state.currentTurn === 'B' ? 'OPP\nTURN' : 'READY'}</span>
+              <span className={`text-2xl font-black text-center leading-tight whitespace-pre-line ${desktopTurnColorClass} ${!isInitializing && 'animate-pulse'}`}>{desktopTurnLabel}</span>
               
               <span className="text-base font-mono text-slate-300 tracking-widest mt-3 bg-slate-900 px-3 py-1 rounded-md border border-slate-700">
                 {formatTime(state.elapsedTime || 0)}
               </span>
             </div>
 
-            <div className="flex flex-col justify-between gap-3 w-[130px] shrink-0 h-full">
-              {/* 상대 턴 종료 버튼 (Player B) */}
-              <div className="flex flex-col gap-1.5 items-center flex-1 w-full">
-                {state.settings.isTimeLimitEnabled ? (
-                  <span className={`text-[11px] lg:text-xs font-mono font-black tracking-widest ${state.currentTurn === 'B' && state.turnTimeLeft <= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse scale-110 transition-all' : 'text-rose-300'}`}>
-                    {state.currentTurn === 'B' ? `00:${state.turnTimeLeft.toString().padStart(2, '0')}` : '00:60'}
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-slate-600 font-bold tracking-widest">무제한</span>
-                )}
-                <button onClick={() => handleEndTurn("B")} disabled={state.currentTurn !== "B" || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === 'B' && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>상대 턴<br/>종료</button>
-              </div>
+            <div className={`flex flex-col justify-between gap-3 w-[130px] shrink-0 h-full ${multiplayFlipBoard ? 'flex-col-reverse' : ''}`}>
+              {!multiplayMyRole ? (
+                <div className="flex flex-col gap-1.5 items-center flex-1 w-full">
+                  {state.settings.isTimeLimitEnabled ? (
+                    <span className={`text-[11px] lg:text-xs font-mono font-black tracking-widest ${state.currentTurn === oppEndTurnPlayer && state.turnTimeLeft <= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse scale-110 transition-all' : oppEndTurnPlayer === 'B' ? 'text-rose-300' : 'text-sky-300'}`}>
+                      {state.currentTurn === oppEndTurnPlayer ? `00:${state.turnTimeLeft.toString().padStart(2, '0')}` : '00:60'}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-600 font-bold tracking-widest">무제한</span>
+                  )}
+                  <button onClick={() => handleEndTurn(oppEndTurnPlayer)} disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === oppEndTurnPlayer && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>상대 턴<br/>종료</button>
+                </div>
+              ) : null}
 
-              {/* 내 턴 종료 버튼 (Player A) */}
               <div className="flex flex-col gap-1.5 items-center flex-1 w-full">
-                <button onClick={() => handleEndTurn("A")} disabled={state.currentTurn !== "A" || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === 'A' && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>내 턴<br/>종료</button>
+                <button onClick={() => handleEndTurn(myEndTurnPlayer)} disabled={state.currentTurn !== myEndTurnPlayer || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === myEndTurnPlayer && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>내 턴<br/>종료</button>
                 {state.settings.isTimeLimitEnabled ? (
-                  <span className={`text-[11px] lg:text-xs font-mono font-black tracking-widest ${state.currentTurn === 'A' && state.turnTimeLeft <= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse scale-110 transition-all' : 'text-sky-300'}`}>
-                    {state.currentTurn === 'A' ? `00:${state.turnTimeLeft.toString().padStart(2, '0')}` : '00:60'}
+                  <span className={`text-[11px] lg:text-xs font-mono font-black tracking-widest ${state.currentTurn === myEndTurnPlayer && state.turnTimeLeft <= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse scale-110 transition-all' : myEndTurnPlayer === 'A' ? 'text-sky-300' : 'text-rose-300'}`}>
+                    {state.currentTurn === myEndTurnPlayer ? `00:${state.turnTimeLeft.toString().padStart(2, '0')}` : '00:60'}
                   </span>
                 ) : (
                   <span className="text-[10px] text-slate-600 font-bold tracking-widest">무제한</span>
@@ -20280,7 +20410,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className="w-full h-full object-cover group-hover:opacity-100 transition-opacity animate-[fadeIn_0.3s_ease-out]" /> : <span className="text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200">{card.name}</span>}
+                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("A")}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{card.name}</span>}
                          
                          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandA ? "hidden" : ""}`}>
                            <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-sky-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">

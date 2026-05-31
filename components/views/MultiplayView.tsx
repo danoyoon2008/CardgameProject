@@ -305,6 +305,7 @@ function MultiplayGameSession({
             cards={catalogForView}
             onBackToLobby={onBackToLobby}
             controlledSimulation={controlledSimulation as never}
+            multiplayMyRole={myRole}
           />
         ) : (
           <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">
