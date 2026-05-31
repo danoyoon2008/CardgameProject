@@ -280,7 +280,7 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
       globalTurnCount: 1, 
       elapsedTime: 0, 
       turnTimeLeft: 60,
-      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" },
+      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" },
       deckCards: currentDeck,
       rewindCards: [],
       playerA: { hp: 2000, tokens: 0, hand: [], hasDrawnThisTurn: false, attacksThisTurn: 0, hasBeenAttackedThisTurn: false, field: { is: null, m: null, os: null, spellStack: [] } },
@@ -384,9 +384,12 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
         
         parsed.elapsedTime = parsed.elapsedTime || 0; 
         parsed.turnTimeLeft = parsed.turnTimeLeft ?? 60;
-        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" };
+        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" };
         parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false;
-        parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
+        parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
+        if (parsed.settings.drawMode === "SELECT") {
+          parsed.settings.drawMode = "RANDOM";
+        }
         parsed.globalTurnCount = parsed.globalTurnCount ?? 1; 
         
         setState(parsed); 

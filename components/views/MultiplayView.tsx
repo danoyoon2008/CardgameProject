@@ -18,6 +18,54 @@ interface MultiplayViewProps {
   onBackToLobby: () => void;
   isDarkMode: boolean;
   cards: CardRow[];
+  onOpenDetail?: (card: CardRow) => void;
+}
+
+const ANONYMOUS_OPPONENT_LABEL = "익명의 플레이어";
+
+function normalizeNickname(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function fetchOpponentNickname(
+  client: SupabaseClient,
+  opponentId: string,
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("user_profiles")
+    .select("nickname")
+    .eq("id", opponentId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[MultiplayView] 상대 닉네임 조회 실패:", error.message);
+    return null;
+  }
+
+  return normalizeNickname(data?.nickname);
+}
+
+async function fetchGameRoomPlayerIds(
+  client: SupabaseClient,
+  roomId: string,
+): Promise<{ player_a_id: string | null; player_b_id: string | null } | null> {
+  const { data, error } = await client
+    .from("game_rooms")
+    .select("player_a_id, player_b_id")
+    .eq("id", roomId)
+    .single();
+
+  if (error || !data) {
+    console.error("[MultiplayView] 방 player id 조회 실패:", error?.message);
+    return null;
+  }
+
+  return {
+    player_a_id: data.player_a_id ?? null,
+    player_b_id: data.player_b_id ?? null,
+  };
 }
 
 async function resolveDeckCatalog(
@@ -64,7 +112,7 @@ function createInitialGameState(initialDeck: CardRow[]): SimulationState {
     settings: {
       isTimeLimitEnabled: false,
       isOpponentCardFlipped: false,
-      drawMode: "SELECT",
+      drawMode: "RANDOM",
     },
     deckCards: currentDeck,
     rewindCards: [],
@@ -112,6 +160,7 @@ type MultiplayGameSessionProps = {
   isDarkMode: boolean;
   onBackToLobby: () => void;
   opponentNickname: string | null;
+  onOpenDetail?: (card: CardRow) => void;
 };
 
 function MultiplayGameSession({
@@ -122,6 +171,7 @@ function MultiplayGameSession({
   isDarkMode,
   onBackToLobby,
   opponentNickname,
+  onOpenDetail,
 }: MultiplayGameSessionProps) {
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -244,7 +294,7 @@ function MultiplayGameSession({
     };
   }, [roomId, setState]);
 
-  const opponentLabel = opponentNickname ?? "상대방";
+  const opponentLabel = opponentNickname ?? ANONYMOUS_OPPONENT_LABEL;
   const myTeamLabel = myRole === "player_a" ? "Player A" : "Player B";
 
   return (
@@ -298,6 +348,7 @@ function MultiplayGameSession({
             isDarkMode={isDarkMode}
             cards={catalogForView}
             onBackToLobby={onBackToLobby}
+            onOpenDetail={onOpenDetail}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}
           />
@@ -338,6 +389,7 @@ export default function MultiplayView({
   onBackToLobby,
   isDarkMode,
   cards,
+  onOpenDetail,
 }: MultiplayViewProps) {
   const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
@@ -346,6 +398,65 @@ export default function MultiplayView({
   useEffect(() => {
     console.log("[MultiplayView] 마운트 — cards prop 길이:", cards.length);
   }, [cards.length]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+
+    let cancelled = false;
+
+    async function resolveOpponentNickname() {
+      const client = supabase;
+      if (!client) return;
+
+      if (myRole === "player_b") {
+        const room = await fetchGameRoomPlayerIds(client, roomId);
+        if (cancelled) return;
+
+        const opponentId = room?.player_a_id;
+        if (!opponentId) {
+          setOpponentNickname(null);
+          return;
+        }
+
+        const nickname = await fetchOpponentNickname(client, opponentId);
+        if (!cancelled) {
+          setOpponentNickname(nickname);
+        }
+        return;
+      }
+
+      for (let attempt = 1; attempt <= 15; attempt++) {
+        if (cancelled) return;
+
+        const room = await fetchGameRoomPlayerIds(client, roomId);
+        const opponentId = room?.player_b_id;
+
+        if (typeof opponentId === "string" && opponentId.length > 0) {
+          const nickname = await fetchOpponentNickname(client, opponentId);
+          if (!cancelled) {
+            setOpponentNickname(nickname);
+          }
+          return;
+        }
+
+        console.log("[MultiplayView] player_b_id 대기 — 재시도:", attempt);
+        if (attempt < 15) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      }
+
+      if (!cancelled) {
+        setOpponentNickname(null);
+      }
+    }
+
+    void resolveOpponentNickname();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, myRole]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -371,19 +482,6 @@ export default function MultiplayView({
       if (cancelled || error || !room) {
         if (error) console.error("[MultiplayView] 방 조회 실패:", error.message);
         return;
-      }
-
-      const opponentId = myRole === "player_a" ? room.player_b_id : room.player_a_id;
-      if (opponentId) {
-        const { data: profile } = await client
-          .from("user_profiles")
-          .select("nickname")
-          .eq("id", opponentId)
-          .maybeSingle();
-
-        if (!cancelled) {
-          setOpponentNickname(typeof profile?.nickname === "string" ? profile.nickname : null);
-        }
       }
 
       if (room.game_state) {
@@ -478,6 +576,7 @@ export default function MultiplayView({
           isDarkMode={isDarkMode}
           onBackToLobby={onBackToLobby}
           opponentNickname={opponentNickname}
+          onOpenDetail={onOpenDetail}
         />
       ) : (
         <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">

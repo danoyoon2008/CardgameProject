@@ -335,6 +335,7 @@ import {
 import {
   GonchungSpellStackTopFace,
   HiddenSpellCardBackFace,
+  MultiplayCardBackFace,
 } from "./simulation/gonchungSpellFace";
 import OneNightWagerModal from "./SimulationView/modals/OneNightWagerModal";
 import WitchTarotCoinOverlay from "./SimulationView/modals/WitchTarotCoinOverlay";
@@ -465,10 +466,10 @@ function normalizeBootstrapSimulationState(raw: SimulationState): SimulationStat
   parsed.settings = parsed.settings || {
     isTimeLimitEnabled: false,
     isOpponentCardFlipped: false,
-    drawMode: "SELECT",
+    drawMode: "RANDOM",
   };
   parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false;
-  parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
+  parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
   parsed.globalTurnCount = parsed.globalTurnCount ?? 1;
   parsed.unitCombatStats = parsed.unitCombatStats ?? {};
   parsed.unitStatsOrder = parsed.unitStatsOrder ?? [];
@@ -1324,6 +1325,22 @@ export default function SimulationView({
     : null;
   const multiplayFlipBoard = multiplayMyRole === "player_b";
 
+  const isMultiplayOpponent = (player: "A" | "B"): boolean =>
+    !!multiplayOppTeam && player === multiplayOppTeam;
+
+  const canMultiplayFieldDrop = (targetPlayer: "A" | "B"): boolean => {
+    if (!multiplayMyTeam || !state?.currentTurn) return true;
+    return targetPlayer === multiplayMyTeam && state.currentTurn === multiplayMyTeam;
+  };
+
+  const canMultiplayHandDragPlayer = (player: "A" | "B"): boolean => {
+    if (!multiplayMyTeam) return true;
+    return player === multiplayMyTeam;
+  };
+
+  const shouldShowMultiplaySpellUsageBack = (casterPlayer: "A" | "B"): boolean =>
+    isMultiplayOpponent(casterPlayer);
+
   const shouldFlipOpponentCard = (player: "A" | "B"): boolean => {
     if (!state) return false;
     if (multiplayMyRole) return false;
@@ -1981,6 +1998,7 @@ export default function SimulationView({
     const targetPlayer = (drop.dataset.player ?? drop.dataset.fieldPlayer) as "A" | "B" | undefined;
     const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return null;
+    if (!canMultiplayFieldDrop(targetPlayer)) return null;
 
     /* 애벌레킹(W) 손패 부착 — 적의 점유된 유닛 슬롯에만 드롭 가능 */
     if (isAebeolaekingCard(drag.card)) {
@@ -5759,7 +5777,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       globalTurnCount: 1, 
       elapsedTime: 0, 
       turnTimeLeft: 60,
-      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" },
+      settings: { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" },
       deckCards: currentDeck,
       rewindCards: [],
       unitCombatStats: {},
@@ -6567,9 +6585,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         
         parsed.elapsedTime = parsed.elapsedTime || 0; 
         parsed.turnTimeLeft = parsed.turnTimeLeft ?? 60;
-        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "SELECT" };
+        parsed.settings = parsed.settings || { isTimeLimitEnabled: false, isOpponentCardFlipped: false, drawMode: "RANDOM" };
         parsed.settings.isOpponentCardFlipped = parsed.settings.isOpponentCardFlipped ?? false; 
-        parsed.settings.drawMode = parsed.settings.drawMode ?? "SELECT";
+        parsed.settings.drawMode = parsed.settings.drawMode ?? "RANDOM";
+        if (parsed.settings.drawMode === "SELECT") {
+          parsed.settings.drawMode = "RANDOM";
+        }
         parsed.globalTurnCount = parsed.globalTurnCount ?? 1; 
         parsed.unitCombatStats = parsed.unitCombatStats ?? {};
         parsed.unitStatsOrder = parsed.unitStatsOrder ?? [];
@@ -8742,6 +8763,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const canBeginHandDrag = (cardIndex: number, player: "A" | "B", card: CardRow): boolean => {
     if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return false;
+    if (!canMultiplayHandDragPlayer(player)) return false;
 
     const muhyohwaCounterDrag =
       !spellUsageFly && canMuhyohwaCounterFromHandSlot(state, player, cardIndex, card);
@@ -8798,6 +8820,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return;
     if (targetPlayer !== "A" && targetPlayer !== "B") return;
+    if (!canMultiplayFieldDrop(targetPlayer)) return;
+    if (multiplayMyTeam && saved.player !== multiplayMyTeam) return;
 
     if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) {
       notifyMultiplaySync();
@@ -9087,7 +9111,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (slot === "is" || slot === "m" || slot === "os" || slot === "spell") &&
           (targetPlayer === "A" || targetPlayer === "B")
         ) {
-          handleDrop(slot, targetPlayer, ended.clientX, ended.clientY);
+          if (canMultiplayFieldDrop(targetPlayer)) {
+            handleDrop(slot, targetPlayer, ended.clientX, ended.clientY);
+          }
         }
       } else if (dragCardIndex >= 0 && state) {
         const hand = dragPlayer === "A" ? state.playerA.hand : state.playerB.hand;
@@ -9155,6 +9181,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const player = cardEl.dataset.handPlayer as "A" | "B" | undefined;
     const cardIndexRaw = cardEl.dataset.handIndex;
     if ((player !== "A" && player !== "B") || cardIndexRaw === undefined) return;
+    if (multiplayMyTeam && player !== multiplayMyTeam) return;
     const cardIndex = Number(cardIndexRaw);
     if (!Number.isFinite(cardIndex)) return;
     if (!state) return;
@@ -15830,6 +15857,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   ) => {
     const display = gonchungSpellSlotDisplayCard(player, field);
     if (!display) return null;
+    if (isMultiplayOpponent(player)) {
+      return (
+        <div
+          className={`pointer-events-none absolute inset-0 rounded-[6px] overflow-hidden ${opts?.mobileFieldLayout ? "" : "rounded-[8px]"}`}
+        >
+          <MultiplayCardBackFace />
+        </div>
+      );
+    }
     const showFront = isGonchungHiddenPeekShowingFront(player, display);
     const suppressed = !!state &&
       areHiddenSpellsOnFieldSuppressedByRyeomhwa(player, state.playerA.field, state.playerB.field);
@@ -15933,7 +15969,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         {/* 액션 메뉴 — W 카드 본체 위에만 표시(호스트 카드를 덮지 않음) */}
         {menuOpen && (
           <div
-            className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-[45] backdrop-blur-[2px]"
+            className="pointer-events-auto absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-[45] backdrop-blur-[2px]"
             onClick={e => {
               e.stopPropagation();
               setSelectedSlot(null);
@@ -15942,13 +15978,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             <button
               onClick={e => {
                 e.stopPropagation();
-                if (onOpenDetail) onOpenDetail(rider);
+                onOpenDetail?.(rider);
                 setSelectedSlot(null);
               }}
               className={
                 isMobile
-                  ? "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[5px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
-                  : "px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+                  ? "pointer-events-auto px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[5px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
+                  : "pointer-events-auto px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[7px] md:text-[8px] lg:text-[9px] font-bold rounded-md border border-slate-500 shadow active:scale-95 leading-tight whitespace-nowrap z-[46]"
               }
             >
               상세 보기
@@ -16072,8 +16108,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       ? "px-3 py-1.5 text-[6px] font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]"
       : "px-3 py-1.5 text-[10px] lg:text-xs font-black tracking-widest rounded-lg border shadow-lg transition-all w-[80%]";
     const actionMenuDetailBtnClass = isMobile
-      ? "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[6px] font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
-      : "px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50";
+      ? "pointer-events-auto px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[6px] font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50"
+      : "pointer-events-auto px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold rounded-lg border border-slate-600 shadow-lg transition-colors w-[80%] active:scale-95 z-50";
     const actionMenuCloseBtnClass = isMobile
       ? "absolute top-1 right-2 text-slate-400 hover:text-white text-[7px] font-bold p-1"
       : "absolute top-1 right-2 text-slate-400 hover:text-white text-xs font-bold p-1";
@@ -16129,7 +16165,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div
-        className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 z-30 backdrop-blur-[2px] animate-[fadeIn_0.15s_ease-out]" 
+        className="pointer-events-auto absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 z-30 backdrop-blur-[2px] animate-[fadeIn_0.15s_ease-out]" 
         onClick={(e) => { e.stopPropagation(); setSelectedSlot(null); }}
       >
         {slot !== "spell" && showBasicAttackButton && (
@@ -16575,7 +16611,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         <button 
           onClick={(e) => { 
             e.stopPropagation(); 
-            if (onOpenDetail) onOpenDetail(card); 
+            onOpenDetail?.(card); 
             setSelectedSlot(null); 
           }} 
           className={actionMenuDetailBtnClass}
@@ -17412,6 +17448,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             const witchTarotDiscard = witchTarotDiscardPlayer === player && !!card;
             const canPointerDrag =
               !!card &&
+              canMultiplayHandDragPlayer(player) &&
               !pendingSkill &&
               !simpanPick &&
               !simpanPeekBlockDrag &&
@@ -17475,7 +17512,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                                 ? "border border-sky-400/50 bg-black/30"
                                 : "border border-rose-400/40 bg-rose-950/60"
                       : "border border-dashed border-slate-700/50 bg-transparent"
-                  } ${isDragSource || isDanhaStealFlySource ? (isMobile ? "pointer-events-none" : "opacity-0 pointer-events-none") : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
+                  } ${isDragSource || isDanhaStealFlySource ? (isMobile ? "pointer-events-none" : "opacity-0 pointer-events-none") : ""} ${isMultiplayOpponent(player) ? "pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
                   style={{ width: "100%", height: "100%", touchAction: "none" }}
                   data-mobile-hand-card="1"
                   data-hand-player={player}
@@ -17496,7 +17533,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       style={{ width: "100%", height: "100%", ...MOBILE_CARD_TOUCH_BLOCK_STYLE }}
                       onContextMenu={preventImageContextMenu}
                     >
-                      {card.image_url ? (
+                      {isMultiplayOpponent(player) ? (
+                        <MultiplayCardBackFace />
+                      ) : card.image_url ? (
                         <GuardedImg
                           src={card.image_url}
                           alt={card.name}
@@ -17525,7 +17564,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : (
                     <IconDeck className={`w-5 h-5 opacity-20 ${isPlayerA ? "text-sky-300" : "text-rose-300"}`} />
                   )}
-                  {isSelected ? (
+                  {isSelected && !isMultiplayOpponent(player) ? (
                     <div
                       data-mobile-hand-detail-overlay="1"
                       style={{
@@ -17695,7 +17734,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             willChange: "transform, width, height",
           }}
         >
-          {simpanPeekFly.pendingCard.image_url ? (
+          {isMultiplayOpponent(simpanPeekFly.player) ? (
+            <MultiplayCardBackFace />
+          ) : simpanPeekFly.pendingCard.image_url ? (
             <GuardedImg
               src={simpanPeekFly.pendingCard.image_url}
               alt={simpanPeekFly.pendingCard.name}
@@ -17804,7 +17845,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   willChange: "transform",
                 }}
               >
-                {spellUsageFly.centerShowsCardBack ? (
+                {shouldShowMultiplaySpellUsageBack(spellUsageFly.casterPlayer) ? (
+                  <MultiplayCardBackFace />
+                ) : spellUsageFly.centerShowsCardBack ? (
                   <HiddenSpellCardBackFace />
                 ) : spellUsageFly.previewCard.image_url ? (
                   <GuardedImg
@@ -19216,7 +19259,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                             {spellUsageMuhyohwaCounterGlow ? (
                               <div className="pp-muhyohwa-counter-outline" aria-hidden />
                             ) : null}
-                            {spellUsageReveal.centerShowsCardBack ? (
+                            {shouldShowMultiplaySpellUsageBack(spellUsageReveal.casterPlayer) ? (
+                              <div
+                                className={
+                                  spellUsageMuhyohwaCounterResolve
+                                    ? "pp-muhyohwa-counter-vanish h-full w-full"
+                                    : "h-full w-full"
+                                }
+                              >
+                                <MultiplayCardBackFace />
+                              </div>
+                            ) : spellUsageReveal.centerShowsCardBack ? (
                               <div
                                 className={
                                   spellUsageMuhyohwaCounterResolve
@@ -19291,7 +19344,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, flexShrink: 0 }}
                     >
                       <div className="absolute inset-0 overflow-hidden rounded-[6px]">
-                        {simpanCenterDisplay.card.image_url ? (
+                        {simpanCenterDisplay.kind === "peek" && isMultiplayOpponent(simpanCenterDisplay.player) ? (
+                          <MultiplayCardBackFace />
+                        ) : simpanCenterDisplay.card.image_url ? (
                           <GuardedImg
                             src={simpanCenterDisplay.card.image_url}
                             alt={simpanCenterDisplay.card.name}
@@ -19755,7 +19810,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {spellUsageMuhyohwaCounterGlow ? (
                       <div className="pp-muhyohwa-counter-outline" aria-hidden />
                     ) : null}
-                    {spellUsageReveal.centerShowsCardBack ? (
+                    {shouldShowMultiplaySpellUsageBack(spellUsageReveal.casterPlayer) ? (
+                      <div className={spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish h-full w-full" : "h-full w-full"}>
+                        <MultiplayCardBackFace />
+                      </div>
+                    ) : spellUsageReveal.centerShowsCardBack ? (
                       <div className={spellUsageMuhyohwaCounterResolve ? "pp-muhyohwa-counter-vanish h-full w-full" : "h-full w-full"}>
                         <HiddenSpellCardBackFace />
                       </div>
@@ -19796,7 +19855,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
-                    {simpanCenterDisplay.card.image_url ? (
+                    {simpanCenterDisplay.kind === "peek" && isMultiplayOpponent(simpanCenterDisplay.player) ? (
+                      <MultiplayCardBackFace />
+                    ) : simpanCenterDisplay.card.image_url ? (
                       <GuardedImg
                         src={simpanCenterDisplay.card.image_url}
                         alt={simpanCenterDisplay.card.name}
@@ -20190,6 +20251,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 const witchTarotDiscardHandB = witchTarotDiscardPlayer === "B" && !!card;
                 const canPointerDragB =
                   !!card &&
+                  canMultiplayHandDragPlayer("B") &&
                   !pendingSkill &&
                   !simpanPickHandB &&
                   !simpanPeekBlockDragB &&
@@ -20223,7 +20285,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "B");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB || isDanhaStealFlySourceB ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${canPointerDragB ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB || isDanhaStealFlySourceB ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("B") ? "pointer-events-none" : ""} ${canPointerDragB ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragB ? (e) => beginHandDrag(e, i, "B", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -20246,7 +20308,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("B")}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{card.name}</span>}
+                         {isMultiplayOpponent("B") ? (
+                           <MultiplayCardBackFace />
+                         ) : card.image_url ? (
+                           <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("B")}`} />
+                         ) : (
+                           <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-rose-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{card.name}</span>
+                         )}
                          
                         <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandB ? "hidden" : ""}`}>
                           <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-rose-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">
@@ -20393,6 +20461,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 const witchTarotDiscardHandA = witchTarotDiscardPlayer === "A" && !!card;
                 const canPointerDragA =
                   !!card &&
+                  canMultiplayHandDragPlayer("A") &&
                   !pendingSkill &&
                   !simpanPickHandA &&
                   !simpanPeekBlockDragA &&
@@ -20426,7 +20495,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "A");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA || isDanhaStealFlySourceA ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${canPointerDragA ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA || isDanhaStealFlySourceA ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("A") ? "pointer-events-none" : ""} ${canPointerDragA ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragA ? (e) => beginHandDrag(e, i, "A", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -20449,7 +20518,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                      {card ? (
                        <div className={handCardFaceClipClass}>
-                         {card.image_url ? <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("A")}`} /> : <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{card.name}</span>}
+                         {isMultiplayOpponent("A") ? (
+                           <MultiplayCardBackFace />
+                         ) : card.image_url ? (
+                           <GuardedImg src={card.image_url} alt={card.name} className={`w-full h-full object-cover group-hover:opacity-100 transition-all duration-300 animate-[fadeIn_0.3s_ease-out] ${opponentCardRotateClass("A")}`} />
+                         ) : (
+                           <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{card.name}</span>
+                         )}
                          
                          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10 backdrop-blur-[2px] ${pendingSkill || simpanPickHandA ? "hidden" : ""}`}>
                            <button onClick={(e) => { e.stopPropagation(); openHandCardCodexDetail(card); }} className="px-3 py-1.5 bg-slate-900/90 hover:bg-sky-600 text-white text-[10px] lg:text-xs font-bold rounded-lg border border-white/20 shadow-lg transition-colors">

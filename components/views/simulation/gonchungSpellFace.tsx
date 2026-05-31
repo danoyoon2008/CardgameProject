@@ -14,6 +14,16 @@ export function HiddenSpellCardBackFace({ className }: { className?: string }) {
   );
 }
 
+/** 멀티플레이 — 상대 손패·스펠·드로우 프리뷰용 카드 뒷면 */
+export function MultiplayCardBackFace({ className }: { className?: string }) {
+  return (
+    <div
+      className={`h-full w-full bg-white ${className ?? ""}`}
+      aria-hidden
+    />
+  );
+}
+
 type GonchungSpellFaceProps = {
   player: "A" | "B";
   spell: FieldCard;

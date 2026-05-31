@@ -300,6 +300,7 @@ export default function Home() {
                 onBackToLobby={handleBackFromMultiplay}
                 isDarkMode={game.isDarkMode}
                 cards={game.cards}
+                onOpenDetail={game.handleOpenCardDetail}
               />
             ) : null
           ) : (
