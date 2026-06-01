@@ -356,6 +356,7 @@ function MultiplayGameSession({
 
   const handleRematchAccept = useCallback(() => {
     setMyRematchRequested(true);
+    setOpponentRematchRequested(true);
     setRematchStatus("none");
     void channelRef.current?.send({
       type: "broadcast",
