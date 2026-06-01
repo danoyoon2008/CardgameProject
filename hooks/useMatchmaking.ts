@@ -336,9 +336,13 @@ export function useMatchmaking() {
     // 5. player_b 역할로 방 생성 이벤트 구독 (항상 먼저)
     subscribeAsPlayerB(user.id);
 
+    // player_b 구독 채널이 서버에 연결될 시간을 확보 (INSERT 이벤트 누락 방지)
+    await new Promise<void>((resolve) => setTimeout(resolve, 800));
+
     // 6. 이미 대기 중인 상대가 있으면 player_a로서 방 생성
     const opponent = await findOpponent(user.id);
     if (opponent) {
+      if (matchedRef.current) return;
       await makeRoom(user.id, opponent);
       return;
     }
