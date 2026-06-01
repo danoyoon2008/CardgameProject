@@ -227,8 +227,6 @@ function MultiplayGameSession({
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const connectionChannelRef = useRef<RealtimeChannel | null>(null);
-  const presenceChannelRef = useRef<RealtimeChannel | null>(null);
-  const presenceTrackedRef = useRef(false);
   const isSyncing = useRef(false);
   const stateRef = useRef<SimulationState | null>(null);
   const forfeitHandledRef = useRef(false);
@@ -577,71 +575,6 @@ function MultiplayGameSession({
       connectionChannelRef.current = null;
     };
   }, [roomId, myRole, applyConnectionRow]);
-
-  useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) return;
-
-    let cancelled = false;
-
-    type PresenceMeta = { role: PlayerRole };
-
-    const evaluatePresence = (channel: RealtimeChannel) => {
-      if (!presenceTrackedRef.current || cancelled) return;
-
-      const presenceState = channel.presenceState<PresenceMeta>();
-      let hasPlayerA = false;
-      let hasPlayerB = false;
-
-      for (const presences of Object.values(presenceState)) {
-        for (const entry of presences) {
-          if (entry.role === "player_a") hasPlayerA = true;
-          if (entry.role === "player_b") hasPlayerB = true;
-        }
-      }
-
-      const opponentPresent = myRole === "player_a" ? hasPlayerB : hasPlayerA;
-      if (!opponentPresent && (hasPlayerA || hasPlayerB)) {
-        setOpponentDisconnected(true);
-      }
-
-      if (!hasPlayerA && !hasPlayerB) {
-        void finishRoomBothDisconnected();
-      }
-    };
-
-    void supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (cancelled || !user) return;
-
-      const presenceChannel = supabase.channel(`game-room-presence-${roomId}`, {
-        config: { presence: { key: user.id } },
-      });
-
-      presenceChannel
-        .on("presence", { event: "sync" }, () => evaluatePresence(presenceChannel))
-        .on("presence", { event: "join" }, () => evaluatePresence(presenceChannel))
-        .on("presence", { event: "leave" }, () => evaluatePresence(presenceChannel))
-        .subscribe(async (status) => {
-          if (status !== "SUBSCRIBED" || cancelled) return;
-          await presenceChannel.track({ role: myRole });
-          presenceTrackedRef.current = true;
-          evaluatePresence(presenceChannel);
-        });
-
-      presenceChannelRef.current = presenceChannel;
-    });
-
-    return () => {
-      cancelled = true;
-      presenceTrackedRef.current = false;
-      const channel = presenceChannelRef.current;
-      presenceChannelRef.current = null;
-      if (channel) {
-        void channel.untrack();
-        void supabase.removeChannel(channel);
-      }
-    };
-  }, [roomId, myRole, finishRoomBothDisconnected]);
 
   useEffect(() => {
     if (!opponentDisconnected) {
