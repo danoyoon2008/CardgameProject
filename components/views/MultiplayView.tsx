@@ -19,7 +19,7 @@ import {
   type GameRoomConnectionRow,
   parseOpponentLastSeenMs,
   isOpponentHeartbeatStale,
-  sendDisconnectedKeepalive,
+  sendDisconnectedOnBeforeUnload,
 } from "@/utils/multiplayConnection";
 
 const DISCONNECT_FORFEIT_SECONDS = 60;
@@ -256,15 +256,24 @@ function MultiplayGameSession({
       if (isSyncing.current || gameFinishedRef.current) return;
 
       const channel = channelRef.current;
-      if (!channel) return;
+      if (channel) {
+        void channel.send({
+          type: "broadcast",
+          event: "game_state_update",
+          payload: { game_state: newState },
+        });
+      }
 
-      void channel.send({
-        type: "broadcast",
-        event: "game_state_update",
-        payload: { game_state: newState },
-      });
+      const supabase = createClient();
+      if (supabase) {
+        void supabase
+          .from("game_rooms")
+          .update({ game_state: newState, updated_at: new Date().toISOString() })
+          .eq("id", roomId)
+          .eq("status", "playing");
+      }
     },
-    [],
+    [roomId],
   );
 
   const scheduleSyncAfterAction = useCallback(() => {
@@ -442,23 +451,38 @@ function MultiplayGameSession({
 
   const applyConnectionRow = useCallback(
     (row: GameRoomConnectionRow) => {
+      if (row.status === "finished") {
+        if (!gameFinishedRef.current) {
+          gameFinishedRef.current = true;
+          onBackToLobby();
+        }
+        return;
+      }
+
       evaluateOpponentConnection(row);
 
-      if (row.player_a_connected === false && row.player_b_connected === false && !roomDeletedRef.current) {
+      if (
+        row.player_a_connected === false &&
+        row.player_b_connected === false &&
+        !roomDeletedRef.current &&
+        !gameFinishedRef.current
+      ) {
         roomDeletedRef.current = true;
         const supabase = createClient();
         if (supabase) {
           void supabase
             .from("game_rooms")
-            .delete()
+            .update({ status: "finished", updated_at: new Date().toISOString() })
             .eq("id", roomId)
+            .eq("player_a_connected", false)
+            .eq("player_b_connected", false)
             .then(({ error }) => {
               if (error) roomDeletedRef.current = false;
             });
         }
       }
     },
-    [roomId, evaluateOpponentConnection],
+    [roomId, evaluateOpponentConnection, onBackToLobby],
   );
 
   useEffect(() => {
@@ -516,7 +540,7 @@ function MultiplayGameSession({
     const handleBeforeUnload = () => {
       const token = accessTokenRef.current;
       if (token) {
-        sendDisconnectedKeepalive(roomId, myRole, token);
+        sendDisconnectedOnBeforeUnload(roomId, myRole, token);
       } else {
         void markConnected(false);
       }
@@ -618,6 +642,7 @@ function MultiplayGameSession({
             isDarkMode={isDarkMode}
             cards={catalogForView}
             onOpenDetail={onOpenDetail}
+            onBackToLobby={onBackToLobby}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}
             multiplayOpponentDisconnected={opponentDisconnected && !sessionWinner}

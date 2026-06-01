@@ -17150,16 +17150,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       <div className={`flex flex-col items-center justify-center h-screen w-full gap-5 ${theme.bg}`}>
         <div className="text-xl font-bold text-slate-400 animate-pulse">전장 로딩 중...</div>
         <div className="text-sm font-bold text-slate-500">불러온 카드: <span className={cards?.length === 0 ? "text-rose-500" : "text-sky-500"}>{cards?.length || 0}장</span></div>
-        <button 
-          onClick={() => {
-            localStorage.removeItem("pp_sim_save");
-            if (cards?.length > 0) runInitialization(cards);
-          }}
-          disabled={!cards || cards.length === 0}
-          className="mt-4 px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-black text-sm shadow-[0_0_15px_rgba(14,165,233,0.4)] disabled:opacity-30 disabled:grayscale transition-all active:scale-95"
-        >
-          강제 초기화 및 시작
-        </button>
+        {!multiplayMyRole ? (
+          <button
+            onClick={() => {
+              localStorage.removeItem("pp_sim_save");
+              if (cards?.length > 0) runInitialization(cards);
+            }}
+            disabled={!cards || cards.length === 0}
+            className="mt-4 px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-black text-sm shadow-[0_0_15px_rgba(14,165,233,0.4)] disabled:opacity-30 disabled:grayscale transition-all active:scale-95"
+          >
+            강제 초기화 및 시작
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -18986,48 +18988,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <IconHome className="w-5 h-5 shrink-0" />
               로비로 돌아가기
             </button>
-            <button
-              type="button"
-              style={{
-                height: 52,
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                paddingLeft: 20,
-                gap: 8,
-                fontSize: 15,
-                fontWeight: "bold",
-                color: "white",
-                background: "transparent",
-                borderTopWidth: 0,
-                borderLeftWidth: 0,
-                borderRightWidth: 0,
-                borderBottomWidth: "1px",
-                borderBottomStyle: "solid",
-                borderBottomColor: "rgba(255,255,255,0.08)",
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-              onClick={() => {
-                setIsDrawerOpen(false);
-                handleReset();
-              }}
-            >
-              <svg
-                className="w-5 h-5 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+            {!multiplayMyRole ? (
+              <button
+                type="button"
+                style={{
+                  height: 52,
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  paddingLeft: 20,
+                  gap: 8,
+                  fontSize: 15,
+                  fontWeight: "bold",
+                  color: "white",
+                  background: "transparent",
+                  borderTopWidth: 0,
+                  borderLeftWidth: 0,
+                  borderRightWidth: 0,
+                  borderBottomWidth: "1px",
+                  borderBottomStyle: "solid",
+                  borderBottomColor: "rgba(255,255,255,0.08)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  handleReset();
+                }}
               >
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-              게임 초기화
-            </button>
+                <svg
+                  className="w-5 h-5 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+                게임 초기화
+              </button>
+            ) : null}
             <button
               type="button"
               style={{
@@ -19819,7 +19823,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {isMenuOpen && (
               <div className={`absolute top-14 left-4 w-44 flex flex-col rounded-xl border-2 ${theme.panel} overflow-hidden shadow-2xl bg-[#0a1628]`}>
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-sky-500/20 text-sky-400 transition-colors" onClick={() => { setIsMenuOpen(false); if(onBackToLobby) onBackToLobby(); else window.location.href = '/'; }}>로비로 돌아가기</button>
-                <button className="px-4 py-3 text-left text-xs font-bold hover:bg-rose-500/20 text-rose-400 transition-colors" onClick={handleReset}>게임 초기화</button>
+                {!multiplayMyRole ? (
+                  <button className="px-4 py-3 text-left text-xs font-bold hover:bg-rose-500/20 text-rose-400 transition-colors" onClick={handleReset}>게임 초기화</button>
+                ) : null}
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-amber-500/20 text-amber-400 transition-colors border-t border-slate-700" onClick={() => { setIsMenuOpen(false); setIsSettingsOpen(true); }}>게임 설정</button>
                 <button
                   type="button"

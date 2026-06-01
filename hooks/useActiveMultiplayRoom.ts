@@ -28,6 +28,7 @@ export function useActiveMultiplayRoom(userId: string | undefined | null, enable
       .from("game_rooms")
       .select("id, player_a_id, player_b_id, status")
       .eq("status", "playing")
+      .neq("status", "finished")
       .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
       .order("updated_at", { ascending: false })
       .limit(1)

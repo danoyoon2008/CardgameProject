@@ -45,34 +45,47 @@ export function isOpponentHeartbeatStale(lastSeenMs: number | null, nowMs = Date
   return nowMs - lastSeenMs > MULTIPLAY_OPPONENT_STALE_MS;
 }
 
-/** beforeunload / pagehide — fetch keepalive로 connected false 전송 */
-export function sendDisconnectedKeepalive(
+const MULTIPLAY_GAME_ROOMS_REST_URL =
+  "https://izftpyerzpetbhycpszv.supabase.co/rest/v1/game_rooms";
+
+function resolveGameRoomsRestUrl(roomId: string): string {
+  return `${MULTIPLAY_GAME_ROOMS_REST_URL}?id=eq.${encodeURIComponent(roomId)}`;
+}
+
+/** beforeunload — REST PATCH (sendBeacon는 PATCH·Authorization 미지원, keepalive fetch 사용) */
+export function sendDisconnectedOnBeforeUnload(
   roomId: string,
   myRole: PlayerRole,
   accessToken: string,
 ): void {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  if (!supabaseUrl || !supabaseAnonKey) return;
+  if (!supabaseAnonKey) return;
 
   const field = MY_CONNECTED_FIELD[myRole];
-  const lastSeenField = MY_LAST_SEEN_FIELD[myRole];
   const now = new Date().toISOString();
-  const url = `${supabaseUrl}/rest/v1/game_rooms?id=eq.${roomId}`;
+  const url = resolveGameRoomsRestUrl(roomId);
+  const body = JSON.stringify({
+    [field]: false,
+    updated_at: now,
+  });
+  const headers = {
+    apikey: supabaseAnonKey,
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    Prefer: "return=minimal",
+  };
+
+  const blob = new Blob([body], { type: "application/json" });
+  try {
+    navigator.sendBeacon(url, blob);
+  } catch {
+    /* sendBeacon는 커스텀 헤더·PATCH를 보장하지 않음 */
+  }
 
   void fetch(url, {
     method: "PATCH",
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({
-      [field]: false,
-      [lastSeenField]: now,
-      updated_at: now,
-    }),
+    headers,
+    body,
     keepalive: true,
   });
 }

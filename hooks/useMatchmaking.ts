@@ -29,7 +29,8 @@ async function fetchPlayingUserIds(): Promise<Set<string>> {
   const { data, error } = await supabase
     .from("game_rooms")
     .select("player_a_id, player_b_id")
-    .eq("status", "playing");
+    .eq("status", "playing")
+    .neq("status", "finished");
 
   if (error) {
     console.warn("[matchmaking] playing 방 조회 실패:", error.message);
@@ -45,8 +46,23 @@ async function fetchPlayingUserIds(): Promise<Set<string>> {
 }
 
 async function isUserInPlayingGame(userId: string): Promise<boolean> {
-  const playingIds = await fetchPlayingUserIds();
-  return playingIds.has(userId);
+  const supabase = createClient();
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from("game_rooms")
+    .select("id")
+    .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
+    .eq("status", "playing")
+    .neq("status", "finished")
+    .limit(1);
+
+  if (error) {
+    console.warn("[matchmaking] 참여 중 방 조회 실패:", error.message);
+    return false;
+  }
+
+  return (data?.length ?? 0) > 0;
 }
 
 export function useMatchmaking() {
