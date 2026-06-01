@@ -328,9 +328,48 @@ export function useMatchmaking() {
       return;
     }
 
-    if (await isUserInPlayingGame(user.id)) {
-      console.warn("[matchmaking] 이미 진행 중인 게임이 있어 매칭을 시작할 수 없습니다.");
+    const { data: existingPlayingRooms, error: existingPlayingRoomsError } = await supabase
+      .from("game_rooms")
+      .select("id")
+      .eq("status", "playing")
+      .or(`player_a_id.eq.${user.id},player_b_id.eq.${user.id}`)
+      .limit(1);
+
+    if (existingPlayingRoomsError) {
+      console.error("[matchmaking] 기존 playing 방 조회 실패:", existingPlayingRoomsError.message);
       setMatchStatus("error");
+      return;
+    }
+
+    const existingRoomId = existingPlayingRooms?.[0]?.id ?? null;
+    if (existingRoomId) {
+      const { data: existingRoom, error: existingRoomError } = await supabase
+        .from("game_rooms")
+        .select("player_a_id, player_b_id")
+        .eq("id", existingRoomId)
+        .maybeSingle();
+
+      if (existingRoomError || !existingRoom) {
+        console.error("[matchmaking] 기존 playing 방 정보 조회 실패:", existingRoomError?.message);
+        setMatchStatus("error");
+        return;
+      }
+
+      const reconnectRole: PlayerRole = existingRoom.player_a_id === user.id ? "player_a" : "player_b";
+      const opponentId =
+        reconnectRole === "player_a" ? existingRoom.player_b_id : existingRoom.player_a_id;
+
+      if (!opponentId) {
+        console.error("[matchmaking] 재접속 상대 정보가 없습니다.");
+        setMatchStatus("error");
+        return;
+      }
+
+      await completeMatch({
+        roomId: existingRoomId,
+        role: reconnectRole,
+        opponentId,
+      });
       return;
     }
 

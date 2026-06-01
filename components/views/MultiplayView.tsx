@@ -471,8 +471,15 @@ function MultiplayGameSession({
     (row: GameRoomConnectionRow) => {
       if (row.status === "finished") {
         if (!gameFinishedRef.current) {
-          gameFinishedRef.current = true;
-          onBackToLobby();
+          const winnerRole = (row as { winner?: PlayerRole | null }).winner ?? null;
+          if (winnerRole === "player_a" || winnerRole === "player_b") {
+            gameFinishedRef.current = true;
+            const winnerTeam: "A" | "B" = winnerRole === "player_a" ? "A" : "B";
+            setSessionWinner(winnerTeam);
+          } else {
+            gameFinishedRef.current = true;
+            onBackToLobby();
+          }
         }
         return;
       }
