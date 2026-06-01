@@ -828,6 +828,14 @@ export default function MultiplayView({
             return;
           }
         }
+        const supabaseClient = createClient();
+        if (supabaseClient) {
+          await supabaseClient
+            .from("game_rooms")
+            .update({ status: "finished", updated_at: new Date().toISOString() })
+            .eq("id", roomId);
+        }
+        if (!cancelled) onBackToLobby();
         return;
       }
 
@@ -865,6 +873,8 @@ export default function MultiplayView({
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
+      if (!cancelled) onBackToLobby();
+      return;
     }
 
     void bootstrapRoom();

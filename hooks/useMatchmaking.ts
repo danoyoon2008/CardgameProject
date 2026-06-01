@@ -29,8 +29,7 @@ async function fetchPlayingUserIds(): Promise<Set<string>> {
   const { data, error } = await supabase
     .from("game_rooms")
     .select("player_a_id, player_b_id")
-    .eq("status", "playing")
-    .neq("status", "finished");
+    .eq("status", "playing");
 
   if (error) {
     console.warn("[matchmaking] playing 방 조회 실패:", error.message);
@@ -54,7 +53,6 @@ async function isUserInPlayingGame(userId: string): Promise<boolean> {
     .select("id")
     .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
     .eq("status", "playing")
-    .neq("status", "finished")
     .limit(1);
 
   if (error) {
@@ -215,6 +213,11 @@ export function useMatchmaking() {
           return;
         }
 
+        await supabase
+          .from("game_rooms")
+          .update({ status: "playing", updated_at: new Date().toISOString() })
+          .eq("id", room.id);
+
         await finalizeMatch(myUserId, room.id, "player_a", opponent.user_id);
       } catch (error) {
         console.error("[matchmaking] 매칭 시도 중 오류:", error);
@@ -327,6 +330,12 @@ export function useMatchmaking() {
       setMatchStatus("error");
       return;
     }
+
+    await supabase
+      .from("game_rooms")
+      .update({ status: "finished", updated_at: new Date().toISOString() })
+      .or(`player_a_id.eq.${user.id},player_b_id.eq.${user.id}`)
+      .eq("status", "waiting");
 
     const { data: existingPlayingRooms, error: existingPlayingRoomsError } = await supabase
       .from("game_rooms")
