@@ -15,54 +15,55 @@ type MatchmakingQueueRow = {
   created_at: string;
 };
 
-type GameRoomRow = {
-  id: string;
-  player_a_id: string;
-  player_b_id: string;
-  status?: string;
-};
-
-async function fetchPlayingUserIds(): Promise<Set<string>> {
+// -------------------------------------------------------
+// 상대 닉네임 조회
+// -------------------------------------------------------
+async function fetchNickname(opponentId: string): Promise<string | null> {
   const supabase = createClient();
-  if (!supabase) return new Set();
-
-  const { data, error } = await supabase
-    .from("game_rooms")
-    .select("player_a_id, player_b_id")
-    .eq("status", "playing");
-
-  if (error) {
-    console.warn("[matchmaking] playing 방 조회 실패:", error.message);
-    return new Set();
-  }
-
-  const ids = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.player_a_id) ids.add(row.player_a_id);
-    if (row.player_b_id) ids.add(row.player_b_id);
-  }
-  return ids;
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("nickname")
+    .eq("id", opponentId)
+    .maybeSingle();
+  return typeof data?.nickname === "string" ? data.nickname : null;
 }
 
-async function isUserInPlayingGame(userId: string): Promise<boolean> {
+// -------------------------------------------------------
+// 현재 유저가 포함된 playing 방 조회 (재접속 판정용)
+// -------------------------------------------------------
+async function findMyPlayingRoom(
+  userId: string
+): Promise<{ id: string; player_a_id: string; player_b_id: string } | null> {
   const supabase = createClient();
-  if (!supabase) return false;
-
-  const { data, error } = await supabase
+  if (!supabase) return null;
+  const { data } = await supabase
     .from("game_rooms")
-    .select("id")
+    .select("id, player_a_id, player_b_id")
     .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
     .eq("status", "playing")
-    .limit(1);
-
-  if (error) {
-    console.warn("[matchmaking] 참여 중 방 조회 실패:", error.message);
-    return false;
-  }
-
-  return (data?.length ?? 0) > 0;
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
 }
 
+// -------------------------------------------------------
+// 매칭 시작 전 비정상 방 일괄 정리
+// -------------------------------------------------------
+async function cleanupStaleRooms(userId: string): Promise<void> {
+  const supabase = createClient();
+  if (!supabase) return;
+  await supabase
+    .from("game_rooms")
+    .update({ status: "finished", updated_at: new Date().toISOString() })
+    .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
+    .in("status", ["waiting"]);
+}
+
+// -------------------------------------------------------
+// Hook
+// -------------------------------------------------------
 export function useMatchmaking() {
   const [matchStatus, setMatchStatus] = useState<MatchStatus>("idle");
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -70,137 +71,84 @@ export function useMatchmaking() {
   const [opponentNickname, setOpponentNickname] = useState<string | null>(null);
 
   const queueChannelRef = useRef<RealtimeChannel | null>(null);
-  const roomsChannelRef = useRef<RealtimeChannel | null>(null);
-  const matchingRef = useRef(false);
+  const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const matchedRef = useRef(false);
+  const makingRoomRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
 
-  const unsubscribeChannels = useCallback(() => {
+  // -------------------------------------------------------
+  // 채널 구독 해제
+  // -------------------------------------------------------
+  const unsubscribeAll = useCallback(() => {
     const supabase = createClient();
     if (!supabase) return;
-
     if (queueChannelRef.current) {
       void supabase.removeChannel(queueChannelRef.current);
       queueChannelRef.current = null;
     }
-    if (roomsChannelRef.current) {
-      void supabase.removeChannel(roomsChannelRef.current);
-      roomsChannelRef.current = null;
+    if (roomChannelRef.current) {
+      void supabase.removeChannel(roomChannelRef.current);
+      roomChannelRef.current = null;
     }
   }, []);
 
-  const fetchOpponentNickname = useCallback(async (opponentId: string) => {
-    const supabase = createClient();
-    if (!supabase) return null;
-
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("nickname")
-      .eq("id", opponentId)
-      .maybeSingle();
-
-    if (error) {
-      console.warn("[matchmaking] 상대 닉네임 조회 실패:", error.message);
-      return null;
-    }
-
-    return typeof data?.nickname === "string" ? data.nickname : null;
-  }, []);
-
-  const completeMatch = useCallback(
+  // -------------------------------------------------------
+  // 매칭 완료 처리 (양쪽 공통)
+  // -------------------------------------------------------
+  const finishMatch = useCallback(
     async (params: { roomId: string; role: PlayerRole; opponentId: string }) => {
       if (matchedRef.current) return;
-
       matchedRef.current = true;
-      matchingRef.current = false;
-      unsubscribeChannels();
+      makingRoomRef.current = false;
+      unsubscribeAll();
 
       setRoomId(params.roomId);
       setMyRole(params.role);
       setMatchStatus("matched");
 
-      const nickname = await fetchOpponentNickname(params.opponentId);
+      const nickname = await fetchNickname(params.opponentId);
       setOpponentNickname(nickname);
     },
-    [fetchOpponentNickname, unsubscribeChannels],
+    [unsubscribeAll]
   );
 
-  const finalizeMatch = useCallback(
-    async (myUserId: string, matchedRoomId: string, role: PlayerRole, opponentId: string) => {
-      const supabase = createClient();
-      if (!supabase) {
-        setMatchStatus("error");
-        return;
-      }
-
-      const { error: ownUpdateError } = await supabase
-        .from("matchmaking_queue")
-        .update({ status: "matched", room_id: matchedRoomId })
-        .eq("user_id", myUserId);
-
-      if (ownUpdateError) {
-        console.error("[matchmaking] 내 큐 업데이트 실패:", ownUpdateError.message);
-        setMatchStatus("error");
-        matchingRef.current = false;
-        return;
-      }
-
-      await supabase
-        .from("matchmaking_queue")
-        .update({ status: "matched", room_id: matchedRoomId })
-        .eq("user_id", opponentId);
-
-      await completeMatch({ roomId: matchedRoomId, role, opponentId });
-    },
-    [completeMatch],
-  );
-
-  const attemptMatch = useCallback(
+  // -------------------------------------------------------
+  // player_a: 방 생성 + 큐 상태 업데이트
+  // -------------------------------------------------------
+  const makeRoom = useCallback(
     async (myUserId: string, opponent: MatchmakingQueueRow) => {
-      if (matchedRef.current || matchingRef.current) return;
+      // 이미 방을 만들고 있거나 매칭 완료된 경우 중단
+      if (makingRoomRef.current || matchedRef.current) return;
+      makingRoomRef.current = true;
 
       const supabase = createClient();
       if (!supabase) {
+        makingRoomRef.current = false;
         setMatchStatus("error");
         return;
       }
-
-      matchingRef.current = true;
 
       try {
-        if (await isUserInPlayingGame(myUserId)) {
-          matchingRef.current = false;
-          return;
-        }
-
-        const { data: freshOpponent, error: opponentError } = await supabase
+        // 상대가 아직 waiting 상태인지 재확인
+        const { data: freshOpponent } = await supabase
           .from("matchmaking_queue")
-          .select("id, user_id, status, room_id, created_at")
+          .select("status")
           .eq("user_id", opponent.user_id)
           .maybeSingle();
 
-        if (opponentError) {
-          console.error("[matchmaking] 상대 큐 확인 실패:", opponentError.message);
-          matchingRef.current = false;
+        if (freshOpponent?.status !== "waiting") {
+          makingRoomRef.current = false;
           return;
         }
 
-        if (!freshOpponent || freshOpponent.status !== "waiting") {
-          matchingRef.current = false;
-          return;
-        }
-
-        if (await isUserInPlayingGame(opponent.user_id)) {
-          matchingRef.current = false;
-          return;
-        }
-
+        // 방 INSERT (status: playing으로 바로 생성)
+        // DB 유니크 인덱스가 중복 방 생성을 막아줌
         const { data: room, error: roomError } = await supabase
           .from("game_rooms")
           .insert({
             player_a_id: myUserId,
             player_b_id: opponent.user_id,
-            status: "waiting",
+            status: "playing",
             player_a_connected: true,
             player_b_connected: true,
           })
@@ -209,30 +157,32 @@ export function useMatchmaking() {
 
         if (roomError || !room) {
           console.error("[matchmaking] 방 생성 실패:", roomError?.message);
-          matchingRef.current = false;
+          makingRoomRef.current = false;
           return;
         }
 
+        // 두 유저의 큐 상태를 matched로 업데이트
         await supabase
-          .from("game_rooms")
-          .update({ status: "playing", updated_at: new Date().toISOString() })
-          .eq("id", room.id);
+          .from("matchmaking_queue")
+          .update({ status: "matched", room_id: room.id })
+          .in("user_id", [myUserId, opponent.user_id]);
 
-        await finalizeMatch(myUserId, room.id, "player_a", opponent.user_id);
-      } catch (error) {
-        console.error("[matchmaking] 매칭 시도 중 오류:", error);
+        await finishMatch({ roomId: room.id, role: "player_a", opponentId: opponent.user_id });
+      } catch (err) {
+        console.error("[matchmaking] makeRoom 오류:", err);
+        makingRoomRef.current = false;
         setMatchStatus("error");
-        matchingRef.current = false;
       }
     },
-    [finalizeMatch],
+    [finishMatch]
   );
 
-  const findWaitingOpponent = useCallback(async (myUserId: string) => {
+  // -------------------------------------------------------
+  // player_a: 대기 중인 상대 검색
+  // -------------------------------------------------------
+  const findOpponent = useCallback(async (myUserId: string): Promise<MatchmakingQueueRow | null> => {
     const supabase = createClient();
     if (!supabase) return null;
-
-    const playingIds = await fetchPlayingUserIds();
 
     const { data, error } = await supabase
       .from("matchmaking_queue")
@@ -240,56 +190,68 @@ export function useMatchmaking() {
       .eq("status", "waiting")
       .neq("user_id", myUserId)
       .order("created_at", { ascending: true })
-      .limit(20);
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
-      console.error("[matchmaking] 대기 상대 조회 실패:", error.message);
+      console.error("[matchmaking] 상대 검색 실패:", error.message);
       return null;
     }
-
-    return (data ?? []).find((row) => !playingIds.has(row.user_id)) ?? null;
+    return data ?? null;
   }, []);
 
-  const subscribeToQueueInserts = useCallback(
+  // -------------------------------------------------------
+  // player_a 역할: 큐 INSERT 이벤트 구독
+  // 새 유저가 들어오면 방 생성 시도
+  // -------------------------------------------------------
+  const subscribeAsPlayerA = useCallback(
     (myUserId: string) => {
       const supabase = createClient();
       if (!supabase) return;
 
       const channel = supabase
-        .channel(`matchmaking-queue-${myUserId}`)
+        .channel(`matchmaking-queue-watch-${myUserId}`)
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "matchmaking_queue" },
           (payload) => {
+            if (matchedRef.current || makingRoomRef.current) return;
             const row = payload.new as MatchmakingQueueRow;
             if (row.user_id === myUserId || row.status !== "waiting") return;
-            void attemptMatch(myUserId, row);
-          },
+            void makeRoom(myUserId, row);
+          }
         )
         .subscribe();
 
       queueChannelRef.current = channel;
     },
-    [attemptMatch],
+    [makeRoom]
   );
 
-  const subscribeToRoomInserts = useCallback(
+  // -------------------------------------------------------
+  // player_b 역할: game_rooms INSERT 이벤트 구독
+  // 자신이 포함된 방이 생성되면 매칭 완료 처리
+  // -------------------------------------------------------
+  const subscribeAsPlayerB = useCallback(
     (myUserId: string) => {
       const supabase = createClient();
       if (!supabase) return;
 
       const channel = supabase
-        .channel(`matchmaking-rooms-${myUserId}`)
+        .channel(`matchmaking-room-watch-${myUserId}`)
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "game_rooms" },
           async (payload) => {
             if (matchedRef.current) return;
-
-            const room = payload.new as GameRoomRow;
+            const room = payload.new as {
+              id: string;
+              player_a_id: string;
+              player_b_id: string;
+              status?: string;
+            };
             if (room.player_b_id !== myUserId) return;
             if (room.status === "finished") return;
-            if (await isUserInPlayingGame(myUserId)) return;
 
             const supabaseClient = createClient();
             if (!supabaseClient) return;
@@ -299,20 +261,23 @@ export function useMatchmaking() {
               .update({ status: "matched", room_id: room.id })
               .eq("user_id", myUserId);
 
-            await completeMatch({
+            await finishMatch({
               roomId: room.id,
               role: "player_b",
               opponentId: room.player_a_id,
             });
-          },
+          }
         )
         .subscribe();
 
-      roomsChannelRef.current = channel;
+      roomChannelRef.current = channel;
     },
-    [completeMatch],
+    [finishMatch]
   );
 
+  // -------------------------------------------------------
+  // 매칭 시작 (외부에서 호출)
+  // -------------------------------------------------------
   const startMatchmaking = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) {
@@ -326,65 +291,28 @@ export function useMatchmaking() {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      console.error("[matchmaking] 로그인 필요:", authError?.message);
       setMatchStatus("error");
       return;
     }
 
-    await supabase
-      .from("game_rooms")
-      .update({ status: "finished", updated_at: new Date().toISOString() })
-      .or(`player_a_id.eq.${user.id},player_b_id.eq.${user.id}`)
-      .eq("status", "waiting");
+    // 1. 비정상 방(waiting 상태로 남은 것) 먼저 정리
+    await cleanupStaleRooms(user.id);
 
-    const { data: existingPlayingRooms, error: existingPlayingRoomsError } = await supabase
-      .from("game_rooms")
-      .select("id")
-      .eq("status", "playing")
-      .or(`player_a_id.eq.${user.id},player_b_id.eq.${user.id}`)
-      .limit(1);
-
-    if (existingPlayingRoomsError) {
-      console.error("[matchmaking] 기존 playing 방 조회 실패:", existingPlayingRoomsError.message);
-      setMatchStatus("error");
-      return;
-    }
-
-    const existingRoomId = existingPlayingRooms?.[0]?.id ?? null;
-    if (existingRoomId) {
-      const { data: existingRoom, error: existingRoomError } = await supabase
-        .from("game_rooms")
-        .select("player_a_id, player_b_id")
-        .eq("id", existingRoomId)
-        .maybeSingle();
-
-      if (existingRoomError || !existingRoom) {
-        console.error("[matchmaking] 기존 playing 방 정보 조회 실패:", existingRoomError?.message);
-        setMatchStatus("error");
+    // 2. 현재 playing 중인 방 확인 → 있으면 재접속
+    const playingRoom = await findMyPlayingRoom(user.id);
+    if (playingRoom) {
+      const role: PlayerRole = playingRoom.player_a_id === user.id ? "player_a" : "player_b";
+      const opponentId = role === "player_a" ? playingRoom.player_b_id : playingRoom.player_a_id;
+      if (opponentId) {
+        await finishMatch({ roomId: playingRoom.id, role, opponentId });
         return;
       }
-
-      const reconnectRole: PlayerRole = existingRoom.player_a_id === user.id ? "player_a" : "player_b";
-      const opponentId =
-        reconnectRole === "player_a" ? existingRoom.player_b_id : existingRoom.player_a_id;
-
-      if (!opponentId) {
-        console.error("[matchmaking] 재접속 상대 정보가 없습니다.");
-        setMatchStatus("error");
-        return;
-      }
-
-      await completeMatch({
-        roomId: existingRoomId,
-        role: reconnectRole,
-        opponentId,
-      });
-      return;
     }
 
-    unsubscribeChannels();
+    // 3. 새 매칭 시작 준비
+    unsubscribeAll();
     matchedRef.current = false;
-    matchingRef.current = false;
+    makingRoomRef.current = false;
     userIdRef.current = user.id;
 
     setMatchStatus("searching");
@@ -392,49 +320,47 @@ export function useMatchmaking() {
     setMyRole(null);
     setOpponentNickname(null);
 
-    const { error: deleteError } = await supabase
-      .from("matchmaking_queue")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("status", "waiting");
-
-    if (deleteError) {
-      console.error("[matchmaking] 기존 대기열 삭제 실패:", deleteError.message);
-      setMatchStatus("error");
-      return;
-    }
+    // 4. 기존 대기열 항목 삭제 후 새로 등록
+    await supabase.from("matchmaking_queue").delete().eq("user_id", user.id);
 
     const { error: insertError } = await supabase
       .from("matchmaking_queue")
       .insert({ user_id: user.id, status: "waiting" });
 
     if (insertError) {
-      console.error("[matchmaking] 대기열 등록 실패:", insertError.message);
+      console.error("[matchmaking] 큐 등록 실패:", insertError.message);
       setMatchStatus("error");
       return;
     }
 
-    subscribeToRoomInserts(user.id);
+    // 5. player_b 역할로 방 생성 이벤트 구독 (항상 먼저)
+    subscribeAsPlayerB(user.id);
 
-    const opponent = await findWaitingOpponent(user.id);
+    // 6. 이미 대기 중인 상대가 있으면 player_a로서 방 생성
+    const opponent = await findOpponent(user.id);
     if (opponent) {
-      await attemptMatch(user.id, opponent);
+      await makeRoom(user.id, opponent);
       return;
     }
 
-    subscribeToQueueInserts(user.id);
+    // 7. 상대가 없으면 player_a 역할로 큐 구독 (상대가 들어오길 대기)
+    subscribeAsPlayerA(user.id);
   }, [
-    attemptMatch,
-    findWaitingOpponent,
-    subscribeToQueueInserts,
-    subscribeToRoomInserts,
-    unsubscribeChannels,
+    finishMatch,
+    unsubscribeAll,
+    subscribeAsPlayerA,
+    subscribeAsPlayerB,
+    findOpponent,
+    makeRoom,
   ]);
 
+  // -------------------------------------------------------
+  // 매칭 취소
+  // -------------------------------------------------------
   const cancelMatchmaking = useCallback(async () => {
-    unsubscribeChannels();
-    matchingRef.current = false;
+    unsubscribeAll();
     matchedRef.current = false;
+    makingRoomRef.current = false;
 
     const myUserId = userIdRef.current;
     userIdRef.current = null;
@@ -442,10 +368,11 @@ export function useMatchmaking() {
     if (myUserId) {
       const supabase = createClient();
       if (supabase) {
-        const { error } = await supabase.from("matchmaking_queue").delete().eq("user_id", myUserId);
-        if (error) {
-          console.warn("[matchmaking] 큐 삭제 실패:", error.message);
-        }
+        await supabase
+          .from("matchmaking_queue")
+          .delete()
+          .eq("user_id", myUserId)
+          .eq("status", "waiting");
       }
     }
 
@@ -453,14 +380,14 @@ export function useMatchmaking() {
     setRoomId(null);
     setMyRole(null);
     setOpponentNickname(null);
-  }, [unsubscribeChannels]);
+  }, [unsubscribeAll]);
 
-  const cancelMatchmakingRef = useRef(cancelMatchmaking);
-  cancelMatchmakingRef.current = cancelMatchmaking;
-
+  // 컴포넌트 언마운트 시 자동 취소
+  const cancelRef = useRef(cancelMatchmaking);
+  cancelRef.current = cancelMatchmaking;
   useEffect(() => {
     return () => {
-      void cancelMatchmakingRef.current();
+      void cancelRef.current();
     };
   }, []);
 
