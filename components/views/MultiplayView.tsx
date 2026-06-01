@@ -295,7 +295,34 @@ function MultiplayGameSession({
     hasHydrated.current = true;
     setIsInitializing(false);
     setState(bootstrapSnapshot);
-  }, [bootstrapSnapshot, setState, setIsInitializing]);
+
+    // 재접속 상황 대비: 마운트 직후 DB에서 최신 game_state를 한 번 더 확인
+    // bootstrapSnapshot이 약간 오래된 상태일 수 있기 때문
+    const supabase = createClient();
+    if (!supabase) return;
+    void supabase
+      .from("game_rooms")
+      .select("game_state, status")
+      .eq("id", roomId)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        if (data.status === "finished") return;
+        if (
+          data.game_state &&
+          typeof data.game_state === "object" &&
+          "turnCount" in (data.game_state as object)
+        ) {
+          const dbState = data.game_state as SimulationState;
+          // DB 상태가 bootstrapSnapshot보다 턴이 더 진행됐으면 DB 상태 우선 적용
+          const currentTurn = (bootstrapSnapshot as SimulationState).turnCount ?? 0;
+          const dbTurn = dbState.turnCount ?? 0;
+          if (dbTurn > currentTurn) {
+            setState(dbState);
+          }
+        }
+      });
+  }, [bootstrapSnapshot, setState, setIsInitializing, roomId]);
 
   const markGameFinished = useCallback(
     async (winnerRole: PlayerRole, winnerTeam: "A" | "B") => {
@@ -503,8 +530,6 @@ function MultiplayGameSession({
     const supabase = createClient();
     if (!supabase) return;
 
-    let visibilityDisconnectPending = false;
-
     const markConnected = (connected: boolean) => {
       void updateMyConnectionStatus(supabase, roomId, myRole, connected);
     };
@@ -558,10 +583,8 @@ function MultiplayGameSession({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        visibilityDisconnectPending = true;
         void markConnected(false);
       } else if (document.visibilityState === "visible") {
-        visibilityDisconnectPending = false;
         void markConnected(true);
       }
     };
@@ -576,9 +599,7 @@ function MultiplayGameSession({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("pagehide", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (!visibilityDisconnectPending) {
-        void markConnected(false);
-      }
+      void markConnected(false);
       void supabase.removeChannel(connectionChannel);
       connectionChannelRef.current = null;
     };
@@ -840,6 +861,14 @@ export default function MultiplayView({
       }
 
       if (deckCards.length === 0) return;
+
+      // 재접속 시: DB에 이미 game_state가 있으면 신규 생성하지 않고 그대로 사용
+      const existingSnapshot = await loadSnapshot();
+      if (cancelled) return;
+      if (existingSnapshot) {
+        setBootstrapSnapshot(existingSnapshot);
+        return;
+      }
 
       const initialState = createInitialGameState(deckCards);
       const { data: inserted } = await client
