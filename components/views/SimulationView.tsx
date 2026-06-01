@@ -18895,7 +18895,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               boxSizing: "border-box",
               paddingLeft: 6,
               paddingRight: 8,
-              zIndex: 20,
+              zIndex: multiplayOpponentDisconnected ? 150 : 20,
             }}
           >
             <button
@@ -19816,7 +19816,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
         {/* ===================== 1. 좌측 영역 (메뉴, 덱, 리와인드) ===================== */}
         <div className={`flex flex-col justify-between items-center shrink-0 w-[120px] h-full py-2 transition-opacity ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-          <div className="relative z-50 w-full flex justify-center">
+          <div
+            className={`relative w-full flex justify-center ${multiplayOpponentDisconnected ? "z-[150]" : "z-50"}`}
+          >
             <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} disabled={isInitializing} className={`flex h-12 w-12 items-center justify-center rounded-2xl border-2 ${theme.panel} hover:bg-slate-800/50 transition-colors shadow-lg`}>
               <IconSettings className="w-6 h-6" />
             </button>

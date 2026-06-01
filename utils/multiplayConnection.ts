@@ -52,25 +52,17 @@ function resolveGameRoomsRestUrl(roomId: string): string {
   return `${MULTIPLAY_GAME_ROOMS_REST_URL}?id=eq.${encodeURIComponent(roomId)}`;
 }
 
-/** beforeunload — REST PATCH (sendBeacon는 PATCH·Authorization 미지원, keepalive fetch 사용) */
-export function sendDisconnectedOnBeforeUnload(
-  roomId: string,
-  myRole: PlayerRole,
-  accessToken: string,
-): void {
+/** beforeunload — connected false (sendBeacon + keepalive PATCH) */
+export function sendDisconnectedOnBeforeUnload(roomId: string, myRole: PlayerRole): void {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   if (!supabaseAnonKey) return;
 
   const field = MY_CONNECTED_FIELD[myRole];
-  const now = new Date().toISOString();
   const url = resolveGameRoomsRestUrl(roomId);
-  const body = JSON.stringify({
-    [field]: false,
-    updated_at: now,
-  });
+  const body = JSON.stringify({ [field]: false });
   const headers = {
     apikey: supabaseAnonKey,
-    Authorization: `Bearer ${accessToken}`,
+    Authorization: `Bearer ${supabaseAnonKey}`,
     "Content-Type": "application/json",
     Prefer: "return=minimal",
   };
@@ -79,7 +71,7 @@ export function sendDisconnectedOnBeforeUnload(
   try {
     navigator.sendBeacon(url, blob);
   } catch {
-    /* sendBeacon는 커스텀 헤더·PATCH를 보장하지 않음 */
+    /* sendBeacon는 PATCH·커스텀 헤더를 보장하지 않음 */
   }
 
   void fetch(url, {

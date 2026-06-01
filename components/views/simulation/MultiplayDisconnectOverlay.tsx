@@ -30,7 +30,7 @@ type MultiplayDisconnectOverlayProps = {
 export default function MultiplayDisconnectOverlay({ secondsLeft }: MultiplayDisconnectOverlayProps) {
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-[130] flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px]"
+      className="pointer-events-none absolute inset-0 z-[40] flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px]"
       role="status"
       aria-live="polite"
     >

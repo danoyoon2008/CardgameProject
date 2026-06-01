@@ -227,11 +227,12 @@ function MultiplayGameSession({
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const connectionChannelRef = useRef<RealtimeChannel | null>(null);
+  const presenceChannelRef = useRef<RealtimeChannel | null>(null);
+  const presenceTrackedRef = useRef(false);
   const isSyncing = useRef(false);
   const stateRef = useRef<SimulationState | null>(null);
   const forfeitHandledRef = useRef(false);
   const roomDeletedRef = useRef(false);
-  const accessTokenRef = useRef<string | null>(null);
   const opponentLastSeenMsRef = useRef<number | null>(null);
   const gameFinishedRef = useRef(false);
   const rematchBothReadyRef = useRef(false);
@@ -379,10 +380,6 @@ function MultiplayGameSession({
     const supabase = createClient();
     if (!supabase) return;
 
-    void supabase.auth.getSession().then(({ data }) => {
-      accessTokenRef.current = data.session?.access_token ?? null;
-    });
-
     const channel = supabase
       .channel(`game-room-${roomId}`)
       .on("broadcast", { event: "game_state_update" }, ({ payload }) => {
@@ -449,6 +446,29 @@ function MultiplayGameSession({
     [myRole],
   );
 
+  const finishRoomBothDisconnected = useCallback(async () => {
+    if (roomDeletedRef.current || gameFinishedRef.current) return;
+    roomDeletedRef.current = true;
+
+    const supabase = createClient();
+    if (!supabase) {
+      roomDeletedRef.current = false;
+      return;
+    }
+
+    const { error } = await supabase
+      .from("game_rooms")
+      .update({
+        status: "finished",
+        player_a_connected: false,
+        player_b_connected: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", roomId);
+
+    if (error) roomDeletedRef.current = false;
+  }, [roomId]);
+
   const applyConnectionRow = useCallback(
     (row: GameRoomConnectionRow) => {
       if (row.status === "finished") {
@@ -467,22 +487,10 @@ function MultiplayGameSession({
         !roomDeletedRef.current &&
         !gameFinishedRef.current
       ) {
-        roomDeletedRef.current = true;
-        const supabase = createClient();
-        if (supabase) {
-          void supabase
-            .from("game_rooms")
-            .update({ status: "finished", updated_at: new Date().toISOString() })
-            .eq("id", roomId)
-            .eq("player_a_connected", false)
-            .eq("player_b_connected", false)
-            .then(({ error }) => {
-              if (error) roomDeletedRef.current = false;
-            });
-        }
+        void finishRoomBothDisconnected();
       }
     },
-    [roomId, evaluateOpponentConnection, onBackToLobby],
+    [evaluateOpponentConnection, onBackToLobby, finishRoomBothDisconnected],
   );
 
   useEffect(() => {
@@ -538,12 +546,8 @@ function MultiplayGameSession({
     connectionChannelRef.current = connectionChannel;
 
     const handleBeforeUnload = () => {
-      const token = accessTokenRef.current;
-      if (token) {
-        sendDisconnectedOnBeforeUnload(roomId, myRole, token);
-      } else {
-        void markConnected(false);
-      }
+      sendDisconnectedOnBeforeUnload(roomId, myRole);
+      void markConnected(false);
     };
 
     const handleVisibilityChange = () => {
@@ -573,6 +577,71 @@ function MultiplayGameSession({
       connectionChannelRef.current = null;
     };
   }, [roomId, myRole, applyConnectionRow]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+
+    let cancelled = false;
+
+    type PresenceMeta = { role: PlayerRole };
+
+    const evaluatePresence = (channel: RealtimeChannel) => {
+      if (!presenceTrackedRef.current || cancelled) return;
+
+      const presenceState = channel.presenceState<PresenceMeta>();
+      let hasPlayerA = false;
+      let hasPlayerB = false;
+
+      for (const presences of Object.values(presenceState)) {
+        for (const entry of presences) {
+          if (entry.role === "player_a") hasPlayerA = true;
+          if (entry.role === "player_b") hasPlayerB = true;
+        }
+      }
+
+      const opponentPresent = myRole === "player_a" ? hasPlayerB : hasPlayerA;
+      if (!opponentPresent && (hasPlayerA || hasPlayerB)) {
+        setOpponentDisconnected(true);
+      }
+
+      if (!hasPlayerA && !hasPlayerB) {
+        void finishRoomBothDisconnected();
+      }
+    };
+
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (cancelled || !user) return;
+
+      const presenceChannel = supabase.channel(`game-room-presence-${roomId}`, {
+        config: { presence: { key: user.id } },
+      });
+
+      presenceChannel
+        .on("presence", { event: "sync" }, () => evaluatePresence(presenceChannel))
+        .on("presence", { event: "join" }, () => evaluatePresence(presenceChannel))
+        .on("presence", { event: "leave" }, () => evaluatePresence(presenceChannel))
+        .subscribe(async (status) => {
+          if (status !== "SUBSCRIBED" || cancelled) return;
+          await presenceChannel.track({ role: myRole });
+          presenceTrackedRef.current = true;
+          evaluatePresence(presenceChannel);
+        });
+
+      presenceChannelRef.current = presenceChannel;
+    });
+
+    return () => {
+      cancelled = true;
+      presenceTrackedRef.current = false;
+      const channel = presenceChannelRef.current;
+      presenceChannelRef.current = null;
+      if (channel) {
+        void channel.untrack();
+        void supabase.removeChannel(channel);
+      }
+    };
+  }, [roomId, myRole, finishRoomBothDisconnected]);
 
   useEffect(() => {
     if (!opponentDisconnected) {
@@ -636,7 +705,7 @@ function MultiplayGameSession({
         </div>
       </div>
 
-      <div className={`min-h-0 flex-1 ${opponentDisconnected && !sessionWinner ? "pointer-events-none" : ""}`}>
+      <div className="min-h-0 flex-1">
         {state ? (
           <SimulationView
             isDarkMode={isDarkMode}
@@ -671,18 +740,25 @@ function MultiplayGameSession({
   );
 }
 
-async function fetchInitialGameState(
+function hasPersistedGameState(value: unknown): value is SimulationState {
+  return value != null && typeof value === "object";
+}
+
+async function fetchRoomGameState(
   client: SupabaseClient,
   roomId: string,
-): Promise<SimulationState | null> {
+): Promise<{ game_state: SimulationState | null; status: string | null } | null> {
   const { data, error } = await client
     .from("game_rooms")
-    .select("game_state")
+    .select("game_state, status")
     .eq("id", roomId)
     .single();
 
-  if (error) return null;
-  return (data?.game_state as SimulationState | null) ?? null;
+  if (error || !data) return null;
+  const gameState = hasPersistedGameState(data.game_state)
+    ? (data.game_state as SimulationState)
+    : null;
+  return { game_state: gameState, status: data.status ?? null };
 }
 
 export default function MultiplayView({
@@ -782,32 +858,32 @@ export default function MultiplayView({
       const deckCards = await resolveDeckCatalog(cards, client);
       if (!cancelled) setDeckCatalog(deckCards);
 
-      const { data: room, error } = await client
-        .from("game_rooms")
-        .select("game_state, player_a_id, player_b_id, status")
-        .eq("id", roomId)
-        .single();
+      const loadSnapshot = async (): Promise<SimulationState | null> => {
+        const row = await fetchRoomGameState(client, roomId);
+        if (!row) return null;
+        if (row.status === "finished") {
+          setRoomRejected(true);
+          onBackToLobby();
+          return null;
+        }
+        return row.game_state;
+      };
 
-      if (cancelled || error || !room) return;
-
-      if (room.status === "finished") {
-        setRoomRejected(true);
-        onBackToLobby();
+      let snapshot = await loadSnapshot();
+      if (cancelled) return;
+      if (snapshot) {
+        setBootstrapSnapshot(snapshot);
         return;
       }
 
-      if (room.game_state) {
-        if (!cancelled) setBootstrapSnapshot(room.game_state as SimulationState);
-        return;
-      }
-
-      if (myRole === "player_b") {
-        for (let attempt = 1; attempt <= 10; attempt++) {
+      if (myRole !== "player_a") {
+        for (let attempt = 1; attempt <= 30; attempt++) {
           if (cancelled) return;
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          const gameState = await fetchInitialGameState(client, roomId);
-          if (gameState) {
-            if (!cancelled) setBootstrapSnapshot(gameState);
+          snapshot = await loadSnapshot();
+          if (cancelled) return;
+          if (snapshot) {
+            setBootstrapSnapshot(snapshot);
             return;
           }
         }
@@ -817,7 +893,7 @@ export default function MultiplayView({
       if (deckCards.length === 0) return;
 
       const initialState = createInitialGameState(deckCards);
-      await client
+      const { data: inserted } = await client
         .from("game_rooms")
         .update({
           game_state: initialState,
@@ -826,16 +902,27 @@ export default function MultiplayView({
           player_b_connected: true,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", roomId);
-
-      const { data: refetch } = await client
-        .from("game_rooms")
-        .select("game_state")
         .eq("id", roomId)
-        .single();
+        .is("game_state", null)
+        .select("game_state")
+        .maybeSingle();
 
-      if (!cancelled) {
-        setBootstrapSnapshot((refetch?.game_state as SimulationState | null) ?? initialState);
+      if (cancelled) return;
+
+      if (hasPersistedGameState(inserted?.game_state)) {
+        setBootstrapSnapshot(inserted.game_state as SimulationState);
+        return;
+      }
+
+      for (let attempt = 1; attempt <= 15; attempt++) {
+        if (cancelled) return;
+        snapshot = await loadSnapshot();
+        if (cancelled) return;
+        if (snapshot) {
+          setBootstrapSnapshot(snapshot);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
 
