@@ -156,8 +156,45 @@ export function useMatchmaking() {
           .single();
 
         if (roomError || !room) {
-          console.error("[matchmaking] 방 생성 실패:", roomError?.message);
           makingRoomRef.current = false;
+
+          // 유니크 제약 위반 = 상대방이 이미 방을 만든 상황
+          // player_b로서 상대가 만든 방을 찾아 입장
+          const supabaseClient = createClient();
+          if (supabaseClient) {
+            const { data: existingRoom } = await supabaseClient
+              .from("game_rooms")
+              .select("id, player_a_id, player_b_id")
+              .or(`player_a_id.eq.${opponent.user_id},player_b_id.eq.${opponent.user_id}`)
+              .eq("status", "playing")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (existingRoom && !matchedRef.current) {
+              const myActualRole: PlayerRole =
+                existingRoom.player_a_id === myUserId ? "player_a" : "player_b";
+              const actualOpponentId =
+                myActualRole === "player_a"
+                  ? existingRoom.player_b_id
+                  : existingRoom.player_a_id;
+
+              await supabaseClient
+                .from("matchmaking_queue")
+                .update({ status: "matched", room_id: existingRoom.id })
+                .eq("user_id", myUserId);
+
+              await finishMatch({
+                roomId: existingRoom.id,
+                role: myActualRole,
+                opponentId: actualOpponentId,
+              });
+              return;
+            }
+          }
+
+          console.error("[matchmaking] 방 생성 실패 및 기존 방 탐색도 실패:", roomError?.message);
+          setMatchStatus("error");
           return;
         }
 
@@ -335,9 +372,6 @@ export function useMatchmaking() {
 
     // 5. player_b 역할로 방 생성 이벤트 구독 (항상 먼저)
     subscribeAsPlayerB(user.id);
-
-    // player_b 구독 채널이 서버에 연결될 시간을 확보 (INSERT 이벤트 누락 방지)
-    await new Promise<void>((resolve) => setTimeout(resolve, 800));
 
     // 6. 이미 대기 중인 상대가 있으면 player_a로서 방 생성
     const opponent = await findOpponent(user.id);
