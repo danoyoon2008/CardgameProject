@@ -420,6 +420,29 @@ function MultiplayGameSession({
           turnTimeLeft: prev?.turnTimeLeft ?? remote.turnTimeLeft ?? 60,
         }));
         isSyncing.current = false;
+
+        // 상대 행동 수신 시 DB에도 저장 — 재접속 시 복원 기반
+        const supabaseForSync = createClient();
+        if (supabaseForSync) {
+          void supabaseForSync
+            .from("game_rooms")
+            .update({ game_state: remote, updated_at: new Date().toISOString() })
+            .eq("id", roomId)
+            .eq("status", "playing");
+        }
+      })
+      .on("broadcast", { event: "request_state_sync" }, () => {
+        // 상대가 재접속해서 현재 상태를 요청함 — 즉시 최신 상태 전송
+        const latest = stateRef.current;
+        if (!latest || gameFinishedRef.current) return;
+        const ch = channelRef.current;
+        if (ch) {
+          void ch.send({
+            type: "broadcast",
+            event: "game_state_update",
+            payload: { game_state: latest },
+          });
+        }
       })
       .on("broadcast", { event: "opponent_left" }, () => {
         setOpponentLeft(true);
@@ -447,8 +470,18 @@ function MultiplayGameSession({
       .on("broadcast", { event: "rematch_decline" }, () => {
         setOpponentRematchRequested(false);
         setRematchStatus("none");
-      })
-      .subscribe();
+      });
+
+    // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        void channel.send({
+          type: "broadcast",
+          event: "request_state_sync",
+          payload: {},
+        });
+      }
+    });
 
     channelRef.current = channel;
 
@@ -862,11 +895,11 @@ export default function MultiplayView({
 
       if (deckCards.length === 0) return;
 
-      // 재접속 시: DB에 이미 game_state가 있으면 신규 생성하지 않고 그대로 사용
-      const existingSnapshot = await loadSnapshot();
+      // player_a 재접속 시: DB에 이미 game_state가 있으면 새로 만들지 않음
+      const recheckSnapshot = await loadSnapshot();
       if (cancelled) return;
-      if (existingSnapshot) {
-        setBootstrapSnapshot(existingSnapshot);
+      if (recheckSnapshot) {
+        setBootstrapSnapshot(recheckSnapshot);
         return;
       }
 
