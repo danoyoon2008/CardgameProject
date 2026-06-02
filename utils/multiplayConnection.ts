@@ -1,7 +1,7 @@
 import type { PlayerRole } from "@/hooks/useMatchmaking";
 
 export const MULTIPLAY_HEARTBEAT_INTERVAL_MS = 10_000;
-export const MULTIPLAY_OPPONENT_STALE_MS = 20_000;
+export const MULTIPLAY_OPPONENT_STALE_MS = 40_000;
 
 export const MY_CONNECTED_FIELD: Record<PlayerRole, "player_a_connected" | "player_b_connected"> = {
   player_a: "player_a_connected",

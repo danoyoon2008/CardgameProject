@@ -601,14 +601,14 @@ function MultiplayGameSession({
 
   const evaluateOpponentConnection = useCallback(
     (row: GameRoomConnectionRow) => {
-      const oppField = OPP_CONNECTED_FIELD[myRole];
-      const oppConnected = row[oppField] !== false;
       const lastSeenMs = parseOpponentLastSeenMs(row, myRole);
       if (lastSeenMs != null) {
         opponentLastSeenMsRef.current = lastSeenMs;
       }
+      // connected 필드는 무시하고 last_seen 기반으로만 판정
+      // (모달 열기/닫기로 인한 visibilitychange 오탐 방지)
       const stale = isOpponentHeartbeatStale(opponentLastSeenMsRef.current);
-      setOpponentDisconnected(!oppConnected || stale);
+      setOpponentDisconnected(stale);
     },
     [myRole],
   );
@@ -766,7 +766,7 @@ function MultiplayGameSession({
           if (document.visibilityState === "hidden" && !suppressVisibilityRef.current) {
             void markConnected(false);
           }
-        }, 3000);
+        }, 8000);
       } else if (document.visibilityState === "visible") {
         if (visibilityHideTimer) {
           clearTimeout(visibilityHideTimer);
