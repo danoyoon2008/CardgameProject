@@ -509,31 +509,6 @@ function MultiplayGameSession({
           setSessionWinner(myWinnerTeam);
         }
       })
-      .on("broadcast", { event: "player_disconnected" }, ({ payload }) => {
-        const disconnectedRole = (payload as { role?: string })?.role;
-        if (!disconnectedRole || gameFinishedRef.current) return;
-
-        // 상대가 나갔다는 Broadcast 수신 — DB 폴링으로 양측 이탈 여부 확인
-        const supabaseCheck = createClient();
-        if (!supabaseCheck) return;
-        void supabaseCheck
-          .from("game_rooms")
-          .select("player_a_connected, player_b_connected, status")
-          .eq("id", roomId)
-          .single()
-          .then(({ data, error }) => {
-            if (error || !data) return;
-            if (data.status === "finished") return;
-            if (
-              data.player_a_connected === false &&
-              data.player_b_connected === false &&
-              !roomDeletedRef.current &&
-              !gameFinishedRef.current
-            ) {
-              void finishRoomBothDisconnected();
-            }
-          });
-      })
       .on("broadcast", { event: "rematch_request" }, () => {
         setMyRematchRequested((mine) => {
           if (mine) {
@@ -665,17 +640,8 @@ function MultiplayGameSession({
       }
 
       evaluateOpponentConnection(row);
-
-      if (
-        row.player_a_connected === false &&
-        row.player_b_connected === false &&
-        !roomDeletedRef.current &&
-        !gameFinishedRef.current
-      ) {
-        void finishRoomBothDisconnected();
-      }
     },
-    [evaluateOpponentConnection, onBackToLobby, finishRoomBothDisconnected],
+    [evaluateOpponentConnection, onBackToLobby],
   );
 
   useEffect(() => {
@@ -699,31 +665,6 @@ function MultiplayGameSession({
     const staleCheckId = window.setInterval(() => {
       if (isOpponentHeartbeatStale(opponentLastSeenMsRef.current)) {
         setOpponentDisconnected(true);
-
-        // 양측 이탈 판정: 상대 하트비트가 끊긴 상태에서 내 연결도 정상이 아니면 방 종료
-        // (두 명이 동시에 나가서 postgres_changes를 아무도 못 받는 상황 대비)
-        if (!roomDeletedRef.current && !gameFinishedRef.current) {
-          const supabaseCheck = createClient();
-          if (supabaseCheck) {
-            void supabaseCheck
-              .from("game_rooms")
-              .select("player_a_connected, player_b_connected, status")
-              .eq("id", roomId)
-              .single()
-              .then(({ data, error }) => {
-                if (error || !data) return;
-                if (data.status === "finished") return;
-                if (
-                  data.player_a_connected === false &&
-                  data.player_b_connected === false &&
-                  !roomDeletedRef.current &&
-                  !gameFinishedRef.current
-                ) {
-                  void finishRoomBothDisconnected();
-                }
-              });
-          }
-        }
       }
     }, 5_000);
 
