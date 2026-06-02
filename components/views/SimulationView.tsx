@@ -461,8 +461,8 @@ interface SimulationViewProps {
   /** 멀티플레이 — 상대 연결 끊김 오버레이 */
   multiplayOpponentDisconnected?: boolean;
   multiplayDisconnectSecondsLeft?: number | null;
-  /** 멀티플레이 — 세션 승자 (연결 끊김·포기 등, 마운트 시 null) */
-  multiplaySessionWinner?: "A" | "B" | null;
+  /** 멀티플레이 — 세션 승자 (연결 끊김·포기/무승부 등, 마운트 시 null) */
+  multiplaySessionWinner?: "A" | "B" | "DRAW" | null;
   /** 멀티플레이 — HP 0 승리 시 DB 저장 콜백 */
   onMultiplayWin?: (winner: "A" | "B") => void;
   /** 멀티플레이 — 게임 종료 창 버튼·메시지 */
@@ -17969,16 +17969,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       {displayWinner && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden">
-          <div className={`absolute inset-0 animate-[pulse_1s_ease-in-out_infinite] mix-blend-screen pointer-events-none ${displayWinner === 'A' ? 'bg-sky-500/40' : 'bg-rose-500/40'}`} />
+          <div className={`absolute inset-0 animate-[pulse_1s_ease-in-out_infinite] mix-blend-screen pointer-events-none ${displayWinner === 'A' ? 'bg-sky-500/40' : displayWinner === 'B' ? 'bg-rose-500/40' : 'bg-amber-500/35'}`} />
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
           
-          <div className={`relative z-10 flex flex-col items-center justify-center p-16 md:p-24 lg:p-32 rounded-[4rem] border-8 ${displayWinner === 'A' ? 'border-sky-500 shadow-[0_0_150px_rgba(14,165,233,0.8)] bg-sky-950/60' : 'border-rose-500 shadow-[0_0_150px_rgba(244,63,94,0.8)] bg-rose-950/60'} animate-[scaleIn_0.5s_ease-out]`}>
-            <h2 className={`text-6xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b ${displayWinner === 'A' ? 'from-white to-sky-400' : 'from-white to-rose-400'} tracking-widest drop-shadow-[0_10px_20px_rgba(0,0,0,1)] mb-4 animate-[bounce_1.5s_ease-in-out_infinite]`}>
-              PLAYER {displayWinner} WIN!
+          <div className={`relative z-10 flex flex-col items-center justify-center p-16 md:p-24 lg:p-32 rounded-[4rem] border-8 ${displayWinner === 'A' ? 'border-sky-500 shadow-[0_0_150px_rgba(14,165,233,0.8)] bg-sky-950/60' : displayWinner === 'B' ? 'border-rose-500 shadow-[0_0_150px_rgba(244,63,94,0.8)] bg-rose-950/60' : 'border-amber-400 shadow-[0_0_130px_rgba(251,191,36,0.65)] bg-amber-950/60'} animate-[scaleIn_0.5s_ease-out]`}>
+            <h2 className={`text-6xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b ${displayWinner === 'A' ? 'from-white to-sky-400' : displayWinner === 'B' ? 'from-white to-rose-400' : 'from-white to-amber-300'} tracking-widest drop-shadow-[0_10px_20px_rgba(0,0,0,1)] mb-4 animate-[bounce_1.5s_ease-in-out_infinite]`}>
+              {displayWinner === "DRAW" ? "DRAW" : `PLAYER ${displayWinner} WIN!`}
             </h2>
             {multiplayEndUi?.opponentLeft ? (
               <p className="text-2xl md:text-3xl font-bold text-amber-300 mb-4 text-center drop-shadow-md">
                 상대방이 게임을 떠났습니다.
+              </p>
+            ) : displayWinner === "DRAW" ? (
+              <p className="text-2xl md:text-3xl font-bold text-amber-200 mb-4 text-center drop-shadow-md">
+                무승부입니다.
               </p>
             ) : (
               <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
@@ -18027,7 +18031,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   <button
                     type="button"
                     onClick={multiplayEndUi.onRematchAccept}
-                    className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
+                    className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : displayWinner === 'B' ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]' : 'bg-amber-600 hover:bg-amber-500 border-amber-300 shadow-[0_0_30px_rgba(251,191,36,0.6)]'}`}
                   >
                     수락
                   </button>
@@ -18049,7 +18053,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     }
                   }}
                   disabled={multiplayEndUi?.rematchStatus === "waiting"}
-                  className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]'}`}
+                  className={`px-10 py-5 text-white rounded-3xl font-black text-xl transition-colors border-4 active:scale-95 shadow-2xl w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed ${displayWinner === 'A' ? 'bg-sky-600 hover:bg-sky-500 border-sky-300 shadow-[0_0_30px_rgba(14,165,233,0.6)]' : displayWinner === 'B' ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.6)]' : 'bg-amber-600 hover:bg-amber-500 border-amber-300 shadow-[0_0_30px_rgba(251,191,36,0.6)]'}`}
                 >
                   다시 플레이
                 </button>
@@ -18878,6 +18882,36 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           rewindCards={state.rewindCards}
           onOpenDetail={openHandCardCodexDetail}
         />
+      )}
+
+      {/* 무승부 요청 수신 UI (모바일/PC 공통) */}
+      {showDrawIncoming && (
+        <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/50">
+          <div className="bg-[#0a1628] border-2 border-yellow-500/50 rounded-2xl p-6 flex flex-col items-center gap-4 shadow-2xl">
+            <p className="text-yellow-300 font-bold text-base">무승부로 하시겠습니까?</p>
+            <div className="flex gap-3">
+              <button
+                className="px-5 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 font-bold text-sm hover:bg-yellow-500/40 transition-colors"
+                onClick={onDrawAccept}
+              >
+                수락
+              </button>
+              <button
+                className="px-5 py-2 rounded-xl bg-slate-700/60 text-slate-300 font-bold text-sm hover:bg-slate-600/60 transition-colors"
+                onClick={onDrawReject}
+              >
+                거절
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 무승부 거절 토스트 (모바일/PC 공통) */}
+      {drawRejected && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[200] bg-slate-800 border border-slate-600 rounded-xl px-5 py-3 shadow-xl">
+          <p className="text-slate-200 text-sm font-semibold">상대방이 무승부 신청을 거절했습니다.</p>
+        </div>
       )}
 
       {isMobile ? (
@@ -19898,36 +19932,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 {coinTossDisplay === "FLIPPING" ? "돌아가는 중..." : `Player ${coinTossDisplay} 선공!`}
               </p>
             </div>
-          </div>
-        )}
-
-        {/* 무승부 요청 수신 UI */}
-        {showDrawIncoming && (
-          <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/50">
-            <div className="bg-[#0a1628] border-2 border-yellow-500/50 rounded-2xl p-6 flex flex-col items-center gap-4 shadow-2xl">
-              <p className="text-yellow-300 font-bold text-base">무승부로 하시겠습니까?</p>
-              <div className="flex gap-3">
-                <button
-                  className="px-5 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 font-bold text-sm hover:bg-yellow-500/40 transition-colors"
-                  onClick={onDrawAccept}
-                >
-                  수락
-                </button>
-                <button
-                  className="px-5 py-2 rounded-xl bg-slate-700/60 text-slate-300 font-bold text-sm hover:bg-slate-600/60 transition-colors"
-                  onClick={onDrawReject}
-                >
-                  거절
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 무승부 거절 토스트 */}
-        {drawRejected && (
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[200] bg-slate-800 border border-slate-600 rounded-xl px-5 py-3 shadow-xl">
-            <p className="text-slate-200 text-sm font-semibold">상대방이 무승부 신청을 거절했습니다.</p>
           </div>
         )}
 
