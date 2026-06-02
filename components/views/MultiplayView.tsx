@@ -757,10 +757,19 @@ function MultiplayGameSession({
       void markConnected(false);
     };
 
+    let visibilityHideTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        void markConnected(false);
+        visibilityHideTimer = setTimeout(() => {
+          if (document.visibilityState === "hidden") {
+            void markConnected(false);
+          }
+        }, 3000);
       } else if (document.visibilityState === "visible") {
+        if (visibilityHideTimer) {
+          clearTimeout(visibilityHideTimer);
+          visibilityHideTimer = null;
+        }
         void markConnected(true);
       }
     };
@@ -775,6 +784,7 @@ function MultiplayGameSession({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("pagehide", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (visibilityHideTimer) clearTimeout(visibilityHideTimer);
       // Broadcast로 즉시 이탈 알림 (postgres_changes보다 빠름)
       void channelRef.current?.send({
         type: "broadcast",

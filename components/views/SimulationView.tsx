@@ -1382,8 +1382,8 @@ export default function SimulationView({
     return state.currentTurn === multiplayMyTeam;
   };
 
-  const shouldShowMultiplaySpellUsageBack = (casterPlayer: "A" | "B"): boolean =>
-    isMultiplayOpponent(casterPlayer);
+  const shouldShowMultiplaySpellUsageBack = (casterPlayer: "A" | "B", card?: CardRow | null): boolean =>
+    isMultiplayOpponent(casterPlayer) && isHiddenSpellCard(card ?? null);
 
   const shouldFlipOpponentCard = (player: "A" | "B"): boolean => {
     if (!state) return false;
@@ -2054,7 +2054,8 @@ export default function SimulationView({
     const targetPlayer = (drop.dataset.player ?? drop.dataset.fieldPlayer) as "A" | "B" | undefined;
     const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return null;
-    if (!canMultiplayFieldDrop(targetPlayer)) return null;
+    const isEnemyTargetCard = isEnemyUnitDragTargetSpell(drag.card) || isAebeolaekingCard(drag.card);
+    if (!isEnemyTargetCard && !canMultiplayFieldDrop(targetPlayer)) return null;
 
     /* 애벌레킹(W) 손패 부착 — 적의 점유된 유닛 슬롯에만 드롭 가능 */
     if (isAebeolaekingCard(drag.card)) {
@@ -16171,7 +16172,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const actionMenuCloseBtnClass = isMobile
       ? "absolute top-1 right-2 text-slate-400 hover:text-white text-[7px] font-bold p-1"
       : "absolute top-1 right-2 text-slate-400 hover:text-white text-xs font-bold p-1";
-    
+
+    // 멀티플레이에서 상대 유닛: 상세보기만 표시
+    if (isMultiplayOpponent(player)) {
+      // 상대 히든 스펠: 클릭해도 아무것도 표시하지 않음
+      if (slot === "spell" && card && isHiddenSpellCard(card)) {
+        return null;
+      }
+      return (
+        <div
+          className="pointer-events-auto absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 z-30 backdrop-blur-[2px] animate-[fadeIn_0.15s_ease-out]"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedSlot(null);
+          }}
+        >
+          <button
+            className={actionMenuDetailBtnClass}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSlot(null);
+              openHandCardCodexDetail(card);
+            }}
+          >
+            상세 보기
+          </button>
+          <button
+            className={actionMenuCloseBtnClass}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSlot(null);
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
     const isMyTurn = state?.currentTurn === player;
     
     const oppPlayer = player === "A" ? "B" : "A";
@@ -17907,7 +17945,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   willChange: "transform",
                 }}
               >
-                {shouldShowMultiplaySpellUsageBack(spellUsageFly.casterPlayer) ? (
+                {shouldShowMultiplaySpellUsageBack(spellUsageFly.casterPlayer, spellUsageFly.previewCard) ? (
                   <MultiplayCardBackFace />
                 ) : spellUsageFly.centerShowsCardBack ? (
                   <HiddenSpellCardBackFace />
@@ -19484,7 +19522,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                             {spellUsageMuhyohwaCounterGlow ? (
                               <div className="pp-muhyohwa-counter-outline" aria-hidden />
                             ) : null}
-                            {shouldShowMultiplaySpellUsageBack(spellUsageReveal.casterPlayer) ? (
+                            {shouldShowMultiplaySpellUsageBack(
+                              spellUsageReveal.casterPlayer,
+                              // 우선 실제 카드, 없으면 프리뷰 카드 기준으로 히든 여부 판단
+                              (spellUsageReveal as { card?: CardRow | null }).card ?? spellUsageReveal.previewCard
+                            ) ? (
                               <div
                                 className={
                                   spellUsageMuhyohwaCounterResolve
