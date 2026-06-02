@@ -1663,6 +1663,7 @@ export default function SimulationView({
   const displayWinner = multiplaySessionWinner ?? winner;
   const isDraw = multiplaySessionWinner === "DRAW";
   const isMyWin = !isDraw && multiplaySessionWinner === multiplayMyTeam;
+  const resultLabel = isDraw ? "무승부" : displayWinner === multiplayMyTeam ? "승리" : "패배";
 
   useEffect(() => {
     if (!winner || !multiplayMyRole || !onMultiplayWin || multiplayWinReportedRef.current) return;
@@ -17969,7 +17970,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         />
       ) : null}
 
-      {displayWinner && (
+      {(displayWinner || isDraw) && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden">
           <div className={`absolute inset-0 animate-[pulse_1s_ease-in-out_infinite] mix-blend-screen pointer-events-none ${displayWinner === 'A' ? 'bg-sky-500/40' : displayWinner === 'B' ? 'bg-rose-500/40' : 'bg-amber-500/35'}`} />
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
@@ -17982,13 +17983,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <p className="text-2xl md:text-3xl font-bold text-amber-300 mb-4 text-center drop-shadow-md">
                 상대방이 게임을 떠났습니다.
               </p>
-            ) : displayWinner === "DRAW" ? (
+            ) : isDraw ? (
               <p className="text-2xl md:text-3xl font-bold text-amber-200 mb-4 text-center drop-shadow-md">
-                무승부입니다.
+                {resultLabel}
               </p>
             ) : multiplaySessionWinner && multiplayMyRole ? (
               <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
-                {isMyWin ? "승리했습니다." : "패배했습니다."}
+                {isMyWin ? `${resultLabel}했습니다.` : `${resultLabel}했습니다.`}
               </p>
             ) : (
               <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
