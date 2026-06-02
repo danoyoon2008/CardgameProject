@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { flushSync } from "react-dom";
-import { IconBook, IconDeck, IconHome, IconUser, IconSettings } from "../ui/Icons";
+import { IconBook, IconDeck, IconHome, IconLock, IconSettings, IconUser, IconUsers } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
 import { CardRow, FieldCard } from "../../types/game";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
@@ -19109,6 +19109,76 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               <IconBook className="w-5 h-5 shrink-0" />
               게임 통계
             </button>
+            {multiplayMyRole && onSurrender && (
+              <>
+                <button
+                  type="button"
+                  style={{
+                    height: 52,
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    paddingLeft: 20,
+                    gap: 8,
+                    fontSize: 15,
+                    fontWeight: "bold",
+                    color: (state?.turnCount ?? 0) >= 10 ? "#f87171" : "#475569",
+                    background: "transparent",
+                    borderTopWidth: 0,
+                    borderLeftWidth: 0,
+                    borderRightWidth: 0,
+                    borderBottomWidth: "1px",
+                    borderBottomStyle: "solid",
+                    borderBottomColor: "rgba(255,255,255,0.08)",
+                    cursor: (state?.turnCount ?? 0) >= 10 ? "pointer" : "not-allowed",
+                    textAlign: "left",
+                    opacity: (state?.turnCount ?? 0) >= 10 ? 1 : 0.5,
+                  }}
+                  disabled={(state?.turnCount ?? 0) < 10}
+                  onClick={() => {
+                    if ((state?.turnCount ?? 0) < 10) return;
+                    setIsDrawerOpen(false);
+                    onSurrender();
+                  }}
+                >
+                  <IconLock className="w-5 h-5 shrink-0" />
+                  게임 항복{(state?.turnCount ?? 0) < 10 ? " (10턴 이후 가능)" : ""}
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    height: 52,
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    paddingLeft: 20,
+                    gap: 8,
+                    fontSize: 15,
+                    fontWeight: "bold",
+                    color: (state?.turnCount ?? 0) >= (drawRequestCooldownTurn ?? 0) ? "#fbbf24" : "#475569",
+                    background: "transparent",
+                    borderTopWidth: 0,
+                    borderLeftWidth: 0,
+                    borderRightWidth: 0,
+                    borderBottomWidth: "1px",
+                    borderBottomStyle: "solid",
+                    borderBottomColor: "rgba(255,255,255,0.08)",
+                    cursor: (state?.turnCount ?? 0) >= (drawRequestCooldownTurn ?? 0) ? "pointer" : "not-allowed",
+                    textAlign: "left",
+                    opacity: (state?.turnCount ?? 0) >= (drawRequestCooldownTurn ?? 0) ? 1 : 0.5,
+                  }}
+                  disabled={(state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0)}
+                  onClick={() => {
+                    if ((state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0)) return;
+                    setIsDrawerOpen(false);
+                    onDrawRequest?.(state?.turnCount ?? 0);
+                  }}
+                >
+                  <IconUsers className="w-5 h-5 shrink-0" />
+                  무승부 신청{(state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0) ? ` (${drawRequestCooldownTurn}턴 이후 가능)` : ""}
+                </button>
+              </>
+            )}
           </div>
 
           {/* 헤더 아래 게임 영역 */}
