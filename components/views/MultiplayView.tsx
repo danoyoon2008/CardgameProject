@@ -416,14 +416,24 @@ function MultiplayGameSession({
 
   const handleLeaveLobby = useCallback(async () => {
     const supabase = createClient();
-    if (supabase && !gameFinishedRef.current) {
-      await finishGameRoom(supabase, roomId, opponentRole);
-      gameFinishedRef.current = true;
-      void channelRef.current?.send({
-        type: "broadcast",
-        event: "opponent_left",
-        payload: {},
-      });
+    if (supabase) {
+      if (!gameFinishedRef.current) {
+        // 정상 이탈: 상대방에게 패배 처리
+        await finishGameRoom(supabase, roomId, opponentRole);
+        gameFinishedRef.current = true;
+        void channelRef.current?.send({
+          type: "broadcast",
+          event: "opponent_left",
+          payload: {},
+        });
+      } else {
+        // 이미 종료된 게임(무승부 등): DB가 finished인지 확인 후 아니면 강제 종료
+        await supabase
+          .from("game_rooms")
+          .update({ status: "finished", updated_at: new Date().toISOString() })
+          .eq("id", roomId)
+          .neq("status", "finished");
+      }
     }
     onBackToLobby();
   }, [roomId, opponentRole, onBackToLobby]);
