@@ -235,6 +235,7 @@ function MultiplayGameSession({
   const gameFinishedRef = useRef(false);
   const rematchBothReadyRef = useRef(false);
   const drawRequestCooldownTurnRef = useRef<number>(0);
+  const suppressVisibilityRef = useRef(false);
 
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
   const [showDrawIncoming, setShowDrawIncoming] = useState(false);
@@ -759,9 +760,10 @@ function MultiplayGameSession({
 
     let visibilityHideTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibilityChange = () => {
+      if (suppressVisibilityRef.current) return;
       if (document.visibilityState === "hidden") {
         visibilityHideTimer = setTimeout(() => {
-          if (document.visibilityState === "hidden") {
+          if (document.visibilityState === "hidden" && !suppressVisibilityRef.current) {
             void markConnected(false);
           }
         }, 3000);
@@ -864,7 +866,14 @@ function MultiplayGameSession({
           <SimulationView
             isDarkMode={isDarkMode}
             cards={catalogForView}
-            onOpenDetail={onOpenDetail}
+            onOpenDetail={(card) => {
+              suppressVisibilityRef.current = true;
+              onOpenDetail?.(card);
+              // 상세보기 닫힘 시점을 직접 알기 어려워 안전하게 자동 복원
+              setTimeout(() => {
+                suppressVisibilityRef.current = false;
+              }, 10000);
+            }}
             onBackToLobby={onBackToLobby}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}

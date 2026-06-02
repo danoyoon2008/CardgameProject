@@ -8879,7 +8879,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const slot = (drop.dataset.slot ?? drop.dataset.fieldSlot) as "is" | "m" | "os" | "spell" | undefined;
     if (!targetPlayer || !slot) return;
     if (targetPlayer !== "A" && targetPlayer !== "B") return;
-    if (!canMultiplayFieldDrop(targetPlayer)) return;
+    const savedCard = saved.card;
+    const isEnemyTarget = savedCard && (isEnemyUnitDragTargetSpell(savedCard) || isAebeolaekingCard(savedCard));
+    if (!isEnemyTarget && !canMultiplayFieldDrop(targetPlayer)) return;
     if (multiplayMyTeam && saved.player !== multiplayMyTeam) return;
 
     if (attemptCastOrietChosangSpellDrop(snap, saved, targetPlayer, slot)) {
@@ -9170,7 +9172,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           (slot === "is" || slot === "m" || slot === "os" || slot === "spell") &&
           (targetPlayer === "A" || targetPlayer === "B")
         ) {
-          if (canMultiplayFieldDrop(targetPlayer)) {
+          const dragCard = state?.currentTurn === "A"
+            ? state?.playerA?.hand?.[dragCardIndex]
+            : state?.playerB?.hand?.[dragCardIndex];
+          const isEnemyTarget = dragCard && (isEnemyUnitDragTargetSpell(dragCard) || isAebeolaekingCard(dragCard));
+          if (isEnemyTarget || canMultiplayFieldDrop(targetPlayer)) {
             handleDrop(slot, targetPlayer, ended.clientX, ended.clientY);
           }
         }
@@ -15917,13 +15923,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const display = gonchungSpellSlotDisplayCard(player, field);
     if (!display) return null;
     if (isMultiplayOpponent(player)) {
-      return (
-        <div
-          className={`pointer-events-none absolute inset-0 rounded-[6px] overflow-hidden ${opts?.mobileFieldLayout ? "" : "rounded-[8px]"}`}
-        >
-          <MultiplayCardBackFace />
-        </div>
-      );
+      // 히든 스펠만 뒷면, 일반 스펠은 앞면 표시
+      if (isHiddenSpellCard(display)) {
+        return (
+          <div
+            className={`pointer-events-none absolute inset-0 rounded-[6px] overflow-hidden ${opts?.mobileFieldLayout ? "" : "rounded-[8px]"}`}
+          >
+            <MultiplayCardBackFace />
+          </div>
+        );
+      }
+      // 일반 스펠: 앞면 그대로 표시
     }
     const showFront = isGonchungHiddenPeekShowingFront(player, display);
     const suppressed = !!state &&
@@ -18699,7 +18709,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
-      {pendingElWingSinseokDefense && (
+      {pendingElWingSinseokDefense &&
+        (!multiplayMyTeam || pendingElWingSinseokDefense.defenderPlayer === multiplayMyTeam) && (
         <div
           className="fixed inset-0 z-[110] bg-black/35 backdrop-blur-[2px]"
           onClick={() => {
