@@ -19900,6 +19900,184 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 );
               })()
             : null}
+
+          {/* 모바일 게임 종료 오버레이 */}
+          {(displayWinner || isDraw) && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 300,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(0,0,0,0.88)",
+                backdropFilter: "blur(8px)",
+                padding: 24,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 32,
+                  borderRadius: 32,
+                  border: `6px solid ${isDraw ? "#fbbf24" : displayWinner === "A" ? "#38bdf8" : "#fb7185"}`,
+                  background: isDraw ? "rgba(120,53,15,0.7)" : displayWinner === "A" ? "rgba(12,74,110,0.7)" : "rgba(136,19,55,0.7)",
+                  boxShadow: isDraw
+                    ? "0 0 80px rgba(251,191,36,0.5)"
+                    : displayWinner === "A"
+                    ? "0 0 80px rgba(56,189,248,0.5)"
+                    : "0 0 80px rgba(251,113,133,0.5)",
+                  width: "100%",
+                  maxWidth: 360,
+                  gap: 16,
+                }}
+              >
+                <h2
+                  style={{
+                    fontSize: 40,
+                    fontWeight: 900,
+                    color: "white",
+                    letterSpacing: 4,
+                    textAlign: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  {isDraw ? "DRAW" : `PLAYER ${displayWinner} WIN!`}
+                </h2>
+                <p
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: isDraw ? "#fde68a" : "#e2e8f0",
+                    textAlign: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  {isDraw
+                    ? "무승부"
+                    : multiplaySessionWinner && multiplayMyRole
+                    ? isMyWin
+                      ? "승리했습니다."
+                      : "패배했습니다."
+                    : "게임이 종료되었습니다."}
+                </p>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#fbbf24",
+                    marginBottom: 20,
+                    letterSpacing: 2,
+                  }}
+                >
+                  게임 시간 : {Math.floor((state?.elapsedTime || 0) / 60)}분{" "}
+                  {(state?.elapsedTime || 0) % 60}초
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    width: "100%",
+                  }}
+                >
+                  <button
+                    style={{
+                      padding: "14px 0",
+                      borderRadius: 16,
+                      background: "#1e293b",
+                      border: "2px solid #475569",
+                      color: "white",
+                      fontSize: 16,
+                      fontWeight: 900,
+                      cursor: "pointer",
+                    }}
+                    onClick={() => {
+                      if (multiplayEndUi) multiplayEndUi.onLeaveLobby();
+                      else if (onBackToLobby) onBackToLobby();
+                      else window.location.href = "/";
+                    }}
+                  >
+                    로비로 돌아가기
+                  </button>
+                  <button
+                    style={{
+                      padding: "14px 0",
+                      borderRadius: 16,
+                      background: "#064e3b",
+                      border: "2px solid #10b981",
+                      color: "white",
+                      fontSize: 16,
+                      fontWeight: 900,
+                      cursor: "pointer",
+                    }}
+                    onClick={() => setIsGameStatsOpen(true)}
+                  >
+                    게임 통계
+                  </button>
+                  {multiplayEndUi?.rematchStatus === "incoming" ? (
+                    <>
+                      <button
+                        style={{
+                          padding: "14px 0",
+                          borderRadius: 16,
+                          background: isDraw ? "#78350f" : displayWinner === "A" ? "#0c4a6e" : "#881337",
+                          border: `2px solid ${isDraw ? "#fbbf24" : displayWinner === "A" ? "#38bdf8" : "#fb7185"}`,
+                          color: "white",
+                          fontSize: 16,
+                          fontWeight: 900,
+                          cursor: "pointer",
+                        }}
+                        onClick={multiplayEndUi.onRematchAccept}
+                      >
+                        수락
+                      </button>
+                      <button
+                        style={{
+                          padding: "14px 0",
+                          borderRadius: 16,
+                          background: "#1e293b",
+                          border: "2px solid #475569",
+                          color: "white",
+                          fontSize: 16,
+                          fontWeight: 900,
+                          cursor: "pointer",
+                        }}
+                        onClick={multiplayEndUi.onRematchReject}
+                      >
+                        거절
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      style={{
+                        padding: "14px 0",
+                        borderRadius: 16,
+                        background: isDraw ? "#78350f" : displayWinner === "A" ? "#0c4a6e" : "#881337",
+                        border: `2px solid ${isDraw ? "#fbbf24" : displayWinner === "A" ? "#38bdf8" : "#fb7185"}`,
+                        color: "white",
+                        fontSize: 16,
+                        fontWeight: 900,
+                        cursor: multiplayEndUi?.rematchStatus === "waiting" ? "not-allowed" : "pointer",
+                        opacity: multiplayEndUi?.rematchStatus === "waiting" ? 0.6 : 1,
+                      }}
+                      disabled={multiplayEndUi?.rematchStatus === "waiting"}
+                      onClick={() => {
+                        if (multiplayEndUi) multiplayEndUi.onRematch();
+                      }}
+                    >
+                      {multiplayEndUi?.rematchStatus === "waiting" ? "응답 대기 중..." : "다시 플레이"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
