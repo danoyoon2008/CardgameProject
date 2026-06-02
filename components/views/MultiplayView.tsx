@@ -240,7 +240,7 @@ function MultiplayGameSession({
   const [showDrawIncoming, setShowDrawIncoming] = useState(false);
   const [drawRejected, setDrawRejected] = useState(false);
   const [disconnectSecondsLeft, setDisconnectSecondsLeft] = useState<number | null>(null);
-  const [sessionWinner, setSessionWinner] = useState<"A" | "B" | null>(null);
+  const [sessionWinner, setSessionWinner] = useState<"A" | "B" | "DRAW" | null>(null);
   const [opponentLeft, setOpponentLeft] = useState(false);
   const [rematchStatus, setRematchStatus] = useState<MultiplayRematchStatus>("none");
   const [myRematchRequested, setMyRematchRequested] = useState(false);
@@ -376,14 +376,14 @@ function MultiplayGameSession({
 
   const handleDrawAccept = useCallback(() => {
     if (gameFinishedRef.current) return;
+    gameFinishedRef.current = true;
     setShowDrawIncoming(false);
+    setSessionWinner("DRAW");
     void channelRef.current?.send({
       type: "broadcast",
       event: "draw_accept",
       payload: {},
     });
-    gameFinishedRef.current = true;
-    setSessionWinner(null);
     const supabase = createClient();
     if (supabase) {
       void supabase
@@ -565,7 +565,7 @@ function MultiplayGameSession({
       .on("broadcast", { event: "draw_accept" }, () => {
         if (gameFinishedRef.current) return;
         gameFinishedRef.current = true;
-        setSessionWinner(null);
+        setSessionWinner("DRAW");
         const supabaseDraw = createClient();
         if (supabaseDraw) {
           void supabaseDraw

@@ -1661,6 +1661,8 @@ export default function SimulationView({
   const multiplayWinReportedRef = useRef(false);
 
   const displayWinner = multiplaySessionWinner ?? winner;
+  const isDraw = multiplaySessionWinner === "DRAW";
+  const isMyWin = !isDraw && multiplaySessionWinner === multiplayMyTeam;
 
   useEffect(() => {
     if (!winner || !multiplayMyRole || !onMultiplayWin || multiplayWinReportedRef.current) return;
@@ -17983,6 +17985,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             ) : displayWinner === "DRAW" ? (
               <p className="text-2xl md:text-3xl font-bold text-amber-200 mb-4 text-center drop-shadow-md">
                 무승부입니다.
+              </p>
+            ) : multiplaySessionWinner && multiplayMyRole ? (
+              <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
+                {isMyWin ? "승리했습니다." : "패배했습니다."}
               </p>
             ) : (
               <p className="text-2xl md:text-3xl font-bold text-slate-200 mb-4 text-center drop-shadow-md">
