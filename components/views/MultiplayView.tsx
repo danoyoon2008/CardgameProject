@@ -234,8 +234,11 @@ function MultiplayGameSession({
   const opponentLastSeenMsRef = useRef<number | null>(null);
   const gameFinishedRef = useRef(false);
   const rematchBothReadyRef = useRef(false);
+  const drawRequestCooldownTurnRef = useRef<number>(0);
 
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
+  const [showDrawIncoming, setShowDrawIncoming] = useState(false);
+  const [drawRejected, setDrawRejected] = useState(false);
   const [disconnectSecondsLeft, setDisconnectSecondsLeft] = useState<number | null>(null);
   const [sessionWinner, setSessionWinner] = useState<"A" | "B" | null>(null);
   const [opponentLeft, setOpponentLeft] = useState(false);
@@ -345,6 +348,59 @@ function MultiplayGameSession({
     },
     [markGameFinished],
   );
+
+  const handleSurrender = useCallback(() => {
+    if (gameFinishedRef.current) return;
+    const loserTeam: "A" | "B" = myRole === "player_a" ? "A" : "B";
+    const winnerTeam: "A" | "B" = loserTeam === "A" ? "B" : "A";
+    const winnerRole: PlayerRole = winnerTeam === "A" ? "player_a" : "player_b";
+
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "opponent_surrendered",
+      payload: {},
+    });
+
+    void markGameFinished(winnerRole, winnerTeam);
+  }, [myRole, markGameFinished]);
+
+  const handleDrawRequest = useCallback((currentTurnCount: number) => {
+    if (gameFinishedRef.current) return;
+    drawRequestCooldownTurnRef.current = currentTurnCount + 5;
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "draw_request",
+      payload: {},
+    });
+  }, []);
+
+  const handleDrawAccept = useCallback(() => {
+    if (gameFinishedRef.current) return;
+    setShowDrawIncoming(false);
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "draw_accept",
+      payload: {},
+    });
+    gameFinishedRef.current = true;
+    setSessionWinner(null);
+    const supabase = createClient();
+    if (supabase) {
+      void supabase
+        .from("game_rooms")
+        .update({ status: "finished", updated_at: new Date().toISOString() })
+        .eq("id", roomId);
+    }
+  }, [roomId]);
+
+  const handleDrawReject = useCallback(() => {
+    setShowDrawIncoming(false);
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "draw_reject",
+      payload: {},
+    });
+  }, []);
 
   const triggerRematchIfBothReady = useCallback(() => {
     if (rematchBothReadyRef.current) return;
@@ -495,6 +551,32 @@ function MultiplayGameSession({
       .on("broadcast", { event: "rematch_decline" }, () => {
         setOpponentRematchRequested(false);
         setRematchStatus("none");
+      })
+      .on("broadcast", { event: "opponent_surrendered" }, () => {
+        if (gameFinishedRef.current) return;
+        const myWinnerTeam: "A" | "B" = myRole === "player_a" ? "A" : "B";
+        const myWinnerRole: PlayerRole = myRole;
+        void markGameFinished(myWinnerRole, myWinnerTeam);
+      })
+      .on("broadcast", { event: "draw_request" }, () => {
+        if (gameFinishedRef.current) return;
+        setShowDrawIncoming(true);
+      })
+      .on("broadcast", { event: "draw_accept" }, () => {
+        if (gameFinishedRef.current) return;
+        gameFinishedRef.current = true;
+        setSessionWinner(null);
+        const supabaseDraw = createClient();
+        if (supabaseDraw) {
+          void supabaseDraw
+            .from("game_rooms")
+            .update({ status: "finished", updated_at: new Date().toISOString() })
+            .eq("id", roomId);
+        }
+      })
+      .on("broadcast", { event: "draw_reject" }, () => {
+        setDrawRejected(true);
+        setTimeout(() => setDrawRejected(false), 4000);
       });
 
     // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
@@ -514,7 +596,7 @@ function MultiplayGameSession({
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [roomId, setState, myRematchRequested]);
+  }, [roomId, setState, myRematchRequested, myRole, markGameFinished]);
 
   const evaluateOpponentConnection = useCallback(
     (row: GameRoomConnectionRow) => {
@@ -776,6 +858,13 @@ function MultiplayGameSession({
               onRematch: handleRematchRequest,
               onRematchAccept: handleRematchAccept,
               onRematchReject: handleRematchReject,
+              onSurrender: handleSurrender,
+              onDrawRequest: handleDrawRequest,
+              onDrawAccept: handleDrawAccept,
+              onDrawReject: handleDrawReject,
+              showDrawIncoming,
+              drawRejected,
+              drawRequestCooldownTurn: drawRequestCooldownTurnRef.current,
             }}
           />
         ) : (

@@ -473,6 +473,13 @@ interface SimulationViewProps {
     onRematch: () => void;
     onRematchAccept: () => void;
     onRematchReject: () => void;
+    onSurrender?: () => void;
+    onDrawRequest?: (currentTurnCount: number) => void;
+    onDrawAccept?: () => void;
+    onDrawReject?: () => void;
+    showDrawIncoming?: boolean;
+    drawRejected?: boolean;
+    drawRequestCooldownTurn?: number;
   };
 }
 
@@ -1346,6 +1353,16 @@ export default function SimulationView({
       : "A"
     : null;
   const multiplayFlipBoard = multiplayMyRole === "player_b";
+
+  const {
+    onSurrender,
+    onDrawRequest,
+    onDrawAccept,
+    onDrawReject,
+    showDrawIncoming,
+    drawRejected,
+    drawRequestCooldownTurn = 0,
+  } = multiplayEndUi ?? {};
 
   const isMultiplayOpponent = (player: "A" | "B"): boolean =>
     !!multiplayOppTeam && player === multiplayOppTeam;
@@ -19814,6 +19831,36 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           </div>
         )}
 
+        {/* 무승부 요청 수신 UI */}
+        {showDrawIncoming && (
+          <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/50">
+            <div className="bg-[#0a1628] border-2 border-yellow-500/50 rounded-2xl p-6 flex flex-col items-center gap-4 shadow-2xl">
+              <p className="text-yellow-300 font-bold text-base">무승부로 하시겠습니까?</p>
+              <div className="flex gap-3">
+                <button
+                  className="px-5 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 font-bold text-sm hover:bg-yellow-500/40 transition-colors"
+                  onClick={onDrawAccept}
+                >
+                  수락
+                </button>
+                <button
+                  className="px-5 py-2 rounded-xl bg-slate-700/60 text-slate-300 font-bold text-sm hover:bg-slate-600/60 transition-colors"
+                  onClick={onDrawReject}
+                >
+                  거절
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 무승부 거절 토스트 */}
+        {drawRejected && (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[200] bg-slate-800 border border-slate-600 rounded-xl px-5 py-3 shadow-xl">
+            <p className="text-slate-200 text-sm font-semibold">상대방이 무승부 신청을 거절했습니다.</p>
+          </div>
+        )}
+
         {/* ===================== 1. 좌측 영역 (메뉴, 덱, 리와인드) ===================== */}
         <div className={`flex flex-col justify-between items-center shrink-0 w-[120px] h-full py-2 transition-opacity ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           <div
@@ -19828,6 +19875,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 {!multiplayMyRole ? (
                   <button className="px-4 py-3 text-left text-xs font-bold hover:bg-rose-500/20 text-rose-400 transition-colors" onClick={handleReset}>게임 초기화</button>
                 ) : null}
+                {multiplayMyRole && onSurrender && (
+                  <>
+                    <button
+                      className={`px-4 py-3 text-left text-xs font-bold transition-colors border-t border-slate-700 ${
+                        (state?.turnCount ?? 0) >= 10
+                          ? "hover:bg-red-500/20 text-red-400 cursor-pointer"
+                          : "text-slate-600 cursor-not-allowed opacity-50"
+                      }`}
+                      disabled={(state?.turnCount ?? 0) < 10}
+                      onClick={() => {
+                        if ((state?.turnCount ?? 0) < 10) return;
+                        setIsMenuOpen(false);
+                        onSurrender();
+                      }}
+                    >
+                      게임 항복
+                      {(state?.turnCount ?? 0) < 10 && (
+                        <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+                          10턴 이후 사용 가능
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      className={`px-4 py-3 text-left text-xs font-bold transition-colors border-t border-slate-700 ${
+                        (state?.turnCount ?? 0) >= (drawRequestCooldownTurn ?? 0)
+                          ? "hover:bg-yellow-500/20 text-yellow-400 cursor-pointer"
+                          : "text-slate-600 cursor-not-allowed opacity-50"
+                      }`}
+                      disabled={(state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0)}
+                      onClick={() => {
+                        if ((state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0)) return;
+                        setIsMenuOpen(false);
+                        onDrawRequest?.(state?.turnCount ?? 0);
+                      }}
+                    >
+                      무승부 신청
+                      {(state?.turnCount ?? 0) < (drawRequestCooldownTurn ?? 0) && (
+                        <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+                          {drawRequestCooldownTurn}턴 이후 재신청 가능
+                        </span>
+                      )}
+                    </button>
+                  </>
+                )}
                 <button className="px-4 py-3 text-left text-xs font-bold hover:bg-amber-500/20 text-amber-400 transition-colors border-t border-slate-700" onClick={() => { setIsMenuOpen(false); setIsSettingsOpen(true); }}>게임 설정</button>
                 <button
                   type="button"
