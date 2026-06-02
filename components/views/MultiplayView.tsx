@@ -645,8 +645,19 @@ function MultiplayGameSession({
             const winnerTeam: "A" | "B" = winnerRole === "player_a" ? "A" : "B";
             setSessionWinner(winnerTeam);
           } else {
+            // winner가 null인 경우:
+            // 무승부(draw_accept)로 인한 finished일 수 있으므로
+            // 즉시 로비로 보내지 않고 잠시 대기 후 sessionWinner가 없을 때만 로비로 이동
             gameFinishedRef.current = true;
-            onBackToLobby();
+            setTimeout(() => {
+              setSessionWinner((prev) => {
+                if (prev === null) {
+                  // draw_accept Broadcast도 못 받은 경우 → DRAW로 처리
+                  return "DRAW";
+                }
+                return prev;
+              });
+            }, 1500);
           }
         }
         return;
