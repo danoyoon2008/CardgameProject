@@ -2893,9 +2893,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!state || isInitializing) return;
     if (guihwanRestoreOnMountDoneRef.current) return;
     if (!state.guihwanPending) return;
+    // 멀티플레이: 귀환 시전자 본인에게만 모달 표시
+    if (multiplayMyTeam && state.guihwanPending.ownerPlayer !== multiplayMyTeam) return;
     guihwanRestoreOnMountDoneRef.current = true;
     setIsGuihwanRewindOpen(true);
-  }, [state, isInitializing]);
+  }, [state, isInitializing, multiplayMyTeam]);
 
   useEffect(() => {
     if (!state || !witchTarotDiscardPlayer || !witchTarotSequenceActiveRef.current) return;
@@ -18921,7 +18923,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
-      {state.guihwanPending && isGuihwanRewindOpen && (
+      {state.guihwanPending && isGuihwanRewindOpen &&
+        (!multiplayMyTeam || state.guihwanPending.ownerPlayer === multiplayMyTeam) && (
         <RewindModal
           onClose={closeGuihwanRewindModal}
           rewindCards={state.rewindCards}
@@ -18935,7 +18938,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         />
       )}
 
-      {state.guihwanPending && !isGuihwanRewindOpen && (
+      {state.guihwanPending && !isGuihwanRewindOpen &&
+        (!multiplayMyTeam || state.guihwanPending.ownerPlayer === multiplayMyTeam) && (
         <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-indigo-300/60 bg-gradient-to-r from-indigo-800 to-violet-700 px-8 py-3 text-sm font-black text-indigo-50 shadow-[0_0_30px_rgba(99,102,241,0.75)] animate-pulse pointer-events-none md:text-base">
           [귀환] 필드의 귀환 카드를 클릭해 리와인드 선택을 다시 열 수 있습니다.
         </div>
@@ -20153,6 +20157,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 모바일 귀환 리와인드 모달 */}
+          {state?.guihwanPending && isGuihwanRewindOpen &&
+            (!multiplayMyTeam || state.guihwanPending.ownerPlayer === multiplayMyTeam) && (
+            <div style={{ position: "fixed", inset: 0, zIndex: 300 }}>
+              <RewindModal
+                onClose={closeGuihwanRewindModal}
+                rewindCards={state.rewindCards}
+                revivableIndices={getGuihwanRevivableRewindIndices(
+                  state.rewindCards,
+                  state.guihwanPending.ownerPlayer,
+                  state.unitCombatStats
+                )}
+                onSelectRevive={resolveGuihwanRevive}
+                onOpenDetail={openHandCardCodexDetail}
+              />
             </div>
           )}
         </div>
