@@ -6663,6 +6663,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     startWitchTarotCoinSequence,
   ]);
 
+  // 멀티플레이: pending 상태가 변경될 때마다 자동으로 상대방에게 sync
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    if (!state) return;
+    notifyMultiplaySync();
+  }, [
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    state?.witchTarotPending?.stepIndex,
+    state?.witchTarotPending?.awaitingDiscardPlayer,
+    state?.witchTarotPending?.coinHeads,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    state?.witchTarotPending == null ? "null" : "set",
+    state?.guihwanPending == null ? "null" : "set",
+    state?.legendarySwordPending == null ? "null" : "set",
+    state?.startingWraithChainPending == null ? "null" : "set",
+    state?.oneNightWagerPending == null ? "null" : "set",
+    state?.spellUsagePending == null ? "null" : "set",
+    state?.bubbleStationPending == null ? "null" : "set",
+    state?.simpanHandChoice == null ? "null" : "set",
+    state?.simpanPeekReveal == null ? "null" : "set",
+    multiplayMyTeam,
+  ]);
+
   /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */
   useEffect(() => {
     if (!state) return;
@@ -17340,13 +17363,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
         : null;
 
-  const shouldHidePeekCardImage =
-    !!multiplayMyTeam &&
-    state.simpanPeekReveal?.player !== multiplayMyTeam;
+  const isMyHandChoice =
+    !multiplayMyTeam ||
+    !state.simpanHandChoice ||
+    state.simpanHandChoice.player === multiplayMyTeam;
 
-  const shouldHideFlyCardImage =
+  const isMyDiscardTurn =
+    !multiplayMyTeam ||
+    !witchTarotDiscardPlayer ||
+    witchTarotDiscardPlayer === multiplayMyTeam;
+
+  const isOpponentPeekCard =
     !!multiplayMyTeam &&
-    simpanPeekFly?.player !== multiplayMyTeam;
+    (state?.simpanPeekReveal?.player ?? simpanPeekFly?.player) !== multiplayMyTeam;
 
   /** No.14 무효화 — 상대 액티브 스펠 발동 연출 중 반격 가능 시 중앙 카드·손패 무효화 흰 윤곽 */
   const spellUsageMuhyohwaCounterGlow =
@@ -17944,9 +17973,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             willChange: "transform, width, height",
           }}
         >
-          {shouldHideFlyCardImage ? (
-            <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
-              <span className="text-slate-500 text-xs font-bold">?</span>
+          {isOpponentPeekCard ? (
+            <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
+              <span className="text-slate-500 text-4xl font-black">?</span>
             </div>
           ) : simpanPeekFly.pendingCard.image_url ? (
             <GuardedImg
@@ -18987,7 +19016,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
-      {!isWitchTarotOtherPlayerStep && witchTarotDiscardPlayer && (
+      {witchTarotDiscardPlayer && isMyDiscardTurn && (
         <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-white/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(139,92,246,0.85)] animate-pulse pointer-events-none md:text-base">
           [마녀 타로] Player {witchTarotDiscardPlayer} — 패에서 버릴 카드를 선택하세요.
         </div>
@@ -19711,7 +19740,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     />
                   </>
                 ) : null}
-                {!isWitchTarotOtherPlayerStep && simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
+                {simpanCenterDisplay &&
+                !simpanPeekFly &&
+                !spellUsageReveal &&
+                (simpanCenterDisplay.kind !== "peek" || !isWitchTarotOtherPlayerStep) &&
+                (simpanCenterDisplay.kind !== "replace" ||
+                  (state.simpanHandChoice && isMyHandChoice)) ? (
                   <div
                     className="pointer-events-none absolute inset-0 z-[120] flex flex-col items-center justify-center gap-2 px-1"
                     aria-live="polite"
@@ -19727,9 +19761,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, flexShrink: 0 }}
                     >
                       <div className="absolute inset-0 overflow-hidden rounded-[6px]">
-                        {simpanCenterDisplay.kind === "peek" && shouldHidePeekCardImage ? (
-                          <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
-                            <span className="text-slate-500 text-xs font-bold">?</span>
+                        {simpanCenterDisplay.kind === "peek" && isOpponentPeekCard ? (
+                          <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
+                            <span className="text-slate-500 text-4xl font-black">?</span>
                           </div>
                         ) : simpanCenterDisplay.card.image_url ? (
                           <GuardedImg
@@ -20473,7 +20507,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </div>
               </div>
             ) : null}
-            {!isWitchTarotOtherPlayerStep && simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
+            {simpanCenterDisplay &&
+            !simpanPeekFly &&
+            !spellUsageReveal &&
+            (simpanCenterDisplay.kind !== "peek" || !isWitchTarotOtherPlayerStep) &&
+            (simpanCenterDisplay.kind !== "replace" ||
+              (state.simpanHandChoice && isMyHandChoice)) ? (
               <div
                 className="pointer-events-none absolute inset-x-0 top-[48%] z-[120] flex -translate-y-1/2 flex-col items-center justify-center gap-2 px-4"
                 aria-live="polite"
@@ -20488,9 +20527,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
-                    {simpanCenterDisplay.kind === "peek" && shouldHidePeekCardImage ? (
-                      <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
-                        <span className="text-slate-500 text-xs font-bold">?</span>
+                    {simpanCenterDisplay.kind === "peek" && isOpponentPeekCard ? (
+                      <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
+                        <span className="text-slate-500 text-4xl font-black">?</span>
                       </div>
                     ) : simpanCenterDisplay.card.image_url ? (
                       <GuardedImg
