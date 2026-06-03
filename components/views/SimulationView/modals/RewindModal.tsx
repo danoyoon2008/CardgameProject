@@ -95,10 +95,7 @@ export default function RewindModal({
                     className={cardClass}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (isGuihwanPickMode) {
-                        if (isGuihwanRevivable) onSelectRevive(idx);
-                        return;
-                      }
+                      if (isGuihwanNonRevivable) return;
                       setSelectedIdx(prev => (prev === idx ? null : idx));
                     }}
                   >
@@ -117,7 +114,7 @@ export default function RewindModal({
                     {onOpenDetail || isGuihwanRevivable ? (
                       <div
                         className={`absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 backdrop-blur-[2px] transition-opacity ${
-                          selectedIdx === idx || isGuihwanRevivable
+                          selectedIdx === idx
                             ? "opacity-100 pointer-events-auto"
                             : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
                         }`}
