@@ -2570,6 +2570,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const startWitchTarotCoinSequence = useCallback((casterPlayer: "A" | "B") => {
     const snap = simulationStateRef.current;
+    // 멀티플레이: 시전자 클라이언트만 코인 시퀀스 실행
+    if (multiplayMyTeam) {
+      const myCasterLetter: "A" | "B" = multiplayMyTeam;
+      if (myCasterLetter !== casterPlayer) return;
+    }
     if (
       witchTarotCoinFlipIntervalRef.current != null ||
       witchTarotCoin != null ||
@@ -2609,16 +2614,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (witchTarotCoinFlipIntervalRef.current != null) {
         clearInterval(witchTarotCoinFlipIntervalRef.current);
         witchTarotCoinFlipIntervalRef.current = null;
-      }
-
-      // 멀티플레이: 시전자 클라이언트만 결과 생성, 상대는 state에서 수신
-      const iAmCaster =
-        !multiplayMyTeam || multiplayMyTeam === witchTarotSequenceRef.current?.casterPlayer;
-
-      if (!iAmCaster) {
-        // 상대 클라이언트: 결과가 state에 도착할 때까지 대기
-        // (witchTarotPending.coinHeads useEffect가 처리)
-        return;
       }
 
       const heads = Math.random() < 0.5;
@@ -2943,8 +2938,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (pending.coinHeads === null) return;
     if (pending.stepIndex >= WITCH_TAROT_TOTAL_STEPS) return;
 
+    const myPlayerLetter: "A" | "B" = multiplayMyTeam;
     const stepPlayer = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
-    if (stepPlayer !== multiplayMyTeam) return;
+    if (stepPlayer !== myPlayerLetter) return;
 
     witchTarotSequenceRef.current = {
       casterPlayer: pending.casterPlayer,
@@ -6660,6 +6656,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!pending) return;
 
     witchTarotRestoreOnMountDoneRef.current = true;
+
+    // 멀티플레이: 현재 스텝의 플레이어만 복원 실행
+    if (multiplayMyTeam) {
+      const myLetter: "A" | "B" = multiplayMyTeam;
+      if (pending.coinHeads !== null) {
+        const stepOwner = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
+        if (stepOwner !== myLetter) return;
+      } else {
+        if (pending.casterPlayer !== myLetter) return;
+      }
+    }
 
     if (pending.coinHeads === null && !midPeek && !midChoice && !midDiscard) {
       startWitchTarotCoinSequence(pending.casterPlayer);
