@@ -40,10 +40,10 @@ export function isWitchTarotSpellCard(
   return parseSpellCardNumber(card.number) === WITCH_TAROT_CARD_NUMBER;
 }
 
-/** 시전자 → 상대 → 시전자 → 상대 (총 4회) */
+/** 시전자 2회 → 상대 2회 (총 4회) */
 export function witchTarotStepPlayer(stepIndex: number, casterPlayer: "A" | "B"): "A" | "B" {
   const other = casterPlayer === "A" ? "B" : "A";
-  return stepIndex % 2 === 0 ? casterPlayer : other;
+  return stepIndex < WITCH_TAROT_DRAW_DISCARD_STEPS_PER_SIDE ? casterPlayer : other;
 }
 
 /** 시전자 스택에서 마녀 타로 제거(연출 종료) */

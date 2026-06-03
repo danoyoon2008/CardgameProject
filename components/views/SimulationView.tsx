@@ -17275,6 +17275,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
         : null;
 
+  const shouldHidePeekCardImage =
+    !!multiplayMyTeam &&
+    state.simpanPeekReveal?.player !== multiplayMyTeam;
+
+  const shouldHideFlyCardImage =
+    !!multiplayMyTeam &&
+    simpanPeekFly?.player !== multiplayMyTeam;
+
   /** No.14 무효화 — 상대 액티브 스펠 발동 연출 중 반격 가능 시 중앙 카드·손패 무효화 흰 윤곽 */
   const spellUsageMuhyohwaCounterGlow =
     !spellUsageMuhyohwaCounterResolve &&
@@ -17870,8 +17878,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             willChange: "transform, width, height",
           }}
         >
-          {isMultiplayOpponent(simpanPeekFly.player) ? (
-            <MultiplayCardBackFace />
+          {shouldHideFlyCardImage ? (
+            <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
+              <span className="text-slate-500 text-xs font-bold">?</span>
+            </div>
           ) : simpanPeekFly.pendingCard.image_url ? (
             <GuardedImg
               src={simpanPeekFly.pendingCard.image_url}
@@ -19650,8 +19660,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H, flexShrink: 0 }}
                     >
                       <div className="absolute inset-0 overflow-hidden rounded-[6px]">
-                        {simpanCenterDisplay.kind === "peek" && isMultiplayOpponent(simpanCenterDisplay.player) ? (
-                          <MultiplayCardBackFace />
+                        {simpanCenterDisplay.kind === "peek" && shouldHidePeekCardImage ? (
+                          <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
+                            <span className="text-slate-500 text-xs font-bold">?</span>
+                          </div>
                         ) : simpanCenterDisplay.card.image_url ? (
                           <GuardedImg
                             src={simpanCenterDisplay.card.image_url}
@@ -20408,8 +20420,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
-                    {simpanCenterDisplay.kind === "peek" && isMultiplayOpponent(simpanCenterDisplay.player) ? (
-                      <MultiplayCardBackFace />
+                    {simpanCenterDisplay.kind === "peek" && shouldHidePeekCardImage ? (
+                      <div className="w-full h-full bg-slate-800 rounded-xl flex items-center justify-center">
+                        <span className="text-slate-500 text-xs font-bold">?</span>
+                      </div>
                     ) : simpanCenterDisplay.card.image_url ? (
                       <GuardedImg
                         src={simpanCenterDisplay.card.image_url}
