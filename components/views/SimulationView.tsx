@@ -2551,8 +2551,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
       // 멀티플레이: 다음 스텝이 나의 스텝이 아니면 여기서 멈추고 상대에게 넘김
       if (multiplayMyTeam) {
+        const myPlayerLetter: "A" | "B" = multiplayMyTeam;
         const nextStepPlayer = witchTarotStepPlayer(seq.stepIndex, seq.casterPlayer);
-        if (nextStepPlayer !== multiplayMyTeam) {
+        if (nextStepPlayer !== myPlayerLetter) {
           witchTarotSequenceActiveRef.current = false;
           notifyMultiplaySync();
           return;
@@ -2609,6 +2610,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         clearInterval(witchTarotCoinFlipIntervalRef.current);
         witchTarotCoinFlipIntervalRef.current = null;
       }
+
+      // 멀티플레이: 시전자 클라이언트만 결과 생성, 상대는 state에서 수신
+      const iAmCaster =
+        !multiplayMyTeam || multiplayMyTeam === witchTarotSequenceRef.current?.casterPlayer;
+
+      if (!iAmCaster) {
+        // 상대 클라이언트: 결과가 state에 도착할 때까지 대기
+        // (witchTarotPending.coinHeads useEffect가 처리)
+        return;
+      }
+
       const heads = Math.random() < 0.5;
       const seq = witchTarotSequenceRef.current;
       if (!seq) return;
@@ -2616,13 +2628,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       flushSync(() => {
         setState(prev => (prev ? patchWitchTarotPending(prev, { coinHeads: heads }) : prev));
       });
+      notifyMultiplaySync();
       setWitchTarotCoin({ phase: "RESULT", heads });
       window.setTimeout(() => {
         setWitchTarotCoin(null);
         runWitchTarotCurrentStepRef.current();
       }, WITCH_TAROT_COIN_RESULT_MS);
     }, WITCH_TAROT_COIN_FLIP_MS);
-  }, [runWitchTarotCurrentStep, witchTarotCoin]);
+  }, [runWitchTarotCurrentStep, witchTarotCoin, notifyMultiplaySync, multiplayMyTeam]);
 
   const resolveWitchTarotDiscard = (player: "A" | "B", handIndex: number) => {
     if (witchTarotDiscardPlayer !== player) return;
@@ -6667,6 +6680,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!multiplayMyTeam) return;
     if (!state) return;
+    if (!witchTarotFlowActive) return;
     notifyMultiplaySync();
   }, [
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6684,6 +6698,28 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     state?.simpanHandChoice == null ? "null" : "set",
     state?.simpanPeekReveal == null ? "null" : "set",
     multiplayMyTeam,
+    witchTarotFlowActive,
+  ]);
+
+  // 멀티플레이: 상대 클라이언트가 coinHeads를 state에서 수신하면 동전 연출 재생
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.witchTarotPending;
+    if (!pending || pending.coinHeads === null) return;
+
+    if (multiplayMyTeam === pending.casterPlayer) return;
+
+    if (witchTarotCoin != null) return;
+
+    setWitchTarotCoin({ phase: "RESULT", heads: pending.coinHeads });
+    window.setTimeout(() => {
+      setWitchTarotCoin(null);
+    }, WITCH_TAROT_COIN_RESULT_MS);
+  }, [
+    state?.witchTarotPending?.coinHeads,
+    state?.witchTarotPending?.casterPlayer,
+    multiplayMyTeam,
+    witchTarotCoin,
   ]);
 
   /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */
@@ -17974,9 +18010,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }}
         >
           {isOpponentPeekCard ? (
-            <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
-              <span className="text-slate-500 text-4xl font-black">?</span>
-            </div>
+            <div className="w-full h-full bg-white rounded-xl" />
           ) : simpanPeekFly.pendingCard.image_url ? (
             <GuardedImg
               src={simpanPeekFly.pendingCard.image_url}
@@ -19762,9 +19796,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     >
                       <div className="absolute inset-0 overflow-hidden rounded-[6px]">
                         {simpanCenterDisplay.kind === "peek" && isOpponentPeekCard ? (
-                          <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
-                            <span className="text-slate-500 text-4xl font-black">?</span>
-                          </div>
+                          <div className="w-full h-full bg-white rounded-xl" />
                         ) : simpanCenterDisplay.card.image_url ? (
                           <GuardedImg
                             src={simpanCenterDisplay.card.image_url}
@@ -20528,9 +20560,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 >
                   <div className="absolute inset-0 overflow-hidden rounded-[8px]">
                     {simpanCenterDisplay.kind === "peek" && isOpponentPeekCard ? (
-                      <div className="w-full h-full bg-slate-800 flex items-center justify-center rounded-xl">
-                        <span className="text-slate-500 text-4xl font-black">?</span>
-                      </div>
+                      <div className="w-full h-full bg-white rounded-xl" />
                     ) : simpanCenterDisplay.card.image_url ? (
                       <GuardedImg
                         src={simpanCenterDisplay.card.image_url}
