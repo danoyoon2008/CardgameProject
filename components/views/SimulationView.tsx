@@ -1368,8 +1368,9 @@ export default function SimulationView({
     !!multiplayOppTeam && player === multiplayOppTeam;
 
   const canMultiplayFieldDrop = (targetPlayer: "A" | "B"): boolean => {
-    if (!multiplayMyTeam || !state?.currentTurn) return true;
-    return targetPlayer === multiplayMyTeam && state.currentTurn === multiplayMyTeam;
+    if (!multiplayMyTeam) return true; // 멀티플레이 아님
+    if (state?.currentTurn !== multiplayMyTeam) return false; // 내 턴 아님
+    return targetPlayer === multiplayMyTeam; // 내 필드에만 드롭 가능
   };
 
   const canMultiplayHandDragPlayer = (player: "A" | "B"): boolean => {
@@ -17622,7 +17623,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                                 ? "border border-sky-400/50 bg-black/30"
                                 : "border border-rose-400/40 bg-rose-950/60"
                       : "border border-dashed border-slate-700/50 bg-transparent"
-                  } ${isDragSource || isDanhaStealFlySource ? (isMobile ? "pointer-events-none" : "opacity-0 pointer-events-none") : ""} ${isMultiplayOpponent(player) ? "pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
+                  } ${isDragSource || isDanhaStealFlySource ? (isMobile ? "pointer-events-none" : "opacity-0 pointer-events-none") : ""} ${isMultiplayOpponent(player) && !danhaSteal ? "pointer-events-none" : ""} ${canPointerDrag ? "cursor-grab active:cursor-grabbing select-none" : "cursor-pointer"}`}
                   style={{ width: "100%", height: "100%", touchAction: "none" }}
                   data-mobile-hand-card="1"
                   data-hand-player={player}
@@ -20792,7 +20793,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "B");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB || isDanhaStealFlySourceB ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("B") ? "pointer-events-none" : ""} ${canPointerDragB ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandB ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandB ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandB ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandB ? simpanHandReplaceSelectableClass : `border-rose-400/40 bg-rose-950/60 ${canPointerDragB ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(244,63,94,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceB || isDanhaStealFlySourceB ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("B") && !danhaStealFromHandB ? "pointer-events-none" : ""} ${canPointerDragB ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragB ? (e) => beginHandDrag(e, i, "B", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
@@ -21002,7 +21003,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         handleDanhaSteal(i, "A");
                       }
                     }}
-                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA || isDanhaStealFlySourceA ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("A") ? "pointer-events-none" : ""} ${canPointerDragA ? "select-none" : ""}`}
+                    className={`${handCardStyle} group touch-manipulation ${card ? (momoDiscardHandA ? 'border-[3px] border-amber-400 bg-amber-900/40 shadow-[0_0_25px_rgba(251,191,36,0.8)] animate-pulse cursor-pointer' : danhaStealFromHandA ? 'border-[3px] border-sky-400 bg-sky-900/35 shadow-[0_0_25px_rgba(56,189,248,0.85)] animate-pulse cursor-pointer' : witchTarotDiscardHandA ? 'border-[3px] border-violet-300 bg-violet-950/50 shadow-[0_0_25px_rgba(167,139,250,0.85)] animate-pulse cursor-pointer' : simpanPickHandA ? simpanHandReplaceSelectableClass : `border-sky-400/50 ${canPointerDragA ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} hover:-translate-y-4 hover:shadow-[0_0_20px_rgba(56,189,248,0.6)] transition-transform duration-300`) : 'border-dashed border-slate-700/50 bg-transparent'} ${isDragSourceA || isDanhaStealFlySourceA ? "opacity-0 scale-[0.98] pointer-events-none" : ""} ${isMultiplayOpponent("A") && !danhaStealFromHandA ? "pointer-events-none" : ""} ${canPointerDragA ? "select-none" : ""}`}
                     onPointerDown={card && canPointerDragA ? (e) => beginHandDrag(e, i, "A", card) : undefined}
                     onPointerMove={handDrag ? updateHandDrag : undefined}
                     onPointerUp={handDrag ? finishHandDrag : undefined}
