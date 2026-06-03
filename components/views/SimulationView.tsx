@@ -1354,6 +1354,18 @@ export default function SimulationView({
     : null;
   const multiplayFlipBoard = multiplayMyRole === "player_b";
 
+  // 마녀 타로 진행 중 현재 스텝이 상대 것인지 여부
+  const isWitchTarotOtherPlayerStep =
+    !!multiplayMyTeam &&
+    !!state?.witchTarotPending &&
+    state.witchTarotPending.coinHeads !== null &&
+    (() => {
+      return (
+        witchTarotStepPlayer(state.witchTarotPending!.stepIndex, state.witchTarotPending!.casterPlayer) !==
+        multiplayMyTeam
+      );
+    })();
+
   const {
     onSurrender,
     onDrawRequest,
@@ -2537,9 +2549,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         finishWitchTarotSequence(seq.casterPlayer);
         return;
       }
+      // 멀티플레이: 다음 스텝이 나의 스텝이 아니면 여기서 멈추고 상대에게 넘김
+      if (multiplayMyTeam) {
+        const nextStepPlayer = witchTarotStepPlayer(seq.stepIndex, seq.casterPlayer);
+        if (nextStepPlayer !== multiplayMyTeam) {
+          witchTarotSequenceActiveRef.current = false;
+          notifyMultiplaySync();
+          return;
+        }
+      }
       runWitchTarotCurrentStepRef.current();
     }, 0);
-  }, [finishWitchTarotSequence]);
+  }, [finishWitchTarotSequence, notifyMultiplaySync, multiplayMyTeam]);
 
   const advanceWitchTarotAfterStep = scheduleWitchTarotResumeAfterIdle;
 
@@ -2898,6 +2919,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     guihwanRestoreOnMountDoneRef.current = true;
     setIsGuihwanRewindOpen(true);
   }, [state, isInitializing, multiplayMyTeam]);
+
+  // 멀티플레이: witchTarotPending.stepIndex가 변할 때 내 스텝이면 시퀀스 활성화
+  useEffect(() => {
+    if (!state?.witchTarotPending) return;
+    if (!multiplayMyTeam) return;
+    if (witchTarotSequenceActiveRef.current) return;
+
+    const pending = state.witchTarotPending;
+    if (pending.coinHeads === null) return;
+    if (pending.stepIndex >= WITCH_TAROT_TOTAL_STEPS) return;
+
+    const stepPlayer = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
+    if (stepPlayer !== multiplayMyTeam) return;
+
+    witchTarotSequenceRef.current = {
+      casterPlayer: pending.casterPlayer,
+      coinHeads: pending.coinHeads,
+      stepIndex: pending.stepIndex,
+    };
+    witchTarotSequenceActiveRef.current = true;
+    setWitchTarotFlowActive(true);
+
+    window.setTimeout(() => {
+      if (witchTarotSequenceActiveRef.current) {
+        runWitchTarotCurrentStepRef.current();
+      }
+    }, 0);
+  }, [
+    state?.witchTarotPending?.stepIndex,
+    state?.witchTarotPending?.coinHeads,
+    state?.witchTarotPending?.casterPlayer,
+    multiplayMyTeam,
+  ]);
+
+  // witchTarotPending이 null이 되면 모든 클라이언트에서 상태 정리
+  useEffect(() => {
+    if (state?.witchTarotPending) return;
+    if (!witchTarotFlowActive && !witchTarotSequenceActiveRef.current) return;
+    setWitchTarotFlowActive(false);
+    witchTarotSequenceActiveRef.current = false;
+    witchTarotSequenceRef.current = null;
+    witchTarotDiscardPlayerRef.current = null;
+    setWitchTarotDiscardPlayer(null);
+  }, [state?.witchTarotPending, witchTarotFlowActive]);
 
   useEffect(() => {
     if (!state || !witchTarotDiscardPlayer || !witchTarotSequenceActiveRef.current) return;
@@ -17840,7 +17905,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         setSelectedHandCard(null);
       }}
     >
-      {state?.simpanPeekReveal &&
+      {!isWitchTarotOtherPlayerStep &&
+      state?.simpanPeekReveal &&
       state.simpanPeekReveal.peekKind !== "opening" &&
       !simpanPeekFly ? (
         <div
@@ -17853,7 +17919,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }}
         />
       ) : null}
-      {simpanPeekFly ? (
+      {!isWitchTarotOtherPlayerStep && simpanPeekFly ? (
         <div
           aria-hidden
           className={
@@ -18921,7 +18987,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
-      {witchTarotDiscardPlayer && (
+      {!isWitchTarotOtherPlayerStep && witchTarotDiscardPlayer && (
         <div className="absolute top-20 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-full border-2 border-white/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3 text-sm font-black text-white shadow-[0_0_30px_rgba(139,92,246,0.85)] animate-pulse pointer-events-none md:text-base">
           [마녀 타로] Player {witchTarotDiscardPlayer} — 패에서 버릴 카드를 선택하세요.
         </div>
@@ -19491,6 +19557,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 <button
                   onClick={e => {
                     e.stopPropagation();
+                    if (isWitchTarotOtherPlayerStep) return;
                     if (state.simpanHandChoice) dismissSimpanViaRewind();
                     else setIsRewindModalOpen(true);
                   }}
@@ -19644,7 +19711,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     />
                   </>
                 ) : null}
-                {simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
+                {!isWitchTarotOtherPlayerStep && simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
                   <div
                     className="pointer-events-none absolute inset-0 z-[120] flex flex-col items-center justify-center gap-2 px-1"
                     aria-live="polite"
@@ -20328,6 +20395,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             <button 
               onClick={(e) => {
                 e.stopPropagation();
+                if (isWitchTarotOtherPlayerStep) return;
                 if (state.simpanHandChoice) dismissSimpanViaRewind();
                 else setIsRewindModalOpen(true);
               }}
@@ -20405,7 +20473,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </div>
               </div>
             ) : null}
-            {simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
+            {!isWitchTarotOtherPlayerStep && simpanCenterDisplay && !simpanPeekFly && !spellUsageReveal ? (
               <div
                 className="pointer-events-none absolute inset-x-0 top-[48%] z-[120] flex -translate-y-1/2 flex-col items-center justify-center gap-2 px-4"
                 aria-live="polite"
