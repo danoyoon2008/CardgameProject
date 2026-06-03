@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { GuardedImg } from "../../../ui/GuardedImg";
 import { IconDeck } from "../../../ui/Icons";
 import type { CardRow } from "../../../../types/game";
@@ -20,13 +21,20 @@ export default function RewindModal({
   revivableIndices,
   onSelectRevive,
 }: RewindModalProps) {
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const revivableSet = new Set(revivableIndices ?? []);
   const isGuihwanPickMode = onSelectRevive != null;
 
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out] p-4 md:p-8"
-      onClick={onClose}
+      onClick={() => {
+        if (selectedIdx !== null) {
+          setSelectedIdx(null);
+        } else {
+          onClose();
+        }
+      }}
     >
       <div
         className="relative w-full max-w-[1200px] h-[85vh] bg-[#0a1628] border-2 border-slate-700 rounded-3xl p-6 md:p-10 flex flex-col shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-hidden"
@@ -85,9 +93,13 @@ export default function RewindModal({
                   <div
                     key={`rewind-${idx}`}
                     className={cardClass}
-                    onClick={() => {
-                      if (isGuihwanPickMode) return;
-                      if (onOpenDetail) onOpenDetail(rCard);
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isGuihwanPickMode) {
+                        if (isGuihwanRevivable) onSelectRevive(idx);
+                        return;
+                      }
+                      setSelectedIdx(prev => (prev === idx ? null : idx));
                     }}
                   >
                     {rCard.image_url ? (
@@ -103,7 +115,13 @@ export default function RewindModal({
                     ) : null}
 
                     {onOpenDetail || isGuihwanRevivable ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 opacity-0 backdrop-blur-[2px] transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
+                      <div
+                        className={`absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 backdrop-blur-[2px] transition-opacity ${
+                          selectedIdx === idx || isGuihwanRevivable
+                            ? "opacity-100 pointer-events-auto"
+                            : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+                        }`}
+                      >
                         {onOpenDetail ? (
                           <button
                             type="button"
