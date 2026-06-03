@@ -1782,6 +1782,7 @@ export default function SimulationView({
   const witchTarotRestoreOnMountDoneRef = useRef(false);
   const witchTarotFinishingRef = useRef(false);
   const witchTarotCoinStartScheduledRef = useRef(false);
+  const opponentCoinShownRef = useRef<boolean | null>(null);
   const spellUsageMotionActiveRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
@@ -6712,11 +6713,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!multiplayMyTeam) return;
     const pending = state?.witchTarotPending;
-    if (!pending || pending.coinHeads === null) return;
+
+    if (!pending || pending.coinHeads === null) {
+      opponentCoinShownRef.current = null;
+      return;
+    }
 
     if (multiplayMyTeam === pending.casterPlayer) return;
 
-    if (witchTarotCoin != null) return;
+    if (opponentCoinShownRef.current === pending.coinHeads) return;
+    opponentCoinShownRef.current = pending.coinHeads;
 
     setWitchTarotCoin({ phase: "RESULT", heads: pending.coinHeads });
     window.setTimeout(() => {
@@ -6726,7 +6732,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     state?.witchTarotPending?.coinHeads,
     state?.witchTarotPending?.casterPlayer,
     multiplayMyTeam,
-    witchTarotCoin,
   ]);
 
   /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */
