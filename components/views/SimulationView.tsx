@@ -9247,9 +9247,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const player = cardEl.dataset.handPlayer as "A" | "B" | undefined;
     const cardIndexRaw = cardEl.dataset.handIndex;
     if ((player !== "A" && player !== "B") || cardIndexRaw === undefined) return;
-    if (multiplayMyTeam && player !== multiplayMyTeam) return;
     const cardIndex = Number(cardIndexRaw);
     if (!Number.isFinite(cardIndex)) return;
+    if (multiplayMyTeam && player !== multiplayMyTeam) {
+      // 단하 스킬(마법의 갈고리) 활성화 중에는 상대 손패 탭을 허용
+      const tapHandler = mobileHandTapHandlersRef.current[`${player}-${cardIndex}`];
+      if (!tapHandler) return;
+      // 탭 전용 처리: 드래그 없이 탭만 허용
+      ev.preventDefault();
+      ev.stopPropagation();
+      const t = ev.touches[0];
+      if (!t) return;
+      resetMobileTouchDragRef();
+      mobileTouchSourceElRef.current = cardEl;
+      mobileTouchTapHandlerRef.current = tapHandler;
+      touchDragRef.current = {
+        cardIndex,
+        player,
+        startX: t.clientX,
+        startY: t.clientY,
+        isDragging: false,
+        dragLayerEls: [],
+        startedOnDetailBtn: false,
+      };
+      attachMobileTouchDocumentListeners();
+      return;
+    }
     if (!state) return;
 
     const hand = player === "A" ? state.playerA.hand : state.playerB.hand;

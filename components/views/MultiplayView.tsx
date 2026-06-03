@@ -403,15 +403,24 @@ function MultiplayGameSession({
     });
   }, []);
 
-  const triggerRematchIfBothReady = useCallback(() => {
+  const triggerRematchIfBothReady = useCallback(async () => {
     if (rematchBothReadyRef.current) return;
     if (!myRematchRequested || !opponentRematchRequested) return;
     rematchBothReadyRef.current = true;
+    // 재매칭 전 현재 방 반드시 finished 처리
+    const supabase = createClient();
+    if (supabase) {
+      await supabase
+        .from("game_rooms")
+        .update({ status: "finished", updated_at: new Date().toISOString() })
+        .eq("id", roomId)
+        .neq("status", "finished");
+    }
     onRematchReady();
-  }, [myRematchRequested, opponentRematchRequested, onRematchReady]);
+  }, [myRematchRequested, opponentRematchRequested, onRematchReady, roomId]);
 
   useEffect(() => {
-    triggerRematchIfBothReady();
+    void triggerRematchIfBothReady();
   }, [myRematchRequested, opponentRematchRequested, triggerRematchIfBothReady]);
 
   const handleLeaveLobby = useCallback(async () => {
