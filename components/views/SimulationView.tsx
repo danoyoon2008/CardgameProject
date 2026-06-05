@@ -450,6 +450,9 @@ type ControlledSimulationBinding = {
   >;
   /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
   onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
+  /** 멀티플레이 — 마녀 타로 시퀀스 완전 종료 신호 */
+  onWitchTarotFinish?: () => void;
+  witchTarotFinishTriggerRef?: MutableRefObject<(() => void) | null>;
 };
 
 interface SimulationViewProps {
@@ -1901,6 +1904,7 @@ export default function SimulationView({
   const onWitchTarotTransferRef = useRef<
     ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
   >(null);
+  const onWitchTarotFinishRef = useRef<(() => void) | null>(null);
 
   const scheduleTeslaRewardDrawPeek = useCallback((counterPlayer: "A" | "B") => {
     setState(prev => {
@@ -2592,6 +2596,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
       if (seq.stepIndex >= WITCH_TAROT_TOTAL_STEPS) {
         finishWitchTarotSequence(seq.casterPlayer);
+        // 멀티플레이: 시전자가 아닌 쪽이 종료 시 시전자에게 완료 신호 전송
+        if (multiplayMyTeam) {
+          onWitchTarotFinishRef.current?.();
+        }
         return;
       }
       // 멀티플레이: 다음 스텝이 나의 스텝이 아니면 여기서 멈추고 상대에게 넘김
@@ -2616,6 +2624,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   runWitchTarotCurrentStepRef.current = runWitchTarotCurrentStep;
 
   onWitchTarotTransferRef.current = controlledSimulation?.onWitchTarotTransfer ?? null;
+  onWitchTarotFinishRef.current = controlledSimulation?.onWitchTarotFinish ?? null;
 
   // 멀티플레이: MultiplayView가 Broadcast 수신 후 직접 호출할 수 있도록 트리거 함수 등록
   if (controlledSimulation?.witchTarotTriggerRef) {
@@ -2639,6 +2648,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           runWitchTarotCurrentStepRef.current();
         }
       }, 0);
+    };
+  }
+
+  if (controlledSimulation?.witchTarotFinishTriggerRef) {
+    controlledSimulation.witchTarotFinishTriggerRef.current = () => {
+      if (!witchTarotSequenceActiveRef.current && !witchTarotFlowActive) return;
+      const casterPlayer = witchTarotSequenceRef.current?.casterPlayer;
+      if (!casterPlayer) return;
+      finishWitchTarotSequence(casterPlayer);
     };
   }
 

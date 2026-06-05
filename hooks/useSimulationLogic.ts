@@ -145,6 +145,9 @@ export type ControlledSimulationBinding = {
   >;
   /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
   onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
+  /** 멀티플레이 — 마녀 타로 시퀀스 완전 종료 신호 */
+  onWitchTarotFinish?: () => void;
+  witchTarotFinishTriggerRef?: MutableRefObject<(() => void) | null>;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {

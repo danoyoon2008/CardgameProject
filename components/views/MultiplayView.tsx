@@ -289,6 +289,7 @@ function MultiplayGameSession({
   const witchTarotTriggerRef = useRef<
     ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
   >(null);
+  const witchTarotFinishTriggerRef = useRef<(() => void) | null>(null);
 
   const controlledSimulation: ControlledSimulationBinding = {
     state,
@@ -297,11 +298,19 @@ function MultiplayGameSession({
     setIsInitializing,
     syncAfterAction: scheduleSyncAfterAction,
     witchTarotTriggerRef,
+    witchTarotFinishTriggerRef,
     onWitchTarotTransfer: (stepIndex: number, casterPlayer: "A" | "B") => {
       void channelRef.current?.send({
         type: "broadcast",
         event: "witch_tarot_transfer",
         payload: { stepIndex, casterPlayer },
+      });
+    },
+    onWitchTarotFinish: () => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "witch_tarot_finish",
+        payload: {},
       });
     },
   };
@@ -598,6 +607,11 @@ function MultiplayGameSession({
 
         // witchTarotTriggerRef를 통해 SimulationView의 시퀀스를 직접 시작
         witchTarotTriggerRef.current?.(stepIndex, casterPlayer);
+      })
+      .on("broadcast", { event: "witch_tarot_finish" }, () => {
+        const myLetter: "A" | "B" = myRole === "player_a" ? "A" : "B";
+        // 시전자(caster)에게만 처리 - 트리거 ref로 종료 함수 호출
+        witchTarotFinishTriggerRef.current?.();
       });
 
     // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
