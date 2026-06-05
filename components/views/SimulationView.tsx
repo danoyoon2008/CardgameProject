@@ -606,6 +606,7 @@ type SimpanPeekFlyVisualState = {
   to: { x: number; y: number; w: number; h: number };
   /** 0: 시작 위치 고정, 1: 목적지로 전환(전환 CSS 적용) */
   phase: 0 | 1;
+  peekTick: number;
   flyMs?: number;
   /** 게임 시작 초기 지급 — 신규 드로우 흰 윤곽·섬광 없음 */
   isOpening?: boolean;
@@ -1859,9 +1860,17 @@ export default function SimulationView({
   const completeSimpanPeekRevealToHand = (
     prev: SimulationState,
     player: "A" | "B",
-    pendingCard: CardRow
+    pendingCard: CardRow,
+    expectedPeekTick?: number
   ): SimulationState | null => {
     if (!prev.simpanPeekReveal) return null;
+    // peekTick이 다르면 다음 스텝의 reveal이므로 건드리지 않음
+    if (
+      expectedPeekTick !== undefined &&
+      (prev.simpanPeekTick ?? 0) !== expectedPeekTick
+    ) {
+      return null;
+    }
     if (
       prev.simpanPeekReveal.player !== player ||
       prev.simpanPeekReveal.pendingCard !== pendingCard
@@ -6277,6 +6286,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           from: { x: fr.left, y: fr.top, w: fr.width, h: fr.height },
           to: { x: tr.left, y: tr.top, w: tr.width, h: tr.height },
           phase: 0,
+          peekTick: snap.simpanPeekTick ?? 0,
           flyMs,
           isOpening: peekKind === "opening",
         });
@@ -6336,12 +6346,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (!simpanPeekFly || simpanPeekFly.phase !== 1) return;
-    const { player, pendingCard, flyMs = SIMPAN_PEEK_HAND_FLY_MS } = simpanPeekFly;
+    const peekTick = simpanPeekFly.peekTick;
+    const player = simpanPeekFly.player;
+    const pendingCard = simpanPeekFly.pendingCard;
+    const flyMs = simpanPeekFly.flyMs ?? SIMPAN_PEEK_HAND_FLY_MS;
     const tid = window.setTimeout(() => {
       setSimpanPeekFly(null);
       setState(prev => {
         if (!prev?.simpanPeekReveal) return prev;
-        const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard);
+        const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard, peekTick);
         if (merged && witchTarotSequenceActiveRef.current) {
           simulationStateRef.current = merged;
         }
