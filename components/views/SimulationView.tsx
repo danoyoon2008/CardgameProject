@@ -2609,7 +2609,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (nextStepPlayer !== myPlayerLetter) {
           witchTarotSequenceActiveRef.current = false;
           setWitchTarotFlowActive(false);
-          notifyMultiplaySync();
           // useEffect/상태 의존 없이 Broadcast로 직접 전환 신호 전송
           onWitchTarotTransferRef.current?.(seq.stepIndex, seq.casterPlayer);
           return;
@@ -2617,7 +2616,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
       runWitchTarotCurrentStepRef.current();
     }, 0);
-  }, [finishWitchTarotSequence, notifyMultiplaySync, multiplayMyTeam, setWitchTarotFlowActive]);
+  }, [finishWitchTarotSequence, multiplayMyTeam, setWitchTarotFlowActive]);
 
   const advanceWitchTarotAfterStep = scheduleWitchTarotResumeAfterIdle;
 
