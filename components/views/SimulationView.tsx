@@ -2629,7 +2629,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       };
       witchTarotSequenceActiveRef.current = true;
       setWitchTarotFlowActive(true);
-      runWitchTarotCurrentStepRef.current();
+      // React 상태 업데이트(setWitchTarotFlowActive)가 처리된 후 실행
+      window.setTimeout(() => {
+        if (witchTarotSequenceActiveRef.current) {
+          runWitchTarotCurrentStepRef.current();
+        }
+      }, 0);
     };
   }
 
