@@ -162,7 +162,7 @@ export default function Home() {
         
         <Sidebar mainView={game.mainView} setMainView={game.setMainView} isDarkMode={game.isDarkMode} newCardIdsSize={game.newCardIds.size} />
 
-        <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 ${game.mainView === "battle" ? "justify-center" : "justify-start overflow-y-auto"}`}>
+        <main className={`order-1 flex min-h-full flex-1 flex-col lg:order-2 ${game.mainView === "battle" ? "justify-center" : "justify-start overflow-y-auto"}`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
           ) : (
@@ -313,7 +313,7 @@ export default function Home() {
       `}} />
 
       {isFullScreenGame ? (
-        <main className={`order-1 flex min-h-0 flex-1 flex-col lg:order-2 justify-center`}>
+        <main className={`order-1 flex min-h-full flex-1 flex-col lg:order-2 justify-center`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
           ) : game.cardsLoading ? (
