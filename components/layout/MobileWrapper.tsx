@@ -94,6 +94,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
             width: MOBILE_LOBBY_BASE_W,
             overflow: "visible",
             minHeight: "200vh",
+            background: "#050a14",
           }}
         >
           {children}
