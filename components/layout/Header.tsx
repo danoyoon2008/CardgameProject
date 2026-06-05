@@ -1,7 +1,7 @@
 // components/layout/Header.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { User } from "@supabase/supabase-js";
 import { MainView } from "../../types/game";
 import { IconUser, IconGold, IconToken, IconShard } from "../ui/Icons";
@@ -20,6 +20,17 @@ function HamburgerIcon() {
   return (
     <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconFriends() {
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth={1.8} />
+      <path d="M3 19c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+      <circle cx="18" cy="8" r="2.5" stroke="currentColor" strokeWidth={1.8} />
+      <path d="M15 19c0-2.485 1.567-4.5 3.5-4.5" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
     </svg>
   );
 }
@@ -53,6 +64,104 @@ export default function Header({
   newCardIdsSize = 0,
 }: HeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [friendPanelOpen, setFriendPanelOpen] = useState(false);
+  const friendPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!friendPanelOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (friendPanelRef.current && !friendPanelRef.current.contains(e.target as Node)) {
+        setFriendPanelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [friendPanelOpen]);
+
+  const friendPanel = (
+    <div
+      ref={friendPanelRef}
+      style={{
+        position: "absolute",
+        top: layoutMobile ? MOBILE_HEADER_H : 56,
+        right: 0,
+        width: 280,
+        background: isDarkMode ? "#0d1f3c" : "#ffffff",
+        border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.12)" : "#e2e8f0"}`,
+        borderRadius: 16,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+        zIndex: 200,
+        overflow: "hidden",
+      }}
+    >
+      {/* 상단 버튼 영역 */}
+      <div style={{ padding: "12px 12px 8px" }}>
+        <button
+          type="button"
+          style={{
+            width: "100%",
+            padding: "10px 14px",
+            marginBottom: 6,
+            borderRadius: 10,
+            border: `1px solid ${isDarkMode ? "rgba(99,179,237,0.3)" : "#bfdbfe"}`,
+            background: isDarkMode ? "rgba(56,189,248,0.1)" : "#eff6ff",
+            color: isDarkMode ? "#7dd3fc" : "#2563eb",
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: "pointer",
+            textAlign: "left" as const,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>＋</span> 친구 추가
+        </button>
+        <button
+          type="button"
+          style={{
+            width: "100%",
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: `1px solid ${isDarkMode ? "rgba(167,139,250,0.3)" : "#e9d5ff"}`,
+            background: isDarkMode ? "rgba(139,92,246,0.1)" : "#faf5ff",
+            color: isDarkMode ? "#c4b5fd" : "#7c3aed",
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: "pointer",
+            textAlign: "left" as const,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>🔔</span> 친구 요청
+        </button>
+      </div>
+
+      {/* 구분선 */}
+      <div style={{ height: 1, background: isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9", margin: "0 12px" }} />
+
+      {/* 친구 목록 영역 */}
+      <div style={{ padding: "10px 12px 12px" }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? "#64748b" : "#94a3b8", marginBottom: 8, letterSpacing: 1 }}>
+          친구 목록
+        </p>
+        <div
+          style={{
+            minHeight: 80,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: isDarkMode ? "#334155" : "#cbd5e1",
+            fontSize: 13,
+          }}
+        >
+          아직 친구가 없습니다.
+        </div>
+      </div>
+    </div>
+  );
 
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
@@ -170,37 +279,64 @@ export default function Header({
           </div>
 
           {user ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              {currencyItems.map(({ onClick, Icon, value, ring, color, key }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={onClick}
-                  style={{
-                    height: MOBILE_HEADER_CURRENCY_H,
-                    paddingLeft: 8,
-                    paddingRight: 8,
-                    borderRadius: 999,
-                    border: `1px solid ${ring}`,
-                    background: isDarkMode ? "rgba(0,0,0,0.4)" : "#fff",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {currencyItems.map(({ onClick, Icon, value, ring, color, key }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={onClick}
                     style={{
-                      fontSize: MOBILE_HEADER_CURRENCY_FS,
-                      fontWeight: 700,
-                      color,
-                      fontVariantNumeric: "tabular-nums",
+                      height: MOBILE_HEADER_CURRENCY_H,
+                      paddingLeft: 8,
+                      paddingRight: 8,
+                      borderRadius: 999,
+                      border: `1px solid ${ring}`,
+                      background: isDarkMode ? "rgba(0,0,0,0.4)" : "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
                     }}
                   >
-                    {value.toLocaleString()}
-                  </span>
-                </button>
-              ))}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span
+                      style={{
+                        fontSize: MOBILE_HEADER_CURRENCY_FS,
+                        fontWeight: 700,
+                        color,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {value.toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                aria-label="친구"
+                onClick={() => setFriendPanelOpen(prev => !prev)}
+                style={{
+                  width: MOBILE_HEADER_CURRENCY_H,
+                  height: MOBILE_HEADER_CURRENCY_H,
+                  borderRadius: 10,
+                  border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.15)" : "#e2e8f0"}`,
+                  background: friendPanelOpen
+                    ? (isDarkMode ? "rgba(56,189,248,0.2)" : "#eff6ff")
+                    : (isDarkMode ? "rgba(255,255,255,0.08)" : "#f8fafc"),
+                  color: isDarkMode ? "#7dd3fc" : "#2563eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <IconFriends />
+              </button>
+
+              {friendPanelOpen && friendPanel}
             </div>
           ) : null}
         </header>
@@ -238,7 +374,7 @@ export default function Header({
         </div>
         
         {user && (
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="relative flex flex-wrap items-center gap-2 sm:gap-3">
             <button onClick={handleEditGold} className={`flex items-center gap-1.5 sm:gap-2 rounded-full px-2.5 py-1.5 sm:px-3 sm:py-2 ring-1 transition-all hover:scale-105 active:scale-95 ${isDarkMode ? "bg-black/40 ring-amber-500/30 shadow-[inset_0_1px_4px_rgba(245,158,11,0.2)]" : "bg-white ring-amber-300 shadow-sm"}`} title="클릭하여 골드 수정">
               <IconGold className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
               <span className={`font-bold tabular-nums tracking-wide text-sm sm:text-base ${isDarkMode ? "text-amber-100" : "text-amber-600"}`}>{gold.toLocaleString()}</span>
@@ -251,6 +387,23 @@ export default function Header({
               <IconShard className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]" />
               <span className={`font-bold tabular-nums tracking-wide text-sm sm:text-base ${isDarkMode ? "text-cyan-100" : "text-cyan-600"}`}>{cardShards.toLocaleString()}</span>
             </button>
+
+            <button
+              type="button"
+              aria-label="친구"
+              onClick={() => setFriendPanelOpen(prev => !prev)}
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors ${
+                friendPanelOpen
+                  ? "border-sky-500/50 bg-sky-500/20 text-sky-300"
+                  : isDarkMode
+                  ? "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                  : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <IconFriends />
+            </button>
+
+            {friendPanelOpen && friendPanel}
           </div>
         )}
       </div>
