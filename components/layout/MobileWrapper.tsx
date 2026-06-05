@@ -69,7 +69,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
       style={{
         position: "fixed",
         inset: 0,
-        backgroundColor: "black",
+        background: "linear-gradient(180deg, #0a1628 0%, #0d1f3c 45%, #050a14 100%)",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
@@ -93,6 +93,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
           style={{
             width: MOBILE_LOBBY_BASE_W,
             overflow: "visible",
+            minHeight: "200vh",
           }}
         >
           {children}
