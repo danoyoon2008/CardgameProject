@@ -698,7 +698,7 @@ function reconcileWitchTarotPendingFromSnapshot(snap: SimulationState): Simulati
   if (snap.simpanPeekReveal?.peekKind === "witchTarot") {
     return patchWitchTarotPending(snap, {
       casterPlayer: caster,
-      coinHeads: true,
+      coinHeads: p?.coinHeads ?? true,
       stepIndex: p?.stepIndex ?? 0,
       awaitingDiscardPlayer: null,
     });
@@ -706,7 +706,7 @@ function reconcileWitchTarotPendingFromSnapshot(snap: SimulationState): Simulati
   if (snap.simpanHandChoice) {
     return patchWitchTarotPending(snap, {
       casterPlayer: caster,
-      coinHeads: true,
+      coinHeads: p?.coinHeads ?? true,
       stepIndex: p?.stepIndex ?? 0,
       awaitingDiscardPlayer: null,
     });
@@ -2608,6 +2608,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const nextStepPlayer = witchTarotStepPlayer(seq.stepIndex, seq.casterPlayer);
         if (nextStepPlayer !== myPlayerLetter) {
           witchTarotSequenceActiveRef.current = false;
+          setWitchTarotFlowActive(false);
           notifyMultiplaySync();
           // useEffect/상태 의존 없이 Broadcast로 직접 전환 신호 전송
           onWitchTarotTransferRef.current?.(seq.stepIndex, seq.casterPlayer);
@@ -2616,7 +2617,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
       runWitchTarotCurrentStepRef.current();
     }, 0);
-  }, [finishWitchTarotSequence, notifyMultiplaySync, multiplayMyTeam]);
+  }, [finishWitchTarotSequence, notifyMultiplaySync, multiplayMyTeam, setWitchTarotFlowActive]);
 
   const advanceWitchTarotAfterStep = scheduleWitchTarotResumeAfterIdle;
 
