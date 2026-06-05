@@ -139,6 +139,8 @@ export type ControlledSimulationBinding = {
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
   /** 멀티플레이 — 게임 행동 후 Broadcast 동기화 예약 */
   syncAfterAction?: () => void;
+  /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
+  onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {

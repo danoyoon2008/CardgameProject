@@ -443,8 +443,9 @@ type ControlledSimulationBinding = {
   setState: Dispatch<SetStateAction<SimulationState | null>>;
   isInitializing: boolean;
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
-  /** 멀티플레이 — 게임 행동 후 Broadcast 동기화 예약 */
   syncAfterAction?: () => void;
+  /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
+  onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
 };
 
 interface SimulationViewProps {
@@ -2557,6 +2558,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (nextStepPlayer !== myPlayerLetter) {
           witchTarotSequenceActiveRef.current = false;
           notifyMultiplaySync();
+          // useEffect 대신 직접 Broadcast로 전환 신호 전송
+          controlledSimulation?.onWitchTarotTransfer?.(seq.stepIndex, seq.casterPlayer);
           return;
         }
       }
@@ -2928,40 +2931,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     guihwanRestoreOnMountDoneRef.current = true;
     setIsGuihwanRewindOpen(true);
   }, [state, isInitializing, multiplayMyTeam]);
-
-  // 멀티플레이: witchTarotPending.stepIndex가 변할 때 내 스텝이면 시퀀스 활성화
-  useEffect(() => {
-    if (!state?.witchTarotPending) return;
-    if (!multiplayMyTeam) return;
-    if (witchTarotSequenceActiveRef.current) return;
-
-    const pending = state.witchTarotPending;
-    if (pending.coinHeads === null) return;
-    if (pending.stepIndex >= WITCH_TAROT_TOTAL_STEPS) return;
-
-    const myPlayerLetter: "A" | "B" = multiplayMyTeam;
-    const stepPlayer = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
-    if (stepPlayer !== myPlayerLetter) return;
-
-    witchTarotSequenceRef.current = {
-      casterPlayer: pending.casterPlayer,
-      coinHeads: pending.coinHeads,
-      stepIndex: pending.stepIndex,
-    };
-    witchTarotSequenceActiveRef.current = true;
-    setWitchTarotFlowActive(true);
-
-    window.setTimeout(() => {
-      if (witchTarotSequenceActiveRef.current) {
-        runWitchTarotCurrentStepRef.current();
-      }
-    }, 0);
-  }, [
-    state?.witchTarotPending?.stepIndex,
-    state?.witchTarotPending?.coinHeads,
-    state?.witchTarotPending?.casterPlayer,
-    multiplayMyTeam,
-  ]);
 
   // witchTarotPending이 null이 되면 모든 클라이언트에서 상태 정리
   useEffect(() => {
