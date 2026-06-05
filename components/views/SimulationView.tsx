@@ -1828,6 +1828,39 @@ export default function SimulationView({
     multiplayMyTeam,
   ]);
 
+  // 멀티플레이: stepIndex가 내 차례로 바뀌면 Broadcast 못 받은 경우를 대비해 시퀀스 활성화
+  // (witch_tarot_transfer Broadcast의 백업 메커니즘)
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.witchTarotPending;
+    if (!pending || pending.coinHeads === null) return;
+    if (pending.stepIndex >= WITCH_TAROT_TOTAL_STEPS) return;
+    if (witchTarotSequenceActiveRef.current) return;
+
+    const stepPlayer = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
+    if (stepPlayer !== multiplayMyTeam) return;
+
+    // 내 차례인데 시퀀스가 비활성 상태 → 직접 시작
+    witchTarotSequenceRef.current = {
+      casterPlayer: pending.casterPlayer,
+      coinHeads: pending.coinHeads,
+      stepIndex: pending.stepIndex,
+    };
+    witchTarotSequenceActiveRef.current = true;
+    setWitchTarotFlowActive(true);
+
+    window.setTimeout(() => {
+      if (witchTarotSequenceActiveRef.current) {
+        runWitchTarotCurrentStepRef.current();
+      }
+    }, 100); // Broadcast 트리거에 충분한 시간을 주고 그래도 안 됐을 때 발동
+  }, [
+    state?.witchTarotPending?.stepIndex,
+    state?.witchTarotPending?.coinHeads,
+    state?.witchTarotPending?.casterPlayer,
+    multiplayMyTeam,
+  ]);
+
   const spellUsageMotionActiveRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
