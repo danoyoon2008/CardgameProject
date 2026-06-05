@@ -1,7 +1,7 @@
 ﻿// components/views/SimulationView.tsx
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction, type MutableRefObject } from "react";
 import { flushSync } from "react-dom";
 import { IconBook, IconDeck, IconHome, IconLock, IconSettings, IconUser, IconUsers } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
@@ -444,6 +444,10 @@ type ControlledSimulationBinding = {
   isInitializing: boolean;
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
   syncAfterAction?: () => void;
+  /** 멀티플레이 — 마녀 타로 스텝을 외부(MultiplayView)에서 직접 시작하기 위한 트리거 ref */
+  witchTarotTriggerRef?: MutableRefObject<
+    ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
+  >;
   /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
   onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
 };
@@ -1784,6 +1788,42 @@ export default function SimulationView({
   const witchTarotFinishingRef = useRef(false);
   const witchTarotCoinStartScheduledRef = useRef(false);
   const opponentCoinShownRef = useRef<boolean | null>(null);
+
+  // 멀티플레이: 상대방 동전 연출 처리 (무한 루프 없는 ref 기반)
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.witchTarotPending;
+
+    if (!pending) {
+      opponentCoinShownRef.current = null;
+      return;
+    }
+
+    if (multiplayMyTeam === pending.casterPlayer) return; // 시전자는 제외
+
+    if (pending.coinHeads === null) {
+      // 동전 회전 시작 — 이미 회전 중이면 중복 방지
+      if (witchTarotCoin?.phase === "FLIPPING") return;
+      setWitchTarotCoin({ phase: "FLIPPING" });
+      setWitchTarotCoinFlipTick(0);
+      return;
+    }
+
+    // 동전 결과 수신 — 이미 이 결과를 재생했으면 중복 방지
+    if (opponentCoinShownRef.current === pending.coinHeads) return;
+    opponentCoinShownRef.current = pending.coinHeads;
+
+    setWitchTarotCoin({ phase: "RESULT", heads: pending.coinHeads });
+    window.setTimeout(() => {
+      setWitchTarotCoin(null);
+    }, WITCH_TAROT_COIN_RESULT_MS);
+  }, [
+    // witchTarotCoin은 의도적으로 제외 — 포함 시 무한 루프 발생
+    state?.witchTarotPending?.coinHeads,
+    state?.witchTarotPending?.casterPlayer,
+    multiplayMyTeam,
+  ]);
+
   const spellUsageMotionActiveRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
@@ -2558,7 +2598,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         if (nextStepPlayer !== myPlayerLetter) {
           witchTarotSequenceActiveRef.current = false;
           notifyMultiplaySync();
-          // useEffect 대신 직접 Broadcast로 전환 신호 전송
+          // useEffect/상태 의존 없이 Broadcast로 직접 전환 신호 전송
           controlledSimulation?.onWitchTarotTransfer?.(seq.stepIndex, seq.casterPlayer);
           return;
         }
@@ -2571,6 +2611,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   runWitchTarotAdvanceRef.current = advanceWitchTarotAfterStep;
   runWitchTarotCurrentStepRef.current = runWitchTarotCurrentStep;
+
+  // 멀티플레이: MultiplayView가 Broadcast 수신 후 직접 호출할 수 있도록 트리거 함수 등록
+  if (controlledSimulation?.witchTarotTriggerRef) {
+    controlledSimulation.witchTarotTriggerRef.current = (
+      stepIndex: number,
+      casterPlayer: "A" | "B"
+    ) => {
+      if (witchTarotSequenceActiveRef.current) return;
+      const pending = simulationStateRef.current?.witchTarotPending;
+      if (!pending || pending.coinHeads === null) return;
+
+      witchTarotSequenceRef.current = {
+        casterPlayer,
+        coinHeads: pending.coinHeads,
+        stepIndex,
+      };
+      witchTarotSequenceActiveRef.current = true;
+      setWitchTarotFlowActive(true);
+      runWitchTarotCurrentStepRef.current();
+    };
+  }
 
   const startWitchTarotCoinSequence = useCallback((casterPlayer: "A" | "B") => {
     const snap = simulationStateRef.current;
@@ -2931,17 +2992,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     guihwanRestoreOnMountDoneRef.current = true;
     setIsGuihwanRewindOpen(true);
   }, [state, isInitializing, multiplayMyTeam]);
-
-  // witchTarotPending이 null이 되면 모든 클라이언트에서 상태 정리
-  useEffect(() => {
-    if (state?.witchTarotPending) return;
-    if (!witchTarotFlowActive && !witchTarotSequenceActiveRef.current) return;
-    setWitchTarotFlowActive(false);
-    witchTarotSequenceActiveRef.current = false;
-    witchTarotSequenceRef.current = null;
-    witchTarotDiscardPlayerRef.current = null;
-    setWitchTarotDiscardPlayer(null);
-  }, [state?.witchTarotPending, witchTarotFlowActive]);
 
   useEffect(() => {
     if (!state || !witchTarotDiscardPlayer || !witchTarotSequenceActiveRef.current) return;
@@ -6676,31 +6726,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     state?.simpanPeekReveal == null ? "null" : "set",
     multiplayMyTeam,
     witchTarotFlowActive,
-  ]);
-
-  // 멀티플레이: 상대 클라이언트가 coinHeads를 state에서 수신하면 동전 연출 재생
-  useEffect(() => {
-    if (!multiplayMyTeam) return;
-    const pending = state?.witchTarotPending;
-
-    if (!pending || pending.coinHeads === null) {
-      opponentCoinShownRef.current = null;
-      return;
-    }
-
-    if (multiplayMyTeam === pending.casterPlayer) return;
-
-    if (opponentCoinShownRef.current === pending.coinHeads) return;
-    opponentCoinShownRef.current = pending.coinHeads;
-
-    setWitchTarotCoin({ phase: "RESULT", heads: pending.coinHeads });
-    window.setTimeout(() => {
-      setWitchTarotCoin(null);
-    }, WITCH_TAROT_COIN_RESULT_MS);
-  }, [
-    state?.witchTarotPending?.coinHeads,
-    state?.witchTarotPending?.casterPlayer,
-    multiplayMyTeam,
   ]);
 
   /** 디너 [혼란] — 에리스티나·라임 본인 링크만 해제(쿨은 globalTurnCount 기준 유지) */

@@ -236,10 +236,8 @@ function MultiplayGameSession({
   const rematchBothReadyRef = useRef(false);
   const drawRequestCooldownTurnRef = useRef<number>(0);
   const suppressVisibilityRef = useRef(false);
-  const witchTarotTransferRef = useRef<{ stepIndex: number; casterPlayer: "A" | "B" } | null>(null);
 
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
-  const [witchTarotTransferTick, setWitchTarotTransferTick] = useState(0);
   const [showDrawIncoming, setShowDrawIncoming] = useState(false);
   const [drawRejected, setDrawRejected] = useState(false);
   const [disconnectSecondsLeft, setDisconnectSecondsLeft] = useState<number | null>(null);
@@ -288,12 +286,17 @@ function MultiplayGameSession({
     }, 100);
   }, [syncGameState]);
 
+  const witchTarotTriggerRef = useRef<
+    ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
+  >(null);
+
   const controlledSimulation: ControlledSimulationBinding = {
     state,
     setState,
     isInitializing,
     setIsInitializing,
     syncAfterAction: scheduleSyncAfterAction,
+    witchTarotTriggerRef,
     onWitchTarotTransfer: (stepIndex: number, casterPlayer: "A" | "B") => {
       void channelRef.current?.send({
         type: "broadcast",
@@ -583,15 +586,18 @@ function MultiplayGameSession({
         setTimeout(() => setDrawRejected(false), 4000);
       })
       .on("broadcast", { event: "witch_tarot_transfer" }, ({ payload }) => {
-        const { stepIndex, casterPlayer } = payload as { stepIndex: number; casterPlayer: "A" | "B" };
+        const { stepIndex, casterPlayer } = payload as {
+          stepIndex: number;
+          casterPlayer: "A" | "B";
+        };
         const myLetter: "A" | "B" = myRole === "player_a" ? "A" : "B";
-        const stepPlayer = stepIndex < 2 ? casterPlayer : (casterPlayer === "A" ? "B" : "A");
-        if (stepPlayer !== myLetter) return; // 내 스텝이 아님
+        // 내 스텝인지 확인 (C→C→O→O 순서: 0,1=시전자, 2,3=상대)
+        const stepPlayer: "A" | "B" =
+          stepIndex < 2 ? casterPlayer : casterPlayer === "A" ? "B" : "A";
+        if (stepPlayer !== myLetter) return;
 
-        // 내 스텝 — 즉시 시퀀스 시작 요청
-        setState(prev => prev); // 강제 리렌더 없이 외부 트리거만
-        witchTarotTransferRef.current = { stepIndex, casterPlayer };
-        setWitchTarotTransferTick(t => t + 1);
+        // witchTarotTriggerRef를 통해 SimulationView의 시퀀스를 직접 시작
+        witchTarotTriggerRef.current?.(stepIndex, casterPlayer);
       });
 
     // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
@@ -612,30 +618,6 @@ function MultiplayGameSession({
       channelRef.current = null;
     };
   }, [roomId, setState, myRematchRequested, myRole, markGameFinished]);
-
-  useEffect(() => {
-    if (witchTarotTransferTick === 0) return;
-    const transfer = witchTarotTransferRef.current;
-    if (!transfer) return;
-    witchTarotTransferRef.current = null;
-
-    // SimulationView의 runWitchTarotCurrentStep을 직접 트리거할 수 없으므로
-    // state를 통해 stepIndex가 반영된 상태로 restoreWitchTarotSession이 작동하도록 함
-    // controlledSimulation의 setState로 witchTarotPending을 재설정
-    setState(prev => {
-      const snap = prev as (SimulationState & {
-        witchTarotPending?: { stepIndex: number } & Record<string, unknown> | null;
-      }) | null;
-      if (!snap?.witchTarotPending) return prev;
-      return {
-        ...snap,
-        witchTarotPending: {
-          ...snap.witchTarotPending,
-          stepIndex: transfer.stepIndex,
-        },
-      } as SimulationState;
-    });
-  }, [witchTarotTransferTick, setState]);
 
   const evaluateOpponentConnection = useCallback(
     (row: GameRoomConnectionRow) => {

@@ -1,5 +1,5 @@
 // hooks/useSimulationLogic.ts
-import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction, type MutableRefObject } from "react";
 import { CardRow, FieldCard } from "../types/game";
 import {
   applyPostAttackSkills,
@@ -139,6 +139,10 @@ export type ControlledSimulationBinding = {
   setIsInitializing: Dispatch<SetStateAction<boolean>>;
   /** 멀티플레이 — 게임 행동 후 Broadcast 동기화 예약 */
   syncAfterAction?: () => void;
+  /** 멀티플레이 — 마녀 타로 스텝을 외부(MultiplayView)에서 직접 시작하기 위한 트리거 ref */
+  witchTarotTriggerRef?: MutableRefObject<
+    ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
+  >;
   /** 멀티플레이 — 마녀 타로 스텝이 상대방 차례로 넘어갈 때 호출 */
   onWitchTarotTransfer?: (stepIndex: number, casterPlayer: "A" | "B") => void;
 };
