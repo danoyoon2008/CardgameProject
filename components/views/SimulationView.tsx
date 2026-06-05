@@ -2623,7 +2623,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       stepIndex: number,
       casterPlayer: "A" | "B"
     ) => {
-      if (witchTarotSequenceActiveRef.current) return;
       const pending = simulationStateRef.current?.witchTarotPending;
       if (!pending || pending.coinHeads === null) return;
 
@@ -6690,11 +6689,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     // 멀티플레이: 현재 스텝의 플레이어만 복원 실행
     if (multiplayMyTeam) {
       const myLetter: "A" | "B" = multiplayMyTeam;
-      if (pending.coinHeads !== null) {
+      if (pending.coinHeads === null) {
+        // 코인 시작 전: 시전자만 처리
+        if (pending.casterPlayer !== myLetter) return;
+      } else {
+        // 코인 결과 후: 멀티플레이에서는 restoreWitchTarotSession을 완전히 차단
+        // 상대방 스텝 시작은 witch_tarot_transfer Broadcast 트리거가 담당
+        // 시전자 스텝 복원만 허용 (재접속 시)
         const stepOwner = witchTarotStepPlayer(pending.stepIndex, pending.casterPlayer);
         if (stepOwner !== myLetter) return;
-      } else {
-        if (pending.casterPlayer !== myLetter) return;
+        // 내 스텝이어도 멀티플레이에서는 Broadcast가 처리하므로 차단
+        return;
       }
     }
 
