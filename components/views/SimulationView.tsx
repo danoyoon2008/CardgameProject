@@ -1898,6 +1898,9 @@ export default function SimulationView({
 
   const runWitchTarotAdvanceRef = useRef<() => void>(() => {});
   const runWitchTarotCurrentStepRef = useRef<() => void>(() => {});
+  const onWitchTarotTransferRef = useRef<
+    ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
+  >(null);
 
   const scheduleTeslaRewardDrawPeek = useCallback((counterPlayer: "A" | "B") => {
     setState(prev => {
@@ -2599,7 +2602,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           witchTarotSequenceActiveRef.current = false;
           notifyMultiplaySync();
           // useEffect/상태 의존 없이 Broadcast로 직접 전환 신호 전송
-          controlledSimulation?.onWitchTarotTransfer?.(seq.stepIndex, seq.casterPlayer);
+          onWitchTarotTransferRef.current?.(seq.stepIndex, seq.casterPlayer);
           return;
         }
       }
@@ -2611,6 +2614,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   runWitchTarotAdvanceRef.current = advanceWitchTarotAfterStep;
   runWitchTarotCurrentStepRef.current = runWitchTarotCurrentStep;
+
+  onWitchTarotTransferRef.current = controlledSimulation?.onWitchTarotTransfer ?? null;
 
   // 멀티플레이: MultiplayView가 Broadcast 수신 후 직접 호출할 수 있도록 트리거 함수 등록
   if (controlledSimulation?.witchTarotTriggerRef) {
