@@ -24,7 +24,6 @@ export function CardDetailModal({ card, onClose }: { card: CardRow | null; onClo
       <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-b from-[#0d1f3c] to-[#050a14] shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()} role="dialog">
         
         <div className="absolute right-3 top-3 z-20 flex items-center gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white">닫기</button>
           <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20">×</button>
         </div>
 
