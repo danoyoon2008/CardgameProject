@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePreventUiTextSelection } from "../../hooks/usePreventUiTextSelection";
 import { preventImageContextMenu } from "../ui/GuardedImg";
 import { MOBILE_LOBBY_BASE_W } from "./mobile/mobileLobbyConstants";
@@ -74,9 +74,10 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
         justifyContent: "center",
         alignItems: "flex-start",
         overflowX: "hidden",
-        overflowY: "scroll",
+        overflowY: "auto",
         WebkitOverflowScrolling: "touch",
         touchAction: "pan-y",
+        willChange: "scroll-position",
       }}
     >
       <div
@@ -84,8 +85,9 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
         style={{
           width: MOBILE_LOBBY_BASE_W,
           flexShrink: 0,
-          height: "auto",
-          ...({ zoom: mobileScale } as CSSProperties),
+          transformOrigin: "top center",
+          transform: `scale(${mobileScale})`,
+          height: `calc(100% / ${mobileScale})`,
         }}
       >
         <div
