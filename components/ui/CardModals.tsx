@@ -37,25 +37,25 @@ export function CardDetailModal({ card, onClose }: { card: CardRow | null; onClo
           </div>
 
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar pr-1">
-            <header className="mb-6 border-b border-white/10 pb-6 relative">
-              {card.card_number && (<div className="font-mono text-sm font-bold text-slate-500 tracking-wider mb-3">{card.card_number}</div>)}
+            <header className="mb-3 sm:mb-6 border-b border-white/10 pb-3 sm:pb-6 relative">
+              {card.card_number && (<div className="font-mono text-[10px] sm:text-sm font-bold text-slate-500 tracking-wider mb-1 sm:mb-3">{card.card_number}</div>)}
               <div className="flex items-center gap-3 mb-2">
-                {rarityStyle && displayRarity && <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${rarityStyle}`}>{displayRarity}</span>}
+                {rarityStyle && displayRarity && <span className={`px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold uppercase tracking-widest ${rarityStyle}`}>{displayRarity}</span>}
                 {card.isOwned === false && (<span className="flex items-center gap-1 rounded-full bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-400 border border-slate-700"><IconLock className="h-3 w-3" /> 미보유</span>)}
               </div>
-              <h2 className="text-xl sm:text-3xl font-bold tracking-tight text-white sm:text-4xl">{card.name || "이름 없음"}</h2>
+              <h2 className="text-base sm:text-3xl font-bold tracking-tight text-white">{card.name || "이름 없음"}</h2>
               
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                <span className="rounded-md bg-amber-500/90 px-2.5 py-1 text-xs font-bold tabular-nums text-[#0a1628]">코스트 {card.cost ?? "—"}</span>
+              <div className="mt-2 sm:mt-4 flex flex-wrap items-center gap-1.5 sm:gap-3 text-xs sm:text-sm">
+                <span className="rounded-md bg-amber-500/90 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-bold tabular-nums text-[#0a1628]">코스트 {card.cost ?? "—"}</span>
                 <span className="text-sky-200/95">타입 · {card.type ?? "—"}</span>
                 {isUnit ? (<span className="text-slate-300"><span className="text-emerald-300/95">HP {card.hp ?? "—"}</span><span className="mx-2 text-slate-600">|</span><span className="text-rose-300/95">ATK {card.atk ?? "—"}</span></span>) : isMagic ? (<span className="text-amber-200/90">지속 <span className="font-semibold tabular-nums">{card.duration ?? "—"}</span></span>) : null}
               </div>
             </header>
 
-            <div className="space-y-5 text-sm leading-relaxed text-slate-300 pb-6">
-              {isUnit && passiveDetail && (<section><h3 className="mb-2 flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wider text-emerald-400/90">패시브</span>{card.passive_name && <span className="bg-emerald-900/40 text-emerald-200 border border-emerald-500/30 px-2 py-0.5 rounded text-[11px] font-bold">{card.passive_name}</span>}</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-4 text-slate-200 ring-1 ring-white/10 leading-loose">{passiveDetail}</p></section>)}
-              {isUnit && activeDetail && (<section><h3 className="mb-2 flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wider text-sky-400/90">액티브</span>{card.active_name && <span className="bg-sky-900/40 text-sky-200 border border-sky-500/30 px-2 py-0.5 rounded text-[11px] font-bold">{card.active_name}</span>}</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-4 text-slate-200 ring-1 ring-white/10 leading-loose">{activeDetail}</p></section>)}
-              {description && (<section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-violet-400/90">설명 / 효과</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-4 text-slate-200 ring-1 ring-white/10 leading-loose">{description}</p></section>)}
+            <div className="space-y-3 sm:space-y-5 text-xs sm:text-sm leading-relaxed text-slate-300 pb-4 sm:pb-6">
+              {isUnit && passiveDetail && (<section><h3 className="mb-2 flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wider text-emerald-400/90">패시브</span>{card.passive_name && <span className="bg-emerald-900/40 text-emerald-200 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[11px] font-bold">{card.passive_name}</span>}</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-2 sm:p-4 text-[11px] sm:text-sm text-slate-200 ring-1 ring-white/10 leading-relaxed sm:leading-loose">{passiveDetail}</p></section>)}
+              {isUnit && activeDetail && (<section><h3 className="mb-2 flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wider text-sky-400/90">액티브</span>{card.active_name && <span className="bg-sky-900/40 text-sky-200 border border-sky-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[11px] font-bold">{card.active_name}</span>}</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-2 sm:p-4 text-[11px] sm:text-sm text-slate-200 ring-1 ring-white/10 leading-relaxed sm:leading-loose">{activeDetail}</p></section>)}
+              {description && (<section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-violet-400/90">설명 / 효과</h3><p className="whitespace-pre-wrap rounded-lg bg-black/30 p-2 sm:p-4 text-[11px] sm:text-sm text-slate-200 ring-1 ring-white/10 leading-relaxed sm:leading-loose">{description}</p></section>)}
             </div>
           </div>
 
