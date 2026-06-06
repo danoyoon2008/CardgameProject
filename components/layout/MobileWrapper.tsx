@@ -19,7 +19,9 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
 
   useEffect(() => {
     const updateScale = () => {
-      setMobileScale(window.innerWidth / MOBILE_LOBBY_BASE_W);
+      // 세로/가로 관계없이 항상 짧은 쪽(portrait width)을 기준으로 scale 계산
+      const portraitWidth = Math.min(window.innerWidth, window.innerHeight);
+      setMobileScale(portraitWidth / MOBILE_LOBBY_BASE_W);
     };
     updateScale();
     window.addEventListener("resize", updateScale);
