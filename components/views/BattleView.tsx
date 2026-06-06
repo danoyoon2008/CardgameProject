@@ -739,8 +739,12 @@ export default function BattleView({
           style={{
             width: MOBILE_LOBBY_BASE_W,
             boxSizing: "border-box",
-            paddingTop: 20,
-            paddingBottom: 32,
+            minHeight: `calc(100vh - 72px)`,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            paddingTop: 40,
+            paddingBottom: 40,
             background: bgGradient,
           }}
         >

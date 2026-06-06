@@ -35,6 +35,25 @@ function IconFriends() {
   );
 }
 
+function IconPersonAdd() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="10" cy="7" r="3.5" stroke="currentColor" strokeWidth={1.8} />
+      <path d="M3 20c0-3.866 3.134-7 7-7" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+      <path d="M18 13v6M15 16h6" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconBell() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 interface HeaderProps {
   authReady: boolean;
   user: User | null;
@@ -115,7 +134,7 @@ export default function Header({
             gap: 8,
           }}
         >
-          <span>＋</span> 친구 추가
+          <IconPersonAdd /> 친구 추가
         </button>
         <button
           type="button"
@@ -135,7 +154,7 @@ export default function Header({
             gap: 8,
           }}
         >
-          <span>🔔</span> 친구 요청
+          <IconBell /> 친구 요청
         </button>
       </div>
 
