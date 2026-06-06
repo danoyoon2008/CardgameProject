@@ -436,9 +436,9 @@ export default function Home() {
           )}
           
           {game.pullState === "revealing" && (
-            <div className="flex flex-col items-center w-full max-w-6xl transition-opacity duration-500 pt-8">
+            <div className="flex flex-col items-center w-full max-w-6xl transition-opacity duration-500 pt-2 sm:pt-8">
               <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-600 mb-8 tracking-widest drop-shadow-lg z-20">소환 결과</h2>
-              <div className={`${game.pulledCards.length === 1 ? 'flex justify-center items-center w-full' : 'grid grid-cols-5 gap-x-3 gap-y-6 sm:gap-x-4 sm:gap-y-8 w-full'} max-w-4xl px-2 pb-10`}>
+              <div className={`${game.pulledCards.length === 1 ? 'flex justify-center items-center w-full' : 'grid grid-cols-5 gap-1 sm:gap-3 w-full px-1 sm:px-4'} mt-4 sm:mt-6`}>
                 {game.pulledCards.map((res, i) => {
                   const isFlipped = game.flippedCards[i];
                   const isSpecialSpin = game.specialFlipped.has(i);
@@ -458,7 +458,7 @@ export default function Home() {
                       <div className={`w-full h-full relative preserve-3d ${transitionClass} ${transformClass}`}>
                         
                         <div className={`absolute inset-0 backface-hidden rounded-lg border-2 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center transition-all duration-300 ${backfaceStyle}`}>
-                           <IconBook className={`w-8 h-8 sm:w-10 sm:h-10 opacity-50 ${isHighTier ? 'text-amber-400' : 'text-slate-500'}`} />
+                           <IconBook className={`w-4 h-4 sm:w-5 sm:h-5 opacity-50 ${isHighTier ? 'text-amber-400' : 'text-slate-500'}`} />
                            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20 mix-blend-overlay pointer-events-none"></div>
                         </div>
 
@@ -469,7 +469,7 @@ export default function Home() {
                            {res.isNew ? (
                               <div className="absolute -top-3 -right-3 z-20 rounded-full bg-rose-500 px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-black tracking-wider text-white shadow-[0_0_10px_rgba(244,63,94,0.8)] border border-white/20 animate-bounce">NEW!</div>
                            ) : (
-                              <div className="absolute -bottom-3 sm:-bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 rounded-full bg-slate-900 px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-black tracking-wider text-cyan-400 shadow-lg border border-cyan-500/30 whitespace-nowrap"><IconShard className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> +{res.shardReward}</div>
+                              <div className="absolute -bottom-3 sm:-bottom-4 left-1/2 -translate-x-1/2 z-20 hidden sm:flex items-center gap-1 rounded-full bg-slate-900 px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-black tracking-wider text-cyan-400 shadow-lg border border-cyan-500/30 whitespace-nowrap"><IconShard className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> +{res.shardReward}</div>
                            )}
                         </div>
 
