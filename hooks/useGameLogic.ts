@@ -23,6 +23,7 @@ export function useGameLogic() {
   const [primeTokens, setPrimeTokens] = useState(0);
   const [cardShards, setCardShards] = useState(0);
   const [nickname, setNickname] = useState<string | null>(null);
+  const [isNewUser, setIsNewUser] = useState(false);
 
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -166,6 +167,7 @@ export function useGameLogic() {
         setCardShards(0);
         setPrimeTokens(0);
         setNickname(null);
+        setIsNewUser(true);
       }
       setProfileLoaded(true);
     }
@@ -545,7 +547,14 @@ export function useGameLogic() {
     unlockQueue, setUnlockQueue, showProbModal, setShowProbModal,
     deck, selectedForDeck, setSelectedForDeck, deckContainerRef,
     deckAvailableCards, shopAvailableCards, userAvatarUrl, currentDisplayName,
-    shouldShowLoginRequired, isAllFlipped,
+    shouldShowLoginRequired, isAllFlipped, isNewUser,
+    handleSetInitialNickname: async (newNickname: string) => {
+      const supabase = createClient();
+      if (!supabase || !user) return;
+      await supabase.from("user_profiles").update({ nickname: newNickname }).eq("id", user.id);
+      setNickname(newNickname);
+      setIsNewUser(false);
+    },
     handleOpenCardDetail, handleSelectForDeck, handleSlotReplace, handleSlotClear,
     handleGoogleLogin, handleLogout, handleResetData,
     handleEditGold, handleEditTokens, handleEditShards, handleEditNickname,

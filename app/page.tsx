@@ -99,6 +99,153 @@ function LoginRequiredView({
   );
 }
 
+function NicknameSetupModal({
+  onConfirm,
+  isMobile,
+}: {
+  onConfirm: (nickname: string) => Promise<void>;
+  isMobile: boolean;
+}) {
+  const [value, setValue] = useState("");
+  const [checkStatus, setCheckStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleCheck = async () => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setCheckStatus("checking");
+    const supabase = (await import("../utils/supabase/client")).createClient();
+    if (!supabase) { setCheckStatus("idle"); return; }
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq("nickname", trimmed)
+      .maybeSingle();
+    setCheckStatus(data ? "taken" : "available");
+  };
+
+  const handleConfirm = async () => {
+    if (checkStatus !== "available" || submitting) return;
+    setSubmitting(true);
+    await onConfirm(value.trim());
+    setSubmitting(false);
+  };
+
+  const isValidLength = value.trim().length >= 2 && value.trim().length <= 12;
+
+  const containerStyle: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9999,
+    background: "rgba(0,0,0,0.85)",
+    backdropFilter: "blur(8px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  };
+
+  const boxStyle: React.CSSProperties = {
+    width: "100%",
+    maxWidth: isMobile ? 340 : 440,
+    background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 24,
+    padding: isMobile ? "32px 24px" : "48px 40px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 20,
+    boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+  };
+
+  return (
+    <div style={containerStyle}>
+      <div style={boxStyle}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: isMobile ? 28 : 36, fontWeight: 900, color: "#fff", marginBottom: 8 }}>
+            ⚡ PowerPrime
+          </div>
+          <div style={{ fontSize: isMobile ? 15 : 17, color: "#94a3b8", lineHeight: 1.6 }}>
+            닉네임을 설정해주세요.<br />
+            <span style={{ fontSize: isMobile ? 12 : 13, color: "#64748b" }}>2~12자, 나중에 변경 가능합니다.</span>
+          </div>
+        </div>
+
+        <div style={{ width: "100%", display: "flex", gap: 8 }}>
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => { setValue(e.target.value); setCheckStatus("idle"); }}
+            onKeyDown={(e) => e.key === "Enter" && isValidLength && handleCheck()}
+            placeholder="닉네임 입력..."
+            maxLength={12}
+            style={{
+              flex: 1,
+              padding: "12px 14px",
+              borderRadius: 12,
+              border: `1px solid ${checkStatus === "taken" ? "#ef4444" : checkStatus === "available" ? "#22c55e" : "rgba(255,255,255,0.15)"}`,
+              background: "rgba(255,255,255,0.06)",
+              color: "#fff",
+              fontSize: 15,
+              outline: "none",
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleCheck}
+            disabled={!isValidLength || checkStatus === "checking"}
+            style={{
+              padding: "12px 14px",
+              borderRadius: 12,
+              border: "none",
+              background: isValidLength ? "#3b82f6" : "rgba(255,255,255,0.08)",
+              color: isValidLength ? "#fff" : "#475569",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: isValidLength ? "pointer" : "not-allowed",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {checkStatus === "checking" ? "확인 중..." : "중복 확인"}
+          </button>
+        </div>
+
+        {checkStatus === "taken" && (
+          <div style={{ color: "#ef4444", fontSize: 13, fontWeight: 600, marginTop: -12 }}>
+            이미 사용 중인 닉네임입니다.
+          </div>
+        )}
+        {checkStatus === "available" && (
+          <div style={{ color: "#22c55e", fontSize: 13, fontWeight: 600, marginTop: -12 }}>
+            사용 가능한 닉네임입니다!
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={checkStatus !== "available" || submitting}
+          style={{
+            width: "100%",
+            padding: "14px 0",
+            borderRadius: 14,
+            border: "none",
+            background: checkStatus === "available" ? "linear-gradient(135deg, #3b82f6, #8b5cf6)" : "rgba(255,255,255,0.08)",
+            color: checkStatus === "available" ? "#fff" : "#475569",
+            fontSize: 16,
+            fontWeight: 900,
+            cursor: checkStatus === "available" ? "pointer" : "not-allowed",
+            transition: "all 0.2s",
+          }}
+        >
+          {submitting ? "설정 중..." : "확인"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const game = useGameLogic();
   const isMobile = useIsMobile();
@@ -301,7 +448,13 @@ export default function Home() {
       className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${!isMobile ? "pp-ui-no-select" : ""} ${game.isDarkMode ? "bg-gradient-to-b from-[#0a1628] via-[#0d1f3c] to-[#050a14] text-slate-100" : "bg-slate-100 text-slate-900"}`}
       onContextMenu={!isMobile ? e => e.preventDefault() : undefined}
     >
-      
+      {game.isNewUser && (
+        <NicknameSetupModal
+          onConfirm={game.handleSetInitialNickname}
+          isMobile={isMobile}
+        />
+      )}
+
       <style dangerouslySetInnerHTML={{__html: `
         .perspective-1000 { perspective: 1000px; } .preserve-3d { transform-style: preserve-3d; } .backface-hidden { backface-visibility: hidden; } .rotate-y-180 { transform: rotateY(180deg); }
         @keyframes epicFlashL { 0% { background: rgba(255,255,255,0); } 5% { background: rgba(255,255,255,0.85); } 20% { background: rgba(234,179,8,0.4); } 100% { background: rgba(234,179,8,0); } }
