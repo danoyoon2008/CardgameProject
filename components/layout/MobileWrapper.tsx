@@ -71,7 +71,7 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "linear-gradient(180deg, #0a1628 0%, #0d1f3c 45%, #050a14 100%)",
+        background: "#000000",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",

@@ -28,6 +28,7 @@ export function useGameLogic() {
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   const [sortOption, setSortOption] = useState<string>("number_asc");
   const [filterOwnedFirst, setFilterOwnedFirst] = useState<boolean>(false);
@@ -177,6 +178,41 @@ export function useGameLogic() {
       cancelled = true;
     };
   }, [user, authReady]);
+
+  // last_seen_at 하트비트 — 로그인 중 30초마다 갱신
+  useEffect(() => {
+    if (!user) {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+      return;
+    }
+
+    const updateLastSeen = async () => {
+      const supabase = createClient();
+      if (!supabase) return;
+      await supabase
+        .from("user_profiles")
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq("id", user.id);
+    };
+
+    // 로그인 직후 즉시 갱신
+    void updateLastSeen();
+
+    // 30초마다 갱신
+    heartbeatRef.current = setInterval(() => {
+      void updateLastSeen();
+    }, 30000);
+
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user || !profileLoaded) return;
