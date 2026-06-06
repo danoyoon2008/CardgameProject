@@ -74,13 +74,13 @@ export function NewCardUnlockModal({ card, onClose }: { card: CardRow; onClose: 
       <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/95 backdrop-blur-lg p-4 animate-[fadeIn_0.5s_ease-out]" onClick={onClose}>
         <div className="absolute w-[80vw] h-[80vw] max-w-[600px] max-h-[600px] rounded-full mix-blend-screen opacity-30 animate-[pulse_2s_infinite]" style={{ background: `radial-gradient(circle, ${glowColor} 0%, transparent 70%)` }} />
         
-        <div className="relative flex flex-col items-center max-w-4xl w-full animate-[slideUp_0.6s_ease-out]" onClick={e => e.stopPropagation()}>
-          <h2 className="text-4xl sm:text-5xl font-black italic tracking-widest text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 mb-8 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)] animate-bounce">
+        <div className="relative flex flex-col items-center max-w-4xl w-full px-2 sm:px-4 animate-[slideUp_0.6s_ease-out]" onClick={e => e.stopPropagation()}>
+          <h2 className="text-2xl sm:text-4xl font-black italic tracking-widest text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 mb-8 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)] animate-bounce">
             NEW UNLOCK!
           </h2>
           
-          <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-12 w-full">
-            <div className="w-56 sm:w-64 md:w-72 shrink-0 perspective-1000">
+          <div className="flex flex-row items-start justify-center gap-4 sm:gap-10 w-full">
+            <div className="w-28 sm:w-52 shrink-0 perspective-1000">
               <div className="relative aspect-[53.98/85.6] rounded-xl shadow-[0_0_40px_currentColor] animate-[float_3s_ease-in-out_infinite]" style={{ color: glowColor }}>
                 <div className="w-full h-full rounded-xl overflow-hidden border-2" style={{ borderColor: glowColor }}>
                   <CardPlaceholder card={{...card, isOwned: true}} />
@@ -88,21 +88,21 @@ export function NewCardUnlockModal({ card, onClose }: { card: CardRow; onClose: 
               </div>
             </div>
 
-            <div className="flex-1 w-full max-w-md bg-[#0a1628]/80 border border-white/20 rounded-2xl p-6 backdrop-blur-md shadow-2xl">
+            <div className="flex-1 min-w-0 bg-[#0a1628]/80 border border-white/20 rounded-xl p-3 sm:p-5 backdrop-blur-md shadow-2xl">
               <div className="flex items-center gap-2 mb-2">
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${getRarityStyle(card.rarity)}`}>{getFullRarityName(card.rarity)}</span>
                 <span className="text-sky-300 text-sm font-medium">{card.type}</span>
               </div>
-              <h3 className="text-2xl sm:text-3xl font-bold text-white mb-4">{card.name}</h3>
+              <h3 className="text-base sm:text-2xl font-bold text-white mb-2">{card.name}</h3>
               
-              <div className="flex gap-4 text-sm font-bold bg-black/40 rounded-lg p-3 mb-4">
+              <div className="flex flex-wrap gap-2 text-xs sm:text-sm font-bold bg-black/40 rounded-lg p-2 mb-2">
                 <span className="text-amber-400">코스트 {card.cost}</span>
                 {isUnit && <span className="text-emerald-400">HP {card.hp}</span>}
                 {isUnit && <span className="text-rose-400">ATK {card.atk}</span>}
                 {isMagic && <span className="text-violet-400">지속 {card.duration}</span>}
               </div>
 
-              <div className="space-y-3 text-sm text-slate-300 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+              <div className="space-y-2 text-xs text-slate-300 max-h-32 sm:max-h-48 overflow-y-auto custom-scrollbar pr-1">
                 {isUnit && card.passive_detail && (
                   <div><strong className="text-emerald-300 block mb-1">패시브: {card.passive_name}</strong><p className="text-xs bg-black/30 p-2 rounded whitespace-pre-wrap">{card.passive_detail}</p></div>
                 )}
@@ -116,7 +116,7 @@ export function NewCardUnlockModal({ card, onClose }: { card: CardRow; onClose: 
             </div>
           </div>
 
-          <button onClick={onClose} className="mt-10 px-10 py-3 bg-white hover:bg-slate-200 text-slate-900 rounded-full font-bold text-lg transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+          <button onClick={onClose} className="mt-4 sm:mt-8 px-8 sm:px-10 py-2.5 sm:py-3 bg-white hover:bg-slate-200 text-slate-900 rounded-full font-bold text-lg transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
             확인
           </button>
         </div>
