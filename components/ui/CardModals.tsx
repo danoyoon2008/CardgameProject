@@ -28,22 +28,22 @@ export function CardDetailModal({ card, onClose }: { card: CardRow | null; onClo
           <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-xl leading-none text-white transition hover:bg-white/20">×</button>
         </div>
 
-        <div className="flex flex-col md:flex-row h-full overflow-y-auto md:overflow-hidden p-6 sm:p-8 pt-14 sm:pt-12 gap-8 md:gap-10">
+        <div className="flex flex-row h-full overflow-y-auto p-4 sm:p-6 pt-12 gap-4 sm:gap-8">
           
-          <div className="w-48 sm:w-64 md:w-80 shrink-0 mx-auto perspective-1000">
-            <div className="relative aspect-[53.98/85.6] rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.8)] border border-white/10 overflow-hidden transform md:-rotate-2 transition-transform hover:rotate-0 duration-500">
+          <div className="w-28 sm:w-48 md:w-72 shrink-0 self-start perspective-1000">
+            <div className="relative aspect-[53.98/85.6] rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.8)] border border-white/10 overflow-hidden sm:transform sm:-rotate-2 sm:transition-transform sm:hover:rotate-0 sm:duration-500">
                <CardPlaceholder card={{...card, isOwned: true}} isShopView={true} />
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col min-h-0 md:overflow-y-auto custom-scrollbar pr-2">
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar pr-1">
             <header className="mb-6 border-b border-white/10 pb-6 relative">
               {card.card_number && (<div className="font-mono text-sm font-bold text-slate-500 tracking-wider mb-3">{card.card_number}</div>)}
               <div className="flex items-center gap-3 mb-2">
                 {rarityStyle && displayRarity && <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${rarityStyle}`}>{displayRarity}</span>}
                 {card.isOwned === false && (<span className="flex items-center gap-1 rounded-full bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-400 border border-slate-700"><IconLock className="h-3 w-3" /> 미보유</span>)}
               </div>
-              <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">{card.name || "이름 없음"}</h2>
+              <h2 className="text-xl sm:text-3xl font-bold tracking-tight text-white sm:text-4xl">{card.name || "이름 없음"}</h2>
               
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
                 <span className="rounded-md bg-amber-500/90 px-2.5 py-1 text-xs font-bold tabular-nums text-[#0a1628]">코스트 {card.cost ?? "—"}</span>
