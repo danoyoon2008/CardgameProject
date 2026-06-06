@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { MainView } from "../../types/game";
 import { IconUser, IconGold, IconToken, IconShard } from "../ui/Icons";
 import MobileLobbyDrawer from "./mobile/MobileLobbyDrawer";
+import { createClient } from "../../utils/supabase/client";
 import {
   MOBILE_LOBBY_BASE_W,
   MOBILE_LOBBY_PAD_X,
@@ -15,6 +16,21 @@ import {
   MOBILE_HEADER_CURRENCY_H,
   MOBILE_HEADER_CURRENCY_FS,
 } from "./mobile/mobileLobbyConstants";
+
+interface UserProfile {
+  id: string;
+  nickname: string | null;
+  avatar_url: string | null;
+  last_seen_at: string | null;
+}
+
+interface Friendship {
+  id: string;
+  requester_id: string;
+  addressee_id: string;
+  status: string;
+  other: UserProfile;
+}
 
 function HamburgerIcon() {
   return (
@@ -86,6 +102,155 @@ export default function Header({
   const [friendPanelOpen, setFriendPanelOpen] = useState(false);
   const friendPanelRef = useRef<HTMLDivElement>(null);
 
+  // 친구 패널 탭
+  const [friendTab, setFriendTab] = useState<"list" | "add" | "requests">("list");
+
+  // 유저 검색
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<UserProfile[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+
+  // 친구 목록 및 요청
+  const [friends, setFriends] = useState<Friendship[]>([]);
+  const [friendRequests, setFriendRequests] = useState<Friendship[]>([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [requestActionLoading, setRequestActionLoading] = useState<string | null>(null);
+  const [sendRequestStatus, setSendRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  const formatLastSeen = (lastSeenAt: string | null): string => {
+    if (!lastSeenAt) return "접속 기록 없음";
+    const diff = Date.now() - new Date(lastSeenAt).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 2) return "방금 전";
+    if (minutes < 60) return `${minutes}분 전`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}시간 전`;
+    const days = Math.floor(hours / 24);
+    return `${days}일 전`;
+  };
+
+  const isOnline = (lastSeenAt: string | null): boolean => {
+    if (!lastSeenAt) return false;
+    return Date.now() - new Date(lastSeenAt).getTime() < 120000; // 2분
+  };
+
+  const loadFriends = async () => {
+    if (!user) return;
+    setFriendsLoading(true);
+    const supabase = createClient();
+    if (!supabase) return;
+
+    // 수락된 친구 목록
+    const { data: accepted } = await supabase
+      .from("friendships")
+      .select("id, requester_id, addressee_id, status")
+      .eq("status", "accepted")
+      .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
+
+    if (accepted) {
+      const withProfiles = await Promise.all(
+        accepted.map(async (f) => {
+          const otherId = f.requester_id === user.id ? f.addressee_id : f.requester_id;
+          const { data: profile } = await supabase
+            .from("user_profiles")
+            .select("id, nickname, avatar_url, last_seen_at")
+            .eq("id", otherId)
+            .single();
+          return { ...f, other: profile as UserProfile };
+        })
+      );
+      setFriends(withProfiles.filter(f => f.other));
+    }
+
+    // 받은 친구 요청 목록
+    const { data: pending } = await supabase
+      .from("friendships")
+      .select("id, requester_id, addressee_id, status")
+      .eq("addressee_id", user.id)
+      .eq("status", "pending");
+
+    if (pending) {
+      const withProfiles = await Promise.all(
+        pending.map(async (f) => {
+          const { data: profile } = await supabase
+            .from("user_profiles")
+            .select("id, nickname, avatar_url, last_seen_at")
+            .eq("id", f.requester_id)
+            .single();
+          return { ...f, other: profile as UserProfile };
+        })
+      );
+      setFriendRequests(withProfiles.filter(f => f.other));
+    }
+
+    setFriendsLoading(false);
+  };
+
+  const searchUsers = async (query: string) => {
+    if (!query.trim() || !user) return;
+    setUserSearchLoading(true);
+    const supabase = createClient();
+    if (!supabase) { setUserSearchLoading(false); return; }
+
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nickname, avatar_url, last_seen_at")
+      .ilike("nickname", `%${query}%`)
+      .neq("id", user.id)
+      .limit(50);
+
+    setUserSearchResults(data as UserProfile[] || []);
+    setUserSearchLoading(false);
+  };
+
+  const loadAllUsers = async () => {
+    if (!user) return;
+    setUserSearchLoading(true);
+    const supabase = createClient();
+    if (!supabase) { setUserSearchLoading(false); return; }
+
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nickname, avatar_url, last_seen_at")
+      .neq("id", user.id)
+      .not("nickname", "is", null)
+      .order("last_seen_at", { ascending: false })
+      .limit(100);
+
+    setUserSearchResults(data as UserProfile[] || []);
+    setUserSearchLoading(false);
+  };
+
+  const sendFriendRequest = async (targetId: string) => {
+    if (!user) return;
+    setSendRequestStatus("sending");
+    const supabase = createClient();
+    if (!supabase) { setSendRequestStatus("error"); return; }
+
+    const { error } = await supabase
+      .from("friendships")
+      .insert({ requester_id: user.id, addressee_id: targetId, status: "pending" });
+
+    setSendRequestStatus(error ? "error" : "sent");
+    setTimeout(() => setSendRequestStatus("idle"), 2000);
+  };
+
+  const respondToRequest = async (friendshipId: string, accept: boolean) => {
+    setRequestActionLoading(friendshipId);
+    const supabase = createClient();
+    if (!supabase) { setRequestActionLoading(null); return; }
+
+    if (accept) {
+      await supabase.from("friendships").update({ status: "accepted" }).eq("id", friendshipId);
+    } else {
+      await supabase.from("friendships").delete().eq("id", friendshipId);
+    }
+
+    await loadFriends();
+    setRequestActionLoading(null);
+  };
+
   useEffect(() => {
     if (!friendPanelOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -97,6 +262,31 @@ export default function Header({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [friendPanelOpen]);
 
+  useEffect(() => {
+    if (friendPanelOpen) {
+      loadFriends();
+      if (friendTab === "add") loadAllUsers();
+    }
+  }, [friendPanelOpen]);
+
+  useEffect(() => {
+    if (friendTab === "add") {
+      setUserSearchQuery("");
+      loadAllUsers();
+      setSelectedUser(null);
+    } else if (friendTab === "requests" || friendTab === "list") {
+      loadFriends();
+    }
+  }, [friendTab]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (userSearchQuery.trim()) searchUsers(userSearchQuery);
+      else if (friendTab === "add") loadAllUsers();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [userSearchQuery]);
+
   const friendPanel = (
     <div
       ref={friendPanelRef}
@@ -104,81 +294,213 @@ export default function Header({
         position: "absolute",
         top: layoutMobile ? MOBILE_HEADER_H : 56,
         right: 0,
-        width: 280,
+        width: 300,
+        maxHeight: 520,
         background: isDarkMode ? "#0d1f3c" : "#ffffff",
         border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.12)" : "#e2e8f0"}`,
         borderRadius: 16,
         boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
         zIndex: 200,
+        display: "flex",
+        flexDirection: "column",
         overflow: "hidden",
       }}
     >
-      {/* 상단 버튼 영역 */}
-      <div style={{ padding: "12px 12px 8px" }}>
-        <button
-          type="button"
-          style={{
-            width: "100%",
-            padding: "10px 14px",
-            marginBottom: 6,
-            borderRadius: 10,
-            border: `1px solid ${isDarkMode ? "rgba(99,179,237,0.3)" : "#bfdbfe"}`,
-            background: isDarkMode ? "rgba(56,189,248,0.1)" : "#eff6ff",
-            color: isDarkMode ? "#7dd3fc" : "#2563eb",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: "pointer",
-            textAlign: "left" as const,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <IconPersonAdd /> 친구 추가
-        </button>
-        <button
-          type="button"
-          style={{
-            width: "100%",
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: `1px solid ${isDarkMode ? "rgba(167,139,250,0.3)" : "#e9d5ff"}`,
-            background: isDarkMode ? "rgba(139,92,246,0.1)" : "#faf5ff",
-            color: isDarkMode ? "#c4b5fd" : "#7c3aed",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: "pointer",
-            textAlign: "left" as const,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <IconBell /> 친구 요청
-        </button>
+      {/* 탭 헤더 */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9"}` }}>
+        {(["list", "add", "requests"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setFriendTab(tab)}
+            style={{
+              flex: 1,
+              padding: "10px 4px",
+              fontSize: 12,
+              fontWeight: 700,
+              border: "none",
+              background: "transparent",
+              color: friendTab === tab
+                ? (isDarkMode ? "#7dd3fc" : "#2563eb")
+                : (isDarkMode ? "#475569" : "#94a3b8"),
+              borderBottom: friendTab === tab ? "2px solid #7dd3fc" : "2px solid transparent",
+              cursor: "pointer",
+            }}
+          >
+            {tab === "list" ? "친구 목록" : tab === "add" ? "친구 추가" : `요청${friendRequests.length > 0 ? ` (${friendRequests.length})` : ""}`}
+          </button>
+        ))}
       </div>
 
-      {/* 구분선 */}
-      <div style={{ height: 1, background: isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9", margin: "0 12px" }} />
-
-      {/* 친구 목록 영역 */}
-      <div style={{ padding: "10px 12px 12px" }}>
-        <p style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? "#64748b" : "#94a3b8", marginBottom: 8, letterSpacing: 1 }}>
-          친구 목록
-        </p>
-        <div
-          style={{
-            minHeight: 80,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: isDarkMode ? "#334155" : "#cbd5e1",
-            fontSize: 13,
-          }}
-        >
-          아직 친구가 없습니다.
+      {/* 친구 목록 탭 */}
+      {friendTab === "list" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+          {friendsLoading ? (
+            <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>불러오는 중...</div>
+          ) : friends.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 24, color: isDarkMode ? "#334155" : "#cbd5e1", fontSize: 13 }}>
+              아직 친구가 없습니다.
+            </div>
+          ) : (
+            friends.map((f) => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", borderRadius: 10, marginBottom: 2 }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                    {f.other.avatar_url
+                      ? <img src={f.other.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <IconUser className="h-5 w-5 text-sky-200" />}
+                  </div>
+                  <div style={{ position: "absolute", top: 0, left: 0, width: 10, height: 10, borderRadius: "50%", background: isOnline(f.other.last_seen_at) ? "#22c55e" : "#475569", border: "2px solid " + (isDarkMode ? "#0d1f3c" : "#fff") }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.other.nickname || "닉네임 없음"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#64748b" }}>
+                    {isOnline(f.other.last_seen_at) ? "접속 중" : `마지막 접속: ${formatLastSeen(f.other.last_seen_at)}`}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
-      </div>
+      )}
+
+      {/* 친구 추가 탭 */}
+      {friendTab === "add" && (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9"}` }}>
+            <input
+              type="text"
+              placeholder="닉네임으로 검색..."
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.15)" : "#e2e8f0"}`,
+                background: isDarkMode ? "rgba(255,255,255,0.05)" : "#f8fafc",
+                color: isDarkMode ? "#e2e8f0" : "#1e293b",
+                fontSize: 13,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+            {userSearchLoading ? (
+              <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>검색 중...</div>
+            ) : userSearchResults.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>유저를 찾을 수 없습니다.</div>
+            ) : (
+              userSearchResults.map((u) => (
+                <div key={u.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUser(selectedUser?.id === u.id ? null : u)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 6px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: selectedUser?.id === u.id ? (isDarkMode ? "rgba(56,189,248,0.1)" : "#eff6ff") : "transparent",
+                      cursor: "pointer",
+                      marginBottom: 2,
+                      textAlign: "left",
+                    }}
+                  >
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                      {u.avatar_url
+                        ? <img src={u.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <IconUser className="h-4 w-4 text-sky-200" />}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {u.nickname || "닉네임 없음"}
+                    </span>
+                  </button>
+                  {selectedUser?.id === u.id && (
+                    <div style={{ display: "flex", gap: 6, padding: "4px 6px 8px", marginBottom: 4 }}>
+                      <button
+                        type="button"
+                        disabled
+                        style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: "#64748b", fontSize: 12, fontWeight: 700, cursor: "not-allowed" }}
+                      >
+                        프로필 보기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendFriendRequest(u.id)}
+                        disabled={sendRequestStatus !== "idle"}
+                        style={{
+                          flex: 1,
+                          padding: "7px 0",
+                          borderRadius: 8,
+                          border: "none",
+                          background: sendRequestStatus === "sent" ? "#22c55e" : sendRequestStatus === "error" ? "#ef4444" : "#3b82f6",
+                          color: "#fff",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: sendRequestStatus !== "idle" ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {sendRequestStatus === "sending" ? "전송 중..." : sendRequestStatus === "sent" ? "요청 완료!" : sendRequestStatus === "error" ? "오류" : "친구 요청"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 친구 요청 탭 */}
+      {friendTab === "requests" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+          {friendsLoading ? (
+            <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>불러오는 중...</div>
+          ) : friendRequests.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 24, color: isDarkMode ? "#334155" : "#cbd5e1", fontSize: 13 }}>
+              받은 친구 요청이 없습니다.
+            </div>
+          ) : (
+            friendRequests.map((f) => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 6px", borderRadius: 10, marginBottom: 4 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                  {f.other.avatar_url
+                    ? <img src={f.other.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <IconUser className="h-4 w-4 text-sky-200" />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.other.nickname || "닉네임 없음"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => respondToRequest(f.id, true)}
+                  disabled={requestActionLoading === f.id}
+                  style={{ padding: "5px 10px", borderRadius: 7, border: "none", background: "#22c55e", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                >
+                  수락
+                </button>
+                <button
+                  type="button"
+                  onClick={() => respondToRequest(f.id, false)}
+                  disabled={requestActionLoading === f.id}
+                  style={{ padding: "5px 10px", borderRadius: 7, border: "none", background: isDarkMode ? "rgba(255,255,255,0.08)" : "#f1f5f9", color: isDarkMode ? "#94a3b8" : "#475569", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                >
+                  거절
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 
