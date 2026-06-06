@@ -126,7 +126,7 @@ export function CardPlaceholder({
           
           {/* ⭐️ isAncient가 아닐(false) 때만 우측 하단 뱃지를 그려줍니다. */}
           {rarityStyle && displayRarity && !isAncient && (
-            <div className="absolute right-2 bottom-2 z-10 flex flex-wrap items-center gap-1.5">
+            <div className="absolute right-2 bottom-2 z-10 hidden sm:flex flex-wrap items-center gap-1.5">
               <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${rarityStyle}`}>
                 {displayRarity}
               </span>
