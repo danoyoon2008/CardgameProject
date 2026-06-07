@@ -17,7 +17,7 @@ import type { ActiveMultiplayRoom } from "@/hooks/useActiveMultiplayRoom";
 import { createClient } from "@/utils/supabase/client";
 import type { CardRow } from "@/types/game";
 
-type BattlePhase = "lobby" | "modeSelect" | "friendModeSelect" | "searching" | "countdown";
+type BattlePhase = "lobby" | "modeSelect" | "friendModeSelect" | "friendWaiting" | "searching" | "countdown";
 
 interface BattleViewProps {
   isDarkMode: boolean;
@@ -42,6 +42,8 @@ interface BattleViewProps {
   isGlobalPlaying?: boolean;
   friendChallengeTarget?: { id: string; nickname: string } | null;
   onClearFriendChallengeTarget?: () => void;
+  isWaitingFriendAccept?: boolean;
+  onCancelFriendChallenge?: () => Promise<void>;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -151,6 +153,8 @@ export default function BattleView({
   isGlobalPlaying: isGlobalPlayingProp,
   friendChallengeTarget = null,
   onClearFriendChallengeTarget,
+  isWaitingFriendAccept = false,
+  onCancelFriendChallenge,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -200,6 +204,10 @@ export default function BattleView({
       setBattlePhase("friendModeSelect");
     }
   }, [friendChallengeTarget]);
+
+  useEffect(() => {
+    if (isWaitingFriendAccept) setBattlePhase("friendWaiting");
+  }, [isWaitingFriendAccept]);
 
   useEffect(() => {
     if (battlePhase !== "searching") return;
@@ -850,8 +858,7 @@ export default function BattleView({
               onClick={async () => {
                 if (!friendChallengeTarget || !onSendChallenge) return;
                 await onSendChallenge(friendChallengeTarget.id, "classic");
-                setBattlePhase("lobby");
-                onClearFriendChallengeTarget?.();
+                setBattlePhase("friendWaiting");
               }}
               style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(99,102,241,0.5)", background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))", color: "#fff", fontSize: 18, fontWeight: 900, cursor: "pointer" }}
             >
@@ -874,6 +881,35 @@ export default function BattleView({
           </div>
         );
         return mobile ? <div style={{ width: MOBILE_LOBBY_CONTENT_W, marginLeft: MOBILE_LOBBY_PAD_X }}>{content}</div> : content;
+      }
+      case "friendWaiting": {
+        const content = (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", border: "4px solid #6366f1", borderTopColor: "transparent", animation: "spin 1s linear infinite" }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: mobile ? 18 : 22, fontWeight: 900, color: "#fff", marginBottom: 8 }}>
+                상대방 수락 대기 중...
+              </div>
+              <div style={{ fontSize: mobile ? 12 : 14, color: "#64748b" }}>
+                친선전 요청을 보냈습니다.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                await onCancelFriendChallenge?.();
+                setBattlePhase("lobby");
+              }}
+              style={{ padding: "10px 28px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#94a3b8", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+            >
+              요청 취소
+            </button>
+          </div>
+        );
+        return mobile
+          ? <div style={{ width: MOBILE_LOBBY_CONTENT_W, marginLeft: MOBILE_LOBBY_PAD_X }}>{content}</div>
+          : content;
       }
       case "searching":
         return renderSearching(mobile);

@@ -31,6 +31,7 @@ export function useGameLogic() {
     mode: string;
   } | null>(null);
   const [isInFriendBattle, setIsInFriendBattle] = useState(false);
+  const [isWaitingFriendAccept, setIsWaitingFriendAccept] = useState(false);
 
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -221,80 +222,75 @@ export function useGameLogic() {
     };
   }, [user]);
 
-  // 친선전 요청 수신 감지 (Realtime)
+  // 친선전 폴링 — 3초마다 확인
   useEffect(() => {
     if (!user) return;
-    const supabase = createClient();
-    if (!supabase) return;
+    let cancelled = false;
 
-    const channel = supabase
-      .channel(`friend-challenges-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "friend_challenges",
-        },
-        async (payload) => {
-          const row = payload.new as {
-            id: string;
-            challenger_id: string;
-            challenged_id: string;
-            status: string;
-            mode: string;
-          } | null;
-          if (!row) return;
-          // 클라이언트 사이드 필터
-          if (row.challenged_id !== user.id) return;
-          if (row.status !== "pending") {
-            setIncomingChallenge(null);
-            return;
-          }
-          const { data: challengerProfile } = await supabase
+    const poll = async () => {
+      const supabase = createClient();
+      if (!supabase || cancelled) return;
+
+      // 1. 내가 받은 pending 요청 확인
+      const { data: incoming } = await supabase
+        .from("friend_challenges")
+        .select("id, challenger_id, mode, status")
+        .eq("challenged_id", user.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!cancelled) {
+        if (incoming) {
+          const { data: profile } = await supabase
             .from("user_profiles")
             .select("nickname")
-            .eq("id", row.challenger_id)
+            .eq("id", incoming.challenger_id)
             .maybeSingle();
           setIncomingChallenge({
-            id: row.id,
-            challengerId: row.challenger_id,
-            challengerNickname: challengerProfile?.nickname ?? "상대방",
-            mode: row.mode,
+            id: incoming.id,
+            challengerId: incoming.challenger_id,
+            challengerNickname: profile?.nickname ?? "상대방",
+            mode: incoming.mode,
           });
+        } else {
+          setIncomingChallenge(null);
         }
-      )
-      .subscribe();
+      }
 
-    const challengerChannel = supabase
-      .channel(`friend-challenges-sent-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "friend_challenges",
-        },
-        (payload) => {
-          const row = payload.new as {
-            challenger_id: string;
-            status: string;
-            room_id: string | null;
-          } | null;
-          if (!row || row.challenger_id !== user.id) return;
-          if (row?.status === "accepted" && row.room_id) {
-            setIsInFriendBattle(true);
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(new CustomEvent("friendChallengeAccepted", { detail: { roomId: row.room_id } }));
-            }
-          }
+      // 2. 내가 보낸 요청 중 accepted 확인
+      const { data: accepted } = await supabase
+        .from("friend_challenges")
+        .select("id, status, room_id")
+        .eq("challenger_id", user.id)
+        .eq("status", "accepted")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!cancelled && accepted?.room_id) {
+        setIsInFriendBattle(true);
+        await supabase
+          .from("friend_challenges")
+          .delete()
+          .eq("id", accepted.id);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("friendChallengeAccepted", {
+              detail: { roomId: accepted.room_id },
+            })
+          );
         }
-      )
-      .subscribe();
+      }
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => { void poll(); }, 3000);
 
     return () => {
-      void supabase.removeChannel(channel);
-      void supabase.removeChannel(challengerChannel);
+      cancelled = true;
+      clearInterval(intervalId);
     };
   }, [user]);
 
@@ -670,6 +666,7 @@ export function useGameLogic() {
     shouldShowLoginRequired, isAllFlipped, isNewUser,
     incomingChallenge, setIncomingChallenge,
     isInFriendBattle, setIsInFriendBattle,
+    isWaitingFriendAccept, setIsWaitingFriendAccept,
     handleSetInitialNickname: async (newNickname: string) => {
       const supabase = createClient();
       if (!supabase || !user) return;

@@ -290,7 +290,19 @@ export default function Home() {
       .eq("status", "pending");
     await supabase.from("friend_challenges")
       .insert({ challenger_id: game.user.id, challenged_id: friendId, mode, status: "pending" });
-  }, [game.user]);
+    game.setIsWaitingFriendAccept(true);
+  }, [game]);
+
+  const handleCancelFriendChallenge = useCallback(async () => {
+    const supabase = createClient();
+    if (!supabase || !game.user) return;
+    await supabase
+      .from("friend_challenges")
+      .update({ status: "cancelled" })
+      .eq("challenger_id", game.user.id)
+      .eq("status", "pending");
+    game.setIsWaitingFriendAccept(false);
+  }, [game]);
 
   const handleAcceptChallenge = useCallback(async (challengeId: string, challengerId: string) => {
     const supabase = createClient();
@@ -322,6 +334,7 @@ export default function Home() {
     const handler = (e: Event) => {
       const { roomId } = (e as CustomEvent<{ roomId: string }>).detail;
       game.setIsInFriendBattle(true);
+      game.setIsWaitingFriendAccept(false);
       handleStartMultiplay(roomId, "player_a");
     };
     window.addEventListener("friendChallengeAccepted", handler);
@@ -386,6 +399,8 @@ export default function Home() {
                   onSendChallenge={handleSendChallenge}
                   onAcceptChallenge={handleAcceptChallenge}
                   onRejectChallenge={handleRejectChallenge}
+                  isWaitingFriendAccept={game.isWaitingFriendAccept}
+                  onCancelFriendChallenge={handleCancelFriendChallenge}
                 />
               )}
               
@@ -422,6 +437,8 @@ export default function Home() {
           onSendChallenge={handleSendChallenge}
           onAcceptChallenge={handleAcceptChallenge}
           onRejectChallenge={handleRejectChallenge}
+          isWaitingFriendAccept={game.isWaitingFriendAccept}
+          onCancelFriendChallenge={handleCancelFriendChallenge}
         />
       )}
       {game.mainView === "shop" && (
