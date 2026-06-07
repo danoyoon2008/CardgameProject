@@ -117,6 +117,8 @@ export default function Header({
   const [friendsLoading, setFriendsLoading] = useState(false);
   const [requestActionLoading, setRequestActionLoading] = useState<string | null>(null);
   const [sendRequestStatus, setSendRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [selectedFriend, setSelectedFriend] = useState<Friendship | null>(null);
+  const [showFriendProfile, setShowFriendProfile] = useState(false);
 
   const formatLastSeen = (lastSeenAt: string | null): string => {
     if (!lastSeenAt) return "접속 기록 없음";
@@ -251,6 +253,14 @@ export default function Header({
     setRequestActionLoading(null);
   };
 
+  const removeFriend = async (friendshipId: string) => {
+    const supabase = createClient();
+    if (!supabase) return;
+    await supabase.from("friendships").delete().eq("id", friendshipId);
+    setSelectedFriend(null);
+    await loadFriends();
+  };
+
   useEffect(() => {
     if (!friendPanelOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -343,23 +353,73 @@ export default function Header({
             </div>
           ) : (
             friends.map((f) => (
-              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", borderRadius: 10, marginBottom: 2 }}>
-                <div style={{ position: "relative", flexShrink: 0 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                    {f.other.avatar_url
-                      ? <img src={f.other.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      : <IconUser className="h-5 w-5 text-sky-200" />}
+              <div key={f.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFriend(selectedFriend?.id === f.id ? null : f)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 6px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: selectedFriend?.id === f.id
+                      ? (isDarkMode ? "rgba(56,189,248,0.1)" : "#eff6ff")
+                      : "transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ position: "relative", flexShrink: 0 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                      {f.other.avatar_url
+                        ? <img src={f.other.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <IconUser className="h-5 w-5 text-sky-200" />}
+                    </div>
+                    <div style={{ position: "absolute", top: 0, left: 0, width: 10, height: 10, borderRadius: "50%", background: isOnline(f.other.last_seen_at) ? "#22c55e" : "#475569", border: "2px solid " + (isDarkMode ? "#0d1f3c" : "#fff") }} />
                   </div>
-                  <div style={{ position: "absolute", top: 0, left: 0, width: 10, height: 10, borderRadius: "50%", background: isOnline(f.other.last_seen_at) ? "#22c55e" : "#475569", border: "2px solid " + (isDarkMode ? "#0d1f3c" : "#fff") }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {f.other.nickname || "닉네임 없음"}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.other.nickname || "닉네임 없음"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>
+                      {isOnline(f.other.last_seen_at) ? "접속 중" : `마지막 접속: ${formatLastSeen(f.other.last_seen_at)}`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: "#64748b" }}>
-                    {isOnline(f.other.last_seen_at) ? "접속 중" : `마지막 접속: ${formatLastSeen(f.other.last_seen_at)}`}
+                </button>
+
+                {/* 선택된 친구 팝업 버튼 */}
+                {selectedFriend?.id === f.id && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "4px 6px 8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowFriendProfile(true)}
+                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      프로필 보기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {/* 2단계에서 구현 */}}
+                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      친선전
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`${f.other.nickname || "이 친구"}와 친구를 끊겠습니까?`)) {
+                          void removeFriend(f.id);
+                        }
+                      }}
+                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid rgba(239,68,68,0.3)`, background: "transparent", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      친구 삭제
+                    </button>
                   </div>
-                </div>
+                )}
               </div>
             ))
           )}
@@ -503,6 +563,64 @@ export default function Header({
       )}
     </div>
   );
+
+  const friendProfileModal = showFriendProfile && selectedFriend ? (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 300,
+        background: "rgba(0,0,0,0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onClick={() => setShowFriendProfile(false)}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 400,
+          background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 24,
+          padding: 32,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 16,
+          position: "relative",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => setShowFriendProfile(false)}
+          style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 16 }}
+        >
+          ✕
+        </button>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid rgba(56,189,248,0.3)" }}>
+          {selectedFriend.other.avatar_url
+            ? <img src={selectedFriend.other.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            : <IconUser className="h-10 w-10 text-sky-200" />}
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 4 }}>
+            {selectedFriend.other.nickname || "닉네임 없음"}
+          </div>
+          <div style={{ fontSize: 13, color: isOnline(selectedFriend.other.last_seen_at) ? "#22c55e" : "#64748b" }}>
+            {isOnline(selectedFriend.other.last_seen_at) ? "● 접속 중" : `마지막 접속: ${formatLastSeen(selectedFriend.other.last_seen_at)}`}
+          </div>
+        </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16, textAlign: "center", color: "#475569", fontSize: 13 }}>
+          프로필 기능은 준비 중입니다.
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
@@ -678,6 +796,7 @@ export default function Header({
               </button>
 
               {friendPanelOpen && friendPanel}
+              {friendProfileModal}
             </div>
           ) : null}
         </header>
@@ -745,6 +864,7 @@ export default function Header({
             </button>
 
             {friendPanelOpen && friendPanel}
+            {friendProfileModal}
           </div>
         )}
       </div>
