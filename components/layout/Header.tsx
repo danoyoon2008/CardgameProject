@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { User } from "@supabase/supabase-js";
 import { MainView } from "../../types/game";
 import { IconUser, IconGold, IconToken, IconShard } from "../ui/Icons";
@@ -564,15 +565,15 @@ export default function Header({
     </div>
   );
 
-  const friendProfileModal = showFriendProfile && selectedFriend ? (
+  const friendProfileModalContent = showFriendProfile && selectedFriend ? (
     <div
       style={{
         position: "fixed",
         top: 0,
         left: 0,
-        width: "100vw",
-        height: "100vh",
-        zIndex: 9999,
+        width: "100%",
+        height: "100%",
+        zIndex: 99999,
         background: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(6px)",
         display: "flex",
@@ -585,7 +586,7 @@ export default function Header({
       <div
         style={{
           width: "100%",
-          maxWidth: 400,
+          maxWidth: 360,
           background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 24,
@@ -624,6 +625,10 @@ export default function Header({
       </div>
     </div>
   ) : null;
+
+  const friendProfileModal = friendProfileModalContent && typeof document !== "undefined"
+    ? createPortal(friendProfileModalContent, document.body)
+    : null;
 
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
