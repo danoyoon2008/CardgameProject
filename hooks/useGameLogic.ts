@@ -235,11 +235,19 @@ export function useGameLogic() {
           event: "*",
           schema: "public",
           table: "friend_challenges",
-          filter: `challenged_id=eq.${user.id}`,
         },
         async (payload) => {
-          const row = payload.new as { id: string; challenger_id: string; status: string; mode: string } | null;
-          if (!row || row.status !== "pending") {
+          const row = payload.new as {
+            id: string;
+            challenger_id: string;
+            challenged_id: string;
+            status: string;
+            mode: string;
+          } | null;
+          if (!row) return;
+          // 클라이언트 사이드 필터
+          if (row.challenged_id !== user.id) return;
+          if (row.status !== "pending") {
             setIncomingChallenge(null);
             return;
           }
@@ -266,10 +274,14 @@ export function useGameLogic() {
           event: "UPDATE",
           schema: "public",
           table: "friend_challenges",
-          filter: `challenger_id=eq.${user.id}`,
         },
         (payload) => {
-          const row = payload.new as { status: string; room_id: string | null } | null;
+          const row = payload.new as {
+            challenger_id: string;
+            status: string;
+            room_id: string | null;
+          } | null;
+          if (!row || row.challenger_id !== user.id) return;
           if (row?.status === "accepted" && row.room_id) {
             setIsInFriendBattle(true);
             if (typeof window !== "undefined") {
