@@ -24,6 +24,13 @@ export function useGameLogic() {
   const [cardShards, setCardShards] = useState(0);
   const [nickname, setNickname] = useState<string | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [incomingChallenge, setIncomingChallenge] = useState<{
+    id: string;
+    challengerId: string;
+    challengerNickname: string;
+    mode: string;
+  } | null>(null);
+  const [isInFriendBattle, setIsInFriendBattle] = useState(false);
 
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -211,6 +218,71 @@ export function useGameLogic() {
         clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
+    };
+  }, [user]);
+
+  // 친선전 요청 수신 감지 (Realtime)
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel(`friend-challenges-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "friend_challenges",
+          filter: `challenged_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const row = payload.new as { id: string; challenger_id: string; status: string; mode: string } | null;
+          if (!row || row.status !== "pending") {
+            setIncomingChallenge(null);
+            return;
+          }
+          const { data: challengerProfile } = await supabase
+            .from("user_profiles")
+            .select("nickname")
+            .eq("id", row.challenger_id)
+            .maybeSingle();
+          setIncomingChallenge({
+            id: row.id,
+            challengerId: row.challenger_id,
+            challengerNickname: challengerProfile?.nickname ?? "상대방",
+            mode: row.mode,
+          });
+        }
+      )
+      .subscribe();
+
+    const challengerChannel = supabase
+      .channel(`friend-challenges-sent-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "friend_challenges",
+          filter: `challenger_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { status: string; room_id: string | null } | null;
+          if (row?.status === "accepted" && row.room_id) {
+            setIsInFriendBattle(true);
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("friendChallengeAccepted", { detail: { roomId: row.room_id } }));
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+      void supabase.removeChannel(challengerChannel);
     };
   }, [user]);
 
@@ -584,6 +656,8 @@ export function useGameLogic() {
     deck, selectedForDeck, setSelectedForDeck, deckContainerRef,
     deckAvailableCards, shopAvailableCards, userAvatarUrl, currentDisplayName,
     shouldShowLoginRequired, isAllFlipped, isNewUser,
+    incomingChallenge, setIncomingChallenge,
+    isInFriendBattle, setIsInFriendBattle,
     handleSetInitialNickname: async (newNickname: string) => {
       const supabase = createClient();
       if (!supabase || !user) return;

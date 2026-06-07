@@ -17,7 +17,7 @@ import type { ActiveMultiplayRoom } from "@/hooks/useActiveMultiplayRoom";
 import { createClient } from "@/utils/supabase/client";
 import type { CardRow } from "@/types/game";
 
-type BattlePhase = "lobby" | "modeSelect" | "searching" | "countdown";
+type BattlePhase = "lobby" | "modeSelect" | "friendModeSelect" | "searching" | "countdown";
 
 interface BattleViewProps {
   isDarkMode: boolean;
@@ -29,6 +29,19 @@ interface BattleViewProps {
   autoStartMatchmaking?: boolean;
   onAutoMatchStarted?: () => void;
   layoutMobile?: boolean;
+  incomingChallenge?: {
+    id: string;
+    challengerId: string;
+    challengerNickname: string;
+    mode: string;
+  } | null;
+  onAcceptChallenge?: (challengeId: string, challengerId: string) => Promise<void>;
+  onRejectChallenge?: (challengeId: string) => Promise<void>;
+  onSendChallenge?: (friendId: string, mode: string) => Promise<void>;
+  isInFriendBattle?: boolean;
+  isGlobalPlaying?: boolean;
+  friendChallengeTarget?: { id: string; nickname: string } | null;
+  onClearFriendChallengeTarget?: () => void;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -130,6 +143,14 @@ export default function BattleView({
   autoStartMatchmaking = false,
   onAutoMatchStarted,
   layoutMobile = false,
+  incomingChallenge = null,
+  onAcceptChallenge,
+  onRejectChallenge,
+  onSendChallenge,
+  isInFriendBattle = false,
+  isGlobalPlaying: isGlobalPlayingProp,
+  friendChallengeTarget = null,
+  onClearFriendChallengeTarget,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -137,6 +158,8 @@ export default function BattleView({
 
   const { matchStatus, roomId, myRole, opponentNickname, startMatchmaking, cancelMatchmaking } =
     useMatchmaking();
+
+  const isGlobalPlaying = isGlobalPlayingProp ?? (matchStatus === "searching" || matchStatus === "matched");
 
   const fetchOnlineCount = useCallback(async () => {
     const supabase = createClient();
@@ -171,6 +194,12 @@ export default function BattleView({
     void startMatchmaking();
     onAutoMatchStarted?.();
   }, [autoStartMatchmaking, startMatchmaking, onAutoMatchStarted]);
+
+  useEffect(() => {
+    if (friendChallengeTarget) {
+      setBattlePhase("friendModeSelect");
+    }
+  }, [friendChallengeTarget]);
 
   useEffect(() => {
     if (battlePhase !== "searching") return;
@@ -515,7 +544,10 @@ export default function BattleView({
           <div style={{ display: "flex", flexDirection: "row", gap: 12, width: "100%" }}>
             <button
               type="button"
-              onClick={handleGlobalPlayClick}
+              onClick={() => {
+                if (isInFriendBattle) return;
+                handleGlobalPlayClick();
+              }}
               style={{
                 flex: 1,
                 minWidth: 0,
@@ -530,8 +562,9 @@ export default function BattleView({
                 gap: 8,
                 padding: "8px 6px",
                 boxSizing: "border-box",
-                cursor: "pointer",
+                cursor: isInFriendBattle ? "not-allowed" : "pointer",
                 boxShadow: canRejoin ? "0 0 18px rgba(249,115,22,0.65)" : undefined,
+                opacity: isInFriendBattle ? 0.4 : 1,
               }}
             >
               <IconGlobe className={`h-10 w-10 shrink-0 ${canRejoin ? "text-orange-400" : "text-sky-500"}`} />
@@ -550,29 +583,69 @@ export default function BattleView({
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => alert("친구 초대 기능은 현재 준비 중입니다!")}
-              style={{
-                flex: 1,
-                minWidth: 0,
+            {incomingChallenge ? (
+              <div style={{
+                flex: 1, minWidth: 0,
                 height: MOBILE_BATTLE_MODE_BTN_H,
+                padding: "12px 8px",
                 borderRadius: 16,
-                border: modeBtnBorder("#6366f1"),
-                background: modeBtnBg,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                padding: "8px 6px",
-                boxSizing: "border-box",
-              }}
-            >
-              <IconUsers className="h-10 w-10 text-indigo-500 shrink-0" />
-              <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>친구와 플레이</span>
-              <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(99,102,241,0.85)", textAlign: "center" }}>초대 코드</span>
-            </button>
+                border: "2px solid rgba(99,102,241,0.7)",
+                background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.2))",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8,
+                boxSizing: "border-box" as const,
+              }}>
+                <span style={{ fontSize: 11, color: "#a5b4fc", fontWeight: 700 }}>친선전 요청!</span>
+                <span style={{ fontSize: 13, color: "#fff", fontWeight: 900, textAlign: "center" }}>
+                  {incomingChallenge.challengerNickname}
+                </span>
+                <span style={{ fontSize: 10, color: "#818cf8" }}>클래식 모드</span>
+                <div style={{ display: "flex", gap: 6, width: "100%" }}>
+                  <button
+                    type="button"
+                    onClick={() => onAcceptChallenge?.(incomingChallenge.id, incomingChallenge.challengerId)}
+                    style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    수락
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRejectChallenge?.(incomingChallenge.id)}
+                    style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#94a3b8", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    거절
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isGlobalPlaying) return;
+                  setBattlePhase("friendModeSelect");
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: MOBILE_BATTLE_MODE_BTN_H,
+                  borderRadius: 16,
+                  border: modeBtnBorder("#6366f1"),
+                  background: modeBtnBg,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: "8px 6px",
+                  boxSizing: "border-box",
+                  opacity: isGlobalPlaying ? 0.4 : 1,
+                  cursor: isGlobalPlaying ? "not-allowed" : "pointer",
+                }}
+              >
+                <IconUsers className="h-10 w-10 text-indigo-500 shrink-0" />
+                <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>친구와 플레이</span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(99,102,241,0.85)", textAlign: "center" }}>친선전</span>
+              </button>
+            )}
           </div>
 
           <div
@@ -656,7 +729,10 @@ export default function BattleView({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 w-full">
           <button
             type="button"
-            onClick={handleGlobalPlayClick}
+            onClick={() => {
+              if (isInFriendBattle) return;
+              handleGlobalPlayClick();
+            }}
             className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${
               canRejoin
                 ? isDarkMode
@@ -666,6 +742,10 @@ export default function BattleView({
                   ? "border-sky-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-sky-400"
                   : "border-sky-200 bg-white shadow-sm hover:border-sky-400"
             }`}
+            style={{
+              opacity: isInFriendBattle ? 0.4 : 1,
+              cursor: isInFriendBattle ? "not-allowed" : "pointer",
+            }}
           >
             <IconGlobe
               className={`h-12 w-12 ${canRejoin ? "text-orange-400" : "text-sky-500"} group-hover:scale-110 transition-transform duration-300`}
@@ -678,15 +758,54 @@ export default function BattleView({
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => alert("친구 초대 기능은 현재 준비 중입니다!")}
-            className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${isDarkMode ? "border-indigo-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-indigo-400" : "border-indigo-200 bg-white shadow-sm hover:border-indigo-400"}`}
-          >
-            <IconUsers className="h-12 w-12 text-indigo-500 group-hover:scale-110 transition-transform duration-300" />
-            <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>친구와 플레이</span>
-            <span className="text-xs text-indigo-500/80 font-medium">초대 코드 입력</span>
-          </button>
+          {incomingChallenge ? (
+            <div
+              className={`relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 ${
+                isDarkMode
+                  ? "border-indigo-500/70 bg-gradient-to-b from-indigo-950/40 to-slate-900"
+                  : "border-indigo-400 bg-indigo-50"
+              }`}
+            >
+              <span className="text-xs font-bold text-indigo-300">친선전 요청!</span>
+              <span className={`text-lg font-black sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                {incomingChallenge.challengerNickname}
+              </span>
+              <span className="text-xs text-indigo-400">클래식 모드</span>
+              <div className="flex gap-2 w-full max-w-[240px]">
+                <button
+                  type="button"
+                  onClick={() => onAcceptChallenge?.(incomingChallenge.id, incomingChallenge.challengerId)}
+                  className="flex-1 rounded-lg bg-indigo-500 py-2 text-sm font-bold text-white hover:bg-indigo-400"
+                >
+                  수락
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRejectChallenge?.(incomingChallenge.id)}
+                  className="flex-1 rounded-lg border border-white/15 py-2 text-sm font-bold text-slate-400 hover:bg-white/5"
+                >
+                  거절
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (isGlobalPlaying) return;
+                setBattlePhase("friendModeSelect");
+              }}
+              className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${isDarkMode ? "border-indigo-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-indigo-400" : "border-indigo-200 bg-white shadow-sm hover:border-indigo-400"}`}
+              style={{
+                opacity: isGlobalPlaying ? 0.4 : 1,
+                cursor: isGlobalPlaying ? "not-allowed" : "pointer",
+              }}
+            >
+              <IconUsers className="h-12 w-12 text-indigo-500 group-hover:scale-110 transition-transform duration-300" />
+              <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>친구와 플레이</span>
+              <span className="text-xs text-indigo-500/80 font-medium">친선전</span>
+            </button>
+          )}
         </div>
 
         <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-500/30 to-transparent my-4" />
@@ -722,6 +841,40 @@ export default function BattleView({
     switch (battlePhase) {
       case "modeSelect":
         return renderModeSelect(mobile);
+      case "friendModeSelect": {
+        const content = (
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
+            <h2 style={{ fontSize: mobile ? 22 : 28, fontWeight: 900, color: "#fff" }}>친선전 모드 선택</h2>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!friendChallengeTarget || !onSendChallenge) return;
+                await onSendChallenge(friendChallengeTarget.id, "classic");
+                setBattlePhase("lobby");
+                onClearFriendChallengeTarget?.();
+              }}
+              style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(99,102,241,0.5)", background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))", color: "#fff", fontSize: 18, fontWeight: 900, cursor: "pointer" }}
+            >
+              🃏 클래식
+            </button>
+            <button
+              type="button"
+              disabled
+              style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(255,255,255,0.1)", background: "transparent", color: "#475569", fontSize: 18, fontWeight: 900, cursor: "not-allowed" }}
+            >
+              일반전 (준비 중)
+            </button>
+            <button
+              type="button"
+              onClick={() => { setBattlePhase("lobby"); onClearFriendChallengeTarget?.(); }}
+              style={{ fontSize: 14, color: "#64748b", background: "none", border: "none", cursor: "pointer", marginTop: 8 }}
+            >
+              ← 돌아가기
+            </button>
+          </div>
+        );
+        return mobile ? <div style={{ width: MOBILE_LOBBY_CONTENT_W, marginLeft: MOBILE_LOBBY_PAD_X }}>{content}</div> : content;
+      }
       case "searching":
         return renderSearching(mobile);
       case "countdown":

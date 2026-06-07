@@ -1,9 +1,10 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useGameLogic } from "../hooks/useGameLogic";
 import type { PlayerRole } from "../hooks/useMatchmaking";
+import { createClient } from "../utils/supabase/client";
 import { getGlowColor, getShardShopPrice } from "../utils/cardUtils";
 import { IconShard, IconDeck, IconBook, IconLock } from "../components/ui/Icons";
 
@@ -252,6 +253,7 @@ export default function Home() {
   const [multiplayRoomId, setMultiplayRoomId] = useState<string | null>(null);
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
+  const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
   const isFullScreenGame = isSimulation || isMultiplay;
@@ -273,6 +275,58 @@ export default function Home() {
     setMultiplayRole(myRole);
     game.setMainView("multiplay");
   };
+
+  const handleSendFriendChallenge = useCallback((friendId: string, friendNickname: string) => {
+    setFriendChallengeTarget({ id: friendId, nickname: friendNickname });
+    game.setMainView("battle");
+  }, [game]);
+
+  const handleSendChallenge = useCallback(async (friendId: string, mode: string) => {
+    const supabase = createClient();
+    if (!supabase || !game.user) return;
+    await supabase.from("friend_challenges")
+      .update({ status: "cancelled" })
+      .eq("challenger_id", game.user.id)
+      .eq("status", "pending");
+    await supabase.from("friend_challenges")
+      .insert({ challenger_id: game.user.id, challenged_id: friendId, mode, status: "pending" });
+  }, [game.user]);
+
+  const handleAcceptChallenge = useCallback(async (challengeId: string, challengerId: string) => {
+    const supabase = createClient();
+    if (!supabase || !game.user) return;
+    const { data: room } = await supabase.from("game_rooms").insert({
+      player_a_id: challengerId,
+      player_b_id: game.user.id,
+      status: "playing",
+      player_a_last_seen: new Date().toISOString(),
+      player_b_last_seen: new Date().toISOString(),
+    }).select().single();
+    if (!room) return;
+    await supabase.from("friend_challenges")
+      .update({ status: "accepted", room_id: room.id })
+      .eq("id", challengeId);
+    game.setIsInFriendBattle(true);
+    game.setIncomingChallenge(null);
+    handleStartMultiplay(room.id, "player_b");
+  }, [game]);
+
+  const handleRejectChallenge = useCallback(async (challengeId: string) => {
+    const supabase = createClient();
+    if (!supabase) return;
+    await supabase.from("friend_challenges").update({ status: "rejected" }).eq("id", challengeId);
+    game.setIncomingChallenge(null);
+  }, [game]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { roomId } = (e as CustomEvent<{ roomId: string }>).detail;
+      game.setIsInFriendBattle(true);
+      handleStartMultiplay(roomId, "player_a");
+    };
+    window.addEventListener("friendChallengeAccepted", handler);
+    return () => window.removeEventListener("friendChallengeAccepted", handler);
+  }, [game]);
 
   const handleBackFromMultiplay = () => {
     setMultiplayRoomId(null);
@@ -303,6 +357,7 @@ export default function Home() {
         authReady={game.authReady} user={game.user} userAvatarUrl={game.userAvatarUrl} currentDisplayName={game.currentDisplayName} isDarkMode={game.isDarkMode}
         gold={game.gold} primeTokens={game.primeTokens} cardShards={game.cardShards} handleGoogleLogin={game.handleGoogleLogin}
         handleEditGold={game.handleEditGold} handleEditTokens={game.handleEditTokens} handleEditShards={game.handleEditShards}
+        onSendFriendChallenge={handleSendFriendChallenge}
       />
 
       <div className="flex w-full min-h-0 flex-1 flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8">
@@ -324,6 +379,13 @@ export default function Home() {
                   onRejoinMultiplay={handleStartMultiplay}
                   autoStartMatchmaking={autoStartMatchmaking}
                   onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
+                  incomingChallenge={game.incomingChallenge}
+                  isInFriendBattle={game.isInFriendBattle}
+                  friendChallengeTarget={friendChallengeTarget}
+                  onClearFriendChallengeTarget={() => setFriendChallengeTarget(null)}
+                  onSendChallenge={handleSendChallenge}
+                  onAcceptChallenge={handleAcceptChallenge}
+                  onRejectChallenge={handleRejectChallenge}
                 />
               )}
               
@@ -353,6 +415,13 @@ export default function Home() {
           onRejoinMultiplay={handleStartMultiplay}
           autoStartMatchmaking={autoStartMatchmaking}
           onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
+          incomingChallenge={game.incomingChallenge}
+          isInFriendBattle={game.isInFriendBattle}
+          friendChallengeTarget={friendChallengeTarget}
+          onClearFriendChallengeTarget={() => setFriendChallengeTarget(null)}
+          onSendChallenge={handleSendChallenge}
+          onAcceptChallenge={handleAcceptChallenge}
+          onRejectChallenge={handleRejectChallenge}
         />
       )}
       {game.mainView === "shop" && (
@@ -438,6 +507,7 @@ export default function Home() {
         handleEditGold={game.handleEditGold}
         handleEditTokens={game.handleEditTokens}
         handleEditShards={game.handleEditShards}
+        onSendFriendChallenge={handleSendFriendChallenge}
       />
       {mobileLobbyMain}
     </>

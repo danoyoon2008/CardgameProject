@@ -88,6 +88,7 @@ interface HeaderProps {
   mainView?: MainView;
   setMainView?: (view: MainView) => void;
   newCardIdsSize?: number;
+  onSendFriendChallenge?: (friendId: string, friendNickname: string) => void;
 }
 
 export default function Header({
@@ -98,6 +99,7 @@ export default function Header({
   mainView = "battle",
   setMainView,
   newCardIdsSize = 0,
+  onSendFriendChallenge,
 }: HeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [friendPanelOpen, setFriendPanelOpen] = useState(false);
@@ -403,7 +405,11 @@ export default function Header({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {/* 2단계에서 구현 */}}
+                      onClick={() => {
+                        setFriendPanelOpen(false);
+                        setSelectedFriend(null);
+                        onSendFriendChallenge?.(f.other.id, f.other.nickname ?? "상대방");
+                      }}
                       style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                     >
                       친선전
