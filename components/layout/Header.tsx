@@ -568,8 +568,11 @@ export default function Header({
     <div
       style={{
         position: "fixed",
-        inset: 0,
-        zIndex: 300,
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        zIndex: 9999,
         background: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(6px)",
         display: "flex",
