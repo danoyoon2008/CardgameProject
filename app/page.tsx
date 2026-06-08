@@ -298,10 +298,12 @@ export default function Home() {
     if (!supabase || !game.user) return;
     await supabase
       .from("friend_challenges")
-      .update({ status: "cancelled" })
+      .delete()
       .eq("challenger_id", game.user.id)
       .eq("status", "pending");
     game.setIsWaitingFriendAccept(false);
+    game.setFriendChallengeCancelled(true);
+    setTimeout(() => game.setFriendChallengeCancelled(false), 3000);
   }, [game]);
 
   const handleAcceptChallenge = useCallback(async (challengeId: string, challengerId: string) => {
@@ -352,6 +354,7 @@ export default function Home() {
   const handleBackFromMultiplay = () => {
     setMultiplayRoomId(null);
     setMultiplayRole(null);
+    game.setIsInFriendBattle(false);
     game.setMainView("battle");
     void refreshActiveMultiplayRoom();
   };
@@ -359,6 +362,7 @@ export default function Home() {
   const handleRematchFromMultiplay = () => {
     setMultiplayRoomId(null);
     setMultiplayRole(null);
+    game.setIsInFriendBattle(false);
     setAutoStartMatchmaking(true);
     game.setMainView("battle");
   };
@@ -413,6 +417,7 @@ export default function Home() {
                   isWaitingFriendAccept={game.isWaitingFriendAccept}
                   onCancelFriendChallenge={handleCancelFriendChallenge}
                   friendChallengeRejected={game.friendChallengeRejected}
+                  friendChallengeCancelled={game.friendChallengeCancelled}
                 />
               )}
               
@@ -455,6 +460,7 @@ export default function Home() {
           isWaitingFriendAccept={game.isWaitingFriendAccept}
           onCancelFriendChallenge={handleCancelFriendChallenge}
           friendChallengeRejected={game.friendChallengeRejected}
+          friendChallengeCancelled={game.friendChallengeCancelled}
         />
       )}
       {game.mainView === "shop" && (

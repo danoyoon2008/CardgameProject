@@ -45,6 +45,7 @@ interface BattleViewProps {
   isWaitingFriendAccept?: boolean;
   onCancelFriendChallenge?: () => Promise<void>;
   friendChallengeRejected?: boolean;
+  friendChallengeCancelled?: boolean;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -157,6 +158,7 @@ export default function BattleView({
   isWaitingFriendAccept = false,
   onCancelFriendChallenge,
   friendChallengeRejected = false,
+  friendChallengeCancelled = false,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -551,10 +553,31 @@ export default function BattleView({
       </div>
     ) : null;
 
+    const cancelledToast = friendChallengeCancelled ? (
+      <div style={{
+        position: "fixed",
+        top: 80,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 999,
+        background: "#1e293b",
+        border: "1px solid #475569",
+        borderRadius: 14,
+        padding: "12px 20px",
+        whiteSpace: "nowrap",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+      }}>
+        <p style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, margin: 0 }}>
+          친선전 요청을 취소했습니다.
+        </p>
+      </div>
+    ) : null;
+
     if (mobile) {
       return (
         <>
           {rejectionToast}
+          {cancelledToast}
           <header style={{ textAlign: "center", marginBottom: 24 }}>
             <h1
               style={{
@@ -767,6 +790,7 @@ export default function BattleView({
     return (
       <>
         {rejectionToast}
+        {cancelledToast}
         <header className="mb-4">
           <h1 className="text-3xl font-black tracking-tight sm:text-4xl md:text-5xl mb-3">대전 센터</h1>
           <p className="text-sm text-slate-400 sm:text-base">전 세계의 플레이어, 혹은 친구와 실력을 겨뤄보세요.</p>
