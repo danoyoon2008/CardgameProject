@@ -489,6 +489,8 @@ interface SimulationViewProps {
     drawRejected?: boolean;
     drawRequestCooldownTurn?: number;
   };
+  chatMessages?: { sender: "me" | "opponent"; text: string; timestamp: number }[];
+  onSendChatMessage?: (text: string) => void;
 }
 
 function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
@@ -1333,9 +1335,15 @@ export default function SimulationView({
   multiplaySessionWinner = null,
   onMultiplayWin,
   multiplayEndUi,
+  chatMessages = [],
+  onSendChatMessage,
 }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
+  const [chatInput, setChatInput] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const EMOJI_LIST = ["😊", "👍", "😢", "🔥", "💀", "😎", "🤔", "👏", "😡", "🎉", "😂", "🫡"];
 
   useEffect(() => {
     const checkMobile = () => {
@@ -1347,6 +1355,11 @@ export default function SimulationView({
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
   const [localState, setLocalState] = useState<SimulationState | null>(null);
   const state = controlledSimulation ? controlledSimulation.state : localState;
   const setState = controlledSimulation ? controlledSimulation.setState : setLocalState;
@@ -18041,6 +18054,153 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
+  const chatPanel = multiplayMyRole ? (
+    <div
+      onClick={e => e.stopPropagation()}
+      style={{
+      display: "flex",
+      flexDirection: "column",
+      flex: 1,
+      minHeight: 0,
+      borderTop: "1px solid rgba(255,255,255,0.08)",
+      marginTop: 8,
+      paddingTop: 8,
+      width: "100%",
+    }}>
+      <div style={{
+        flex: 1,
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        paddingRight: 4,
+        minHeight: 0,
+      }}>
+        {chatMessages.length === 0 && (
+          <p style={{ fontSize: 10, color: "#475569", textAlign: "center", marginTop: 8 }}>
+            채팅을 시작해보세요
+          </p>
+        )}
+        {chatMessages.map((msg, idx) => (
+          <div key={idx} style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: msg.sender === "me" ? "flex-end" : "flex-start",
+          }}>
+            <div style={{
+              maxWidth: "85%",
+              padding: "4px 8px",
+              borderRadius: msg.sender === "me" ? "10px 10px 2px 10px" : "10px 10px 10px 2px",
+              background: msg.sender === "me" ? "rgba(56,189,248,0.25)" : "rgba(255,255,255,0.08)",
+              fontSize: 11,
+              color: msg.sender === "me" ? "#7dd3fc" : "#cbd5e1",
+              wordBreak: "break-all",
+            }}>
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        <div ref={chatBottomRef} />
+      </div>
+
+      {showEmojiPicker && (
+        <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 2,
+          padding: 4,
+          background: "rgba(0,0,0,0.3)",
+          borderRadius: 8,
+          marginBottom: 4,
+        }}>
+          {EMOJI_LIST.map(emoji => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => {
+                onSendChatMessage?.(emoji);
+                setShowEmojiPicker(false);
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                fontSize: 16,
+                cursor: "pointer",
+                padding: 2,
+                borderRadius: 4,
+              }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => setShowEmojiPicker(prev => !prev)}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: 16,
+            cursor: "pointer",
+            padding: 2,
+            flexShrink: 0,
+          }}
+        >
+          😊
+        </button>
+        <input
+          type="text"
+          value={chatInput}
+          onChange={e => setChatInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && chatInput.trim()) {
+              onSendChatMessage?.(chatInput);
+              setChatInput("");
+              setShowEmojiPicker(false);
+            }
+          }}
+          placeholder="채팅..."
+          maxLength={50}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "4px 6px",
+            borderRadius: 6,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.06)",
+            color: "#e2e8f0",
+            fontSize: 11,
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (!chatInput.trim()) return;
+            onSendChatMessage?.(chatInput);
+            setChatInput("");
+            setShowEmojiPicker(false);
+          }}
+          style={{
+            background: "rgba(56,189,248,0.2)",
+            border: "none",
+            borderRadius: 6,
+            padding: "4px 6px",
+            color: "#7dd3fc",
+            fontSize: 11,
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          전송
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div 
       className={`w-full h-screen ${isMobile ? "overflow-hidden bg-black" : `overflow-auto ${theme.bg}`} ${theme.text} flex items-center justify-center ${isMobile ? "p-0" : "p-4"} relative`}
@@ -19314,6 +19474,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               transition: "transform 300ms ease",
               pointerEvents: isDrawerOpen ? "auto" : "none",
               boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
             }}
           >
             <button
@@ -19521,6 +19684,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </button>
               </>
             )}
+            {/* 모바일 채팅 — 항복/무승부 버튼 아래 */}
+            {chatPanel}
           </div>
 
           {/* 헤더 아래 게임 영역 */}
@@ -20450,7 +20615,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         )}
 
         {/* ===================== 1. 좌측 영역 (메뉴, 덱, 리와인드) ===================== */}
-        <div className={`flex flex-col justify-between items-center shrink-0 w-[120px] h-full py-2 transition-opacity ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`flex flex-col justify-start items-center shrink-0 w-[120px] h-full py-2 gap-2 transition-opacity min-h-0 ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           <div
             className={`relative w-full flex justify-center ${multiplayOpponentDisconnected ? "z-[150]" : "z-50"}`}
           >
@@ -20559,6 +20724,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </button>
 
           </div>
+
+          {chatPanel}
         </div>
 
         {/* ===================== 2. 중앙 영역 (메인 필드) ===================== */}

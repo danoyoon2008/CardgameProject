@@ -246,6 +246,21 @@ function MultiplayGameSession({
   const [rematchStatus, setRematchStatus] = useState<MultiplayRematchStatus>("none");
   const [myRematchRequested, setMyRematchRequested] = useState(false);
   const [opponentRematchRequested, setOpponentRematchRequested] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{
+    sender: "me" | "opponent";
+    text: string;
+    timestamp: number;
+  }[]>([]);
+
+  const sendChatMessage = useCallback((text: string) => {
+    if (!text.trim()) return;
+    setChatMessages(prev => [...prev, { sender: "me", text: text.trim(), timestamp: Date.now() }]);
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "chat_message",
+      payload: { text: text.trim() },
+    });
+  }, []);
 
   const opponentRole: PlayerRole = myRole === "player_a" ? "player_b" : "player_a";
 
@@ -612,6 +627,11 @@ function MultiplayGameSession({
         const myLetter: "A" | "B" = myRole === "player_a" ? "A" : "B";
         // 시전자(caster)에게만 처리 - 트리거 ref로 종료 함수 호출
         witchTarotFinishTriggerRef.current?.();
+      })
+      .on("broadcast", { event: "chat_message" }, ({ payload }) => {
+        const { text } = payload as { text: string };
+        if (!text) return;
+        setChatMessages(prev => [...prev, { sender: "opponent", text, timestamp: Date.now() }]);
       });
 
     // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
@@ -896,6 +916,8 @@ function MultiplayGameSession({
               drawRejected,
               drawRequestCooldownTurn: drawRequestCooldownTurnRef.current,
             }}
+            chatMessages={chatMessages}
+            onSendChatMessage={sendChatMessage}
           />
         ) : (
           <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">
