@@ -171,7 +171,10 @@ export default function BattleView({
   const { matchStatus, roomId, myRole, opponentNickname, startMatchmaking, cancelMatchmaking } =
     useMatchmaking();
 
-  const isGlobalPlaying = isGlobalPlayingProp ?? (matchStatus === "searching" || matchStatus === "matched");
+  const isGlobalPlaying =
+    matchStatus === "searching" ||
+    matchStatus === "matched" ||
+    !!isGlobalPlayingProp;
 
   const fetchOnlineCount = useCallback(async () => {
     const supabase = createClient();

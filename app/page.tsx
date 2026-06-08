@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useGameLogic } from "../hooks/useGameLogic";
-import type { PlayerRole } from "../hooks/useMatchmaking";
+import { useMatchmaking, type PlayerRole } from "../hooks/useMatchmaking";
 import { createClient } from "../utils/supabase/client";
 import { getGlowColor, getShardShopPrice } from "../utils/cardUtils";
 import { IconShard, IconDeck, IconBook, IconLock } from "../components/ui/Icons";
@@ -264,6 +264,8 @@ export default function Home() {
     game.user?.id,
     game.mainView === "battle" && !!game.user,
   );
+  const { matchStatus } = useMatchmaking();
+  const isGlobalPlaying = matchStatus === "searching" || matchStatus === "matched";
 
   useEffect(() => {
     if (game.mainView === "battle" && game.user) {
@@ -439,6 +441,7 @@ export default function Home() {
                   onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
                   incomingChallenge={game.incomingChallenge}
                   isInFriendBattle={game.isInFriendBattle}
+                  isGlobalPlaying={isGlobalPlaying}
                   friendChallengeTarget={friendChallengeTarget}
                   onClearFriendChallengeTarget={() => setFriendChallengeTarget(null)}
                   onSendChallenge={handleSendChallenge}
@@ -484,6 +487,7 @@ export default function Home() {
           onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
           incomingChallenge={game.incomingChallenge}
           isInFriendBattle={game.isInFriendBattle}
+          isGlobalPlaying={isGlobalPlaying}
           friendChallengeTarget={friendChallengeTarget}
           onClearFriendChallengeTarget={() => setFriendChallengeTarget(null)}
           onSendChallenge={handleSendChallenge}

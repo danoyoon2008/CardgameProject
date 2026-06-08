@@ -198,6 +198,8 @@ export default function Header({
     const supabase = createClient();
     if (!supabase) { setUserSearchLoading(false); return; }
 
+    const friendIds = new Set(friends.map(f => f.other.id));
+
     const { data } = await supabase
       .from("user_profiles")
       .select("id, nickname, avatar_url, last_seen_at")
@@ -205,7 +207,8 @@ export default function Header({
       .neq("id", user.id)
       .limit(50);
 
-    setUserSearchResults(data as UserProfile[] || []);
+    const filtered = (data as UserProfile[] || []).filter(u => !friendIds.has(u.id));
+    setUserSearchResults(filtered);
     setUserSearchLoading(false);
   };
 
@@ -215,15 +218,17 @@ export default function Header({
     const supabase = createClient();
     if (!supabase) { setUserSearchLoading(false); return; }
 
+    const friendIds = new Set(friends.map(f => f.other.id));
+
     const { data } = await supabase
       .from("user_profiles")
       .select("id, nickname, avatar_url, last_seen_at")
       .neq("id", user.id)
-      .not("nickname", "is", null)
       .order("last_seen_at", { ascending: false })
       .limit(100);
 
-    setUserSearchResults(data as UserProfile[] || []);
+    const filtered = (data as UserProfile[] || []).filter(u => !friendIds.has(u.id));
+    setUserSearchResults(filtered);
     setUserSearchLoading(false);
   };
 
@@ -299,6 +304,47 @@ export default function Header({
     }, 300);
     return () => clearTimeout(timer);
   }, [userSearchQuery]);
+
+  // 친구 요청 실시간 반영 — 15초마다 폴링
+  useEffect(() => {
+    if (!user || !friendPanelOpen) return;
+    const interval = setInterval(() => {
+      void loadFriends();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [user, friendPanelOpen]);
+
+  // 패널 닫혀있어도 요청 수 갱신 (뱃지 표시용) — 30초마다
+  useEffect(() => {
+    if (!user) return;
+    const pollRequests = async () => {
+      const supabase = createClient();
+      if (!supabase) return;
+      const { data } = await supabase
+        .from("friendships")
+        .select("id, requester_id, addressee_id, status")
+        .eq("addressee_id", user.id)
+        .eq("status", "pending");
+      if (data) {
+        const withProfiles = await Promise.all(
+          data.map(async (f) => {
+            const supa = createClient();
+            if (!supa) return null;
+            const { data: profile } = await supa
+              .from("user_profiles")
+              .select("id, nickname, avatar_url, last_seen_at")
+              .eq("id", f.requester_id)
+              .single();
+            return profile ? { ...f, other: profile as UserProfile } : null;
+          })
+        );
+        setFriendRequests(withProfiles.filter(Boolean) as Friendship[]);
+      }
+    };
+    void pollRequests();
+    const interval = setInterval(() => { void pollRequests(); }, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const friendPanel = (
     <div
@@ -791,6 +837,7 @@ export default function Header({
                 aria-label="친구"
                 onClick={() => setFriendPanelOpen(prev => !prev)}
                 style={{
+                  position: "relative",
                   width: MOBILE_HEADER_CURRENCY_H,
                   height: MOBILE_HEADER_CURRENCY_H,
                   borderRadius: 10,
@@ -807,6 +854,18 @@ export default function Header({
                 }}
               >
                 <IconFriends />
+                {friendRequests.length > 0 && (
+                  <div style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: "#f97316",
+                    border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
+                  }} />
+                )}
               </button>
 
               {friendPanelOpen && friendPanel}
@@ -866,7 +925,7 @@ export default function Header({
               type="button"
               aria-label="친구"
               onClick={() => setFriendPanelOpen(prev => !prev)}
-              className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors ${
+              className={`relative flex h-10 w-10 items-center justify-center rounded-xl border transition-colors ${
                 friendPanelOpen
                   ? "border-sky-500/50 bg-sky-500/20 text-sky-300"
                   : isDarkMode
@@ -875,6 +934,18 @@ export default function Header({
               }`}
             >
               <IconFriends />
+              {friendRequests.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: "#f97316",
+                  border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
+                }} />
+              )}
             </button>
 
             {friendPanelOpen && friendPanel}
