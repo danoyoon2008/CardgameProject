@@ -32,6 +32,7 @@ export function useGameLogic() {
   } | null>(null);
   const [isInFriendBattle, setIsInFriendBattle] = useState(false);
   const [isWaitingFriendAccept, setIsWaitingFriendAccept] = useState(false);
+  const [friendChallengeRejected, setFriendChallengeRejected] = useState(false);
 
   const [newCardIds, setNewCardIds] = useState<Set<number>>(new Set());
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -282,6 +283,23 @@ export function useGameLogic() {
             })
           );
         }
+      }
+
+      // 3. 내가 보낸 요청 중 rejected/cancelled 확인
+      const { data: rejected } = await supabase
+        .from("friend_challenges")
+        .select("id, status")
+        .eq("challenger_id", user.id)
+        .in("status", ["rejected", "cancelled"])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!cancelled && rejected) {
+        await supabase.from("friend_challenges").delete().eq("id", rejected.id);
+        setIsWaitingFriendAccept(false);
+        setFriendChallengeRejected(true);
+        setTimeout(() => setFriendChallengeRejected(false), 4000);
       }
     };
 
@@ -667,6 +685,7 @@ export function useGameLogic() {
     incomingChallenge, setIncomingChallenge,
     isInFriendBattle, setIsInFriendBattle,
     isWaitingFriendAccept, setIsWaitingFriendAccept,
+    friendChallengeRejected, setFriendChallengeRejected,
     handleSetInitialNickname: async (newNickname: string) => {
       const supabase = createClient();
       if (!supabase || !user) return;

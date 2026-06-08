@@ -44,6 +44,7 @@ interface BattleViewProps {
   onClearFriendChallengeTarget?: () => void;
   isWaitingFriendAccept?: boolean;
   onCancelFriendChallenge?: () => Promise<void>;
+  friendChallengeRejected?: boolean;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -155,6 +156,7 @@ export default function BattleView({
   onClearFriendChallengeTarget,
   isWaitingFriendAccept = false,
   onCancelFriendChallenge,
+  friendChallengeRejected = false,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -208,6 +210,12 @@ export default function BattleView({
   useEffect(() => {
     if (isWaitingFriendAccept) setBattlePhase("friendWaiting");
   }, [isWaitingFriendAccept]);
+
+  useEffect(() => {
+    if (!isWaitingFriendAccept && battlePhase === "friendWaiting") {
+      setBattlePhase("lobby");
+    }
+  }, [isWaitingFriendAccept, battlePhase]);
 
   useEffect(() => {
     if (battlePhase !== "searching") return;
@@ -885,6 +893,11 @@ export default function BattleView({
       case "friendWaiting": {
         const content = (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
+            {friendChallengeRejected && (
+              <div style={{ padding: "10px 20px", borderRadius: 12, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
+                상대방이 친선전 요청을 거절했습니다.
+              </div>
+            )}
             <div style={{ width: 64, height: 64, borderRadius: "50%", border: "4px solid #6366f1", borderTopColor: "transparent", animation: "spin 1s linear infinite" }} />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             <div style={{ textAlign: "center" }}>

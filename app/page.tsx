@@ -307,14 +307,21 @@ export default function Home() {
   const handleAcceptChallenge = useCallback(async (challengeId: string, challengerId: string) => {
     const supabase = createClient();
     if (!supabase || !game.user) return;
-    const { data: room } = await supabase.from("game_rooms").insert({
+    const now = new Date().toISOString();
+    const { data: room, error: roomError } = await supabase.from("game_rooms").insert({
       player_a_id: challengerId,
       player_b_id: game.user.id,
       status: "playing",
-      player_a_last_seen: new Date().toISOString(),
-      player_b_last_seen: new Date().toISOString(),
+      player_a_last_seen: now,
+      player_b_last_seen: now,
+      player_a_connected: true,
+      player_b_connected: true,
+      updated_at: now,
     }).select().single();
-    if (!room) return;
+    if (roomError || !room) {
+      console.error("[친선전] 방 생성 실패:", roomError?.message);
+      return;
+    }
     await supabase.from("friend_challenges")
       .update({ status: "accepted", room_id: room.id })
       .eq("id", challengeId);
@@ -401,6 +408,7 @@ export default function Home() {
                   onRejectChallenge={handleRejectChallenge}
                   isWaitingFriendAccept={game.isWaitingFriendAccept}
                   onCancelFriendChallenge={handleCancelFriendChallenge}
+                  friendChallengeRejected={game.friendChallengeRejected}
                 />
               )}
               
@@ -439,6 +447,7 @@ export default function Home() {
           onRejectChallenge={handleRejectChallenge}
           isWaitingFriendAccept={game.isWaitingFriendAccept}
           onCancelFriendChallenge={handleCancelFriendChallenge}
+          friendChallengeRejected={game.friendChallengeRejected}
         />
       )}
       {game.mainView === "shop" && (
