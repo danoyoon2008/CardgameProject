@@ -395,7 +395,10 @@ export default function Home() {
                   cards={game.cards}
                   onStartSimulation={() => game.setMainView("simulation")}
                   onStartMultiplay={handleStartMultiplay}
-                  activeMultiplayRoom={activeMultiplayRoom}
+                  activeMultiplayRoom={activeMultiplayRoom ? {
+                    ...activeMultiplayRoom,
+                    isFriendBattle: game.isInFriendBattle,
+                  } : null}
                   onRejoinMultiplay={handleStartMultiplay}
                   autoStartMatchmaking={autoStartMatchmaking}
                   onAutoMatchStarted={() => setAutoStartMatchmaking(false)}
@@ -434,7 +437,10 @@ export default function Home() {
           cards={game.cards}
           onStartSimulation={() => game.setMainView("simulation")}
           onStartMultiplay={handleStartMultiplay}
-          activeMultiplayRoom={activeMultiplayRoom}
+          activeMultiplayRoom={activeMultiplayRoom ? {
+            ...activeMultiplayRoom,
+            isFriendBattle: game.isInFriendBattle,
+          } : null}
           onRejoinMultiplay={handleStartMultiplay}
           autoStartMatchmaking={autoStartMatchmaking}
           onAutoMatchStarted={() => setAutoStartMatchmaking(false)}

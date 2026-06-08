@@ -7,6 +7,7 @@ import type { PlayerRole } from "@/hooks/useMatchmaking";
 export type ActiveMultiplayRoom = {
   roomId: string;
   myRole: PlayerRole;
+  isFriendBattle?: boolean;
 };
 
 export function useActiveMultiplayRoom(userId: string | undefined | null, enabled: boolean) {

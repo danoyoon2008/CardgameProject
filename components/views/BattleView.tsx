@@ -528,17 +528,33 @@ export default function BattleView({
 
   const renderLobby = (mobile: boolean) => {
     const canRejoin = !!activeMultiplayRoom && !!onRejoinMultiplay;
-    const handleGlobalPlayClick = () => {
-      if (canRejoin && activeMultiplayRoom) {
-        onRejoinMultiplay(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
-        return;
-      }
-      setBattlePhase("modeSelect");
-    };
+    const isFriendBattleRejoin = canRejoin && !!activeMultiplayRoom?.isFriendBattle;
+    const isGlobalRejoin = canRejoin && !activeMultiplayRoom?.isFriendBattle;
+
+    const rejectionToast = friendChallengeRejected ? (
+      <div style={{
+        position: "fixed",
+        top: 80,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 999,
+        background: "#1e293b",
+        border: "1px solid #475569",
+        borderRadius: 14,
+        padding: "12px 20px",
+        whiteSpace: "nowrap",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+      }}>
+        <p style={{ color: "#f1f5f9", fontSize: 13, fontWeight: 600, margin: 0 }}>
+          상대방이 친선전 요청을 거절했습니다.
+        </p>
+      </div>
+    ) : null;
 
     if (mobile) {
       return (
         <>
+          {rejectionToast}
           <header style={{ textAlign: "center", marginBottom: 24 }}>
             <h1
               style={{
@@ -562,14 +578,18 @@ export default function BattleView({
               type="button"
               onClick={() => {
                 if (isInFriendBattle) return;
-                handleGlobalPlayClick();
+                if (isGlobalRejoin && activeMultiplayRoom) {
+                  onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
+                  return;
+                }
+                setBattlePhase("modeSelect");
               }}
               style={{
                 flex: 1,
                 minWidth: 0,
                 height: MOBILE_BATTLE_MODE_BTN_H,
                 borderRadius: 16,
-                border: canRejoin ? "2px solid #f97316" : modeBtnBorder("#0ea5e9"),
+                border: isGlobalRejoin ? "2px solid #f97316" : modeBtnBorder("#0ea5e9"),
                 background: modeBtnBg,
                 display: "flex",
                 flexDirection: "column",
@@ -579,23 +599,23 @@ export default function BattleView({
                 padding: "8px 6px",
                 boxSizing: "border-box",
                 cursor: isInFriendBattle ? "not-allowed" : "pointer",
-                boxShadow: canRejoin ? "0 0 18px rgba(249,115,22,0.65)" : undefined,
+                boxShadow: isGlobalRejoin ? "0 0 18px rgba(249,115,22,0.65)" : undefined,
                 opacity: isInFriendBattle ? 0.4 : 1,
               }}
             >
-              <IconGlobe className={`h-10 w-10 shrink-0 ${canRejoin ? "text-orange-400" : "text-sky-500"}`} />
+              <IconGlobe className={`h-10 w-10 shrink-0 ${isGlobalRejoin ? "text-orange-400" : "text-sky-500"}`} />
               <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>
-                {canRejoin ? "게임 재접속" : "글로벌 플레이"}
+                {isGlobalRejoin ? "게임 재접속" : "글로벌 플레이"}
               </span>
               <span
                 style={{
                   fontSize: 11,
                   fontWeight: 500,
-                  color: canRejoin ? "rgba(251,146,60,0.95)" : "rgba(14,165,233,0.85)",
+                  color: isGlobalRejoin ? "rgba(251,146,60,0.95)" : "rgba(14,165,233,0.85)",
                   textAlign: "center",
                 }}
               >
-                {canRejoin ? "진행 중인 대전" : "자동 매칭"}
+                {isGlobalRejoin ? "진행 중인 대전" : "자동 매칭"}
               </span>
             </button>
 
@@ -637,6 +657,10 @@ export default function BattleView({
                 type="button"
                 onClick={() => {
                   if (isGlobalPlaying) return;
+                  if (isFriendBattleRejoin && activeMultiplayRoom) {
+                    onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
+                    return;
+                  }
                   setBattlePhase("friendModeSelect");
                 }}
                 style={{
@@ -644,7 +668,7 @@ export default function BattleView({
                   minWidth: 0,
                   height: MOBILE_BATTLE_MODE_BTN_H,
                   borderRadius: 16,
-                  border: modeBtnBorder("#6366f1"),
+                  border: isFriendBattleRejoin ? "2px solid #f97316" : modeBtnBorder("#6366f1"),
                   background: modeBtnBg,
                   display: "flex",
                   flexDirection: "column",
@@ -655,11 +679,16 @@ export default function BattleView({
                   boxSizing: "border-box",
                   opacity: isGlobalPlaying ? 0.4 : 1,
                   cursor: isGlobalPlaying ? "not-allowed" : "pointer",
+                  boxShadow: isFriendBattleRejoin ? "0 0 18px rgba(249,115,22,0.65)" : undefined,
                 }}
               >
-                <IconUsers className="h-10 w-10 text-indigo-500 shrink-0" />
-                <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>친구와 플레이</span>
-                <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(99,102,241,0.85)", textAlign: "center" }}>친선전</span>
+                <IconUsers className={`h-10 w-10 shrink-0 ${isFriendBattleRejoin ? "text-orange-400" : "text-indigo-500"}`} />
+                <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary, textAlign: "center" }}>
+                  {isFriendBattleRejoin ? "게임 재접속" : "친구와 플레이"}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: isFriendBattleRejoin ? "rgba(251,146,60,0.95)" : "rgba(99,102,241,0.85)", textAlign: "center" }}>
+                  {isFriendBattleRejoin ? "진행 중인 대전" : "친선전"}
+                </span>
               </button>
             )}
           </div>
@@ -737,6 +766,7 @@ export default function BattleView({
 
     return (
       <>
+        {rejectionToast}
         <header className="mb-4">
           <h1 className="text-3xl font-black tracking-tight sm:text-4xl md:text-5xl mb-3">대전 센터</h1>
           <p className="text-sm text-slate-400 sm:text-base">전 세계의 플레이어, 혹은 친구와 실력을 겨뤄보세요.</p>
@@ -747,10 +777,14 @@ export default function BattleView({
             type="button"
             onClick={() => {
               if (isInFriendBattle) return;
-              handleGlobalPlayClick();
+              if (isGlobalRejoin && activeMultiplayRoom) {
+                onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
+                return;
+              }
+              setBattlePhase("modeSelect");
             }}
             className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${
-              canRejoin
+              isGlobalRejoin
                 ? isDarkMode
                   ? "border-orange-500 bg-gradient-to-b from-slate-800 to-slate-900 shadow-[0_0_22px_rgba(249,115,22,0.55)] hover:border-orange-400"
                   : "border-orange-400 bg-white shadow-[0_0_22px_rgba(249,115,22,0.45)] hover:border-orange-500"
@@ -764,13 +798,13 @@ export default function BattleView({
             }}
           >
             <IconGlobe
-              className={`h-12 w-12 ${canRejoin ? "text-orange-400" : "text-sky-500"} group-hover:scale-110 transition-transform duration-300`}
+              className={`h-12 w-12 ${isGlobalRejoin ? "text-orange-400" : "text-sky-500"} group-hover:scale-110 transition-transform duration-300`}
             />
             <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
-              {canRejoin ? "게임 재접속" : "글로벌 플레이"}
+              {isGlobalRejoin ? "게임 재접속" : "글로벌 플레이"}
             </span>
-            <span className={`text-xs font-medium ${canRejoin ? "text-orange-400/90" : "text-sky-500/80"}`}>
-              {canRejoin ? "진행 중인 대전" : "자동 매칭 시스템"}
+            <span className={`text-xs font-medium ${isGlobalRejoin ? "text-orange-400/90" : "text-sky-500/80"}`}>
+              {isGlobalRejoin ? "진행 중인 대전" : "자동 매칭 시스템"}
             </span>
           </button>
 
@@ -809,17 +843,33 @@ export default function BattleView({
               type="button"
               onClick={() => {
                 if (isGlobalPlaying) return;
+                if (isFriendBattleRejoin && activeMultiplayRoom) {
+                  onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
+                  return;
+                }
                 setBattlePhase("friendModeSelect");
               }}
-              className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${isDarkMode ? "border-indigo-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-indigo-400" : "border-indigo-200 bg-white shadow-sm hover:border-indigo-400"}`}
+              className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${
+                isFriendBattleRejoin
+                  ? isDarkMode
+                    ? "border-orange-500 bg-gradient-to-b from-slate-800 to-slate-900 shadow-[0_0_22px_rgba(249,115,22,0.55)] hover:border-orange-400"
+                    : "border-orange-400 bg-white shadow-[0_0_22px_rgba(249,115,22,0.45)] hover:border-orange-500"
+                  : isDarkMode
+                    ? "border-indigo-500/30 bg-gradient-to-b from-slate-800 to-slate-900 hover:border-indigo-400"
+                    : "border-indigo-200 bg-white shadow-sm hover:border-indigo-400"
+              }`}
               style={{
                 opacity: isGlobalPlaying ? 0.4 : 1,
                 cursor: isGlobalPlaying ? "not-allowed" : "pointer",
               }}
             >
-              <IconUsers className="h-12 w-12 text-indigo-500 group-hover:scale-110 transition-transform duration-300" />
-              <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>친구와 플레이</span>
-              <span className="text-xs text-indigo-500/80 font-medium">친선전</span>
+              <IconUsers className={`h-12 w-12 ${isFriendBattleRejoin ? "text-orange-400" : "text-indigo-500"} group-hover:scale-110 transition-transform duration-300`} />
+              <span className={`text-lg font-bold sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                {isFriendBattleRejoin ? "게임 재접속" : "친구와 플레이"}
+              </span>
+              <span className={`text-xs font-medium ${isFriendBattleRejoin ? "text-orange-400/90" : "text-indigo-500/80"}`}>
+                {isFriendBattleRejoin ? "진행 중인 대전" : "친선전"}
+              </span>
             </button>
           )}
         </div>
@@ -893,11 +943,6 @@ export default function BattleView({
       case "friendWaiting": {
         const content = (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
-            {friendChallengeRejected && (
-              <div style={{ padding: "10px 20px", borderRadius: 12, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
-                상대방이 친선전 요청을 거절했습니다.
-              </div>
-            )}
             <div style={{ width: 64, height: 64, borderRadius: "50%", border: "4px solid #6366f1", borderTopColor: "transparent", animation: "spin 1s linear infinite" }} />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             <div style={{ textAlign: "center" }}>
