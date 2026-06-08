@@ -251,15 +251,33 @@ function MultiplayGameSession({
     text: string;
     timestamp: number;
   }[]>([]);
+  const [opponentEmoji, setOpponentEmoji] = useState<string | null>(null);
+  const [opponentTyping, setOpponentTyping] = useState(false);
+  const opponentEmojiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opponentTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hasNewChat, setHasNewChat] = useState(false);
 
-  const sendChatMessage = useCallback((text: string) => {
+  const sendChatMessage = useCallback((text: string, isEmoji?: boolean) => {
     if (!text.trim()) return;
     setChatMessages(prev => [...prev, { sender: "me", text: text.trim(), timestamp: Date.now() }]);
     void channelRef.current?.send({
       type: "broadcast",
       event: "chat_message",
-      payload: { text: text.trim() },
+      payload: { text: text.trim(), isEmoji: !!isEmoji },
     });
+  }, []);
+
+  const sendTypingIndicator = useCallback(() => {
+    if (typingThrottleRef.current) return;
+    void channelRef.current?.send({
+      type: "broadcast",
+      event: "chat_typing",
+      payload: {},
+    });
+    typingThrottleRef.current = setTimeout(() => {
+      typingThrottleRef.current = null;
+    }, 2000);
   }, []);
 
   const opponentRole: PlayerRole = myRole === "player_a" ? "player_b" : "player_a";
@@ -629,9 +647,21 @@ function MultiplayGameSession({
         witchTarotFinishTriggerRef.current?.();
       })
       .on("broadcast", { event: "chat_message" }, ({ payload }) => {
-        const { text } = payload as { text: string };
+        const { text, isEmoji } = payload as { text: string; isEmoji?: boolean };
         if (!text) return;
         setChatMessages(prev => [...prev, { sender: "opponent", text, timestamp: Date.now() }]);
+        setOpponentTyping(false);
+        setHasNewChat(true);
+        if (isEmoji) {
+          if (opponentEmojiTimerRef.current) clearTimeout(opponentEmojiTimerRef.current);
+          setOpponentEmoji(text);
+          opponentEmojiTimerRef.current = setTimeout(() => setOpponentEmoji(null), 3000);
+        }
+      })
+      .on("broadcast", { event: "chat_typing" }, () => {
+        setOpponentTyping(true);
+        if (opponentTypingTimerRef.current) clearTimeout(opponentTypingTimerRef.current);
+        opponentTypingTimerRef.current = setTimeout(() => setOpponentTyping(false), 3000);
       });
 
     // 재접속 감지: 구독 완료 후 상대에게 현재 상태 요청
@@ -917,7 +947,12 @@ function MultiplayGameSession({
               drawRequestCooldownTurn: drawRequestCooldownTurnRef.current,
             }}
             chatMessages={chatMessages}
-            onSendChatMessage={sendChatMessage}
+            onSendChatMessage={(text, isEmoji) => sendChatMessage(text, isEmoji)}
+            onSendTypingIndicator={sendTypingIndicator}
+            opponentEmoji={opponentEmoji}
+            opponentTyping={opponentTyping}
+            hasNewChat={hasNewChat}
+            onClearNewChat={() => setHasNewChat(false)}
           />
         ) : (
           <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">

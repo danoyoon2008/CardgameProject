@@ -490,7 +490,12 @@ interface SimulationViewProps {
     drawRequestCooldownTurn?: number;
   };
   chatMessages?: { sender: "me" | "opponent"; text: string; timestamp: number }[];
-  onSendChatMessage?: (text: string) => void;
+  onSendChatMessage?: (text: string, isEmoji?: boolean) => void;
+  onSendTypingIndicator?: () => void;
+  opponentEmoji?: string | null;
+  opponentTyping?: boolean;
+  hasNewChat?: boolean;
+  onClearNewChat?: () => void;
 }
 
 function normalizeBootstrapSimulationState(raw: SimulationState): SimulationState {
@@ -1337,6 +1342,11 @@ export default function SimulationView({
   multiplayEndUi,
   chatMessages = [],
   onSendChatMessage,
+  onSendTypingIndicator,
+  opponentEmoji = null,
+  opponentTyping = false,
+  hasNewChat,
+  onClearNewChat,
 }: SimulationViewProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
@@ -1344,6 +1354,8 @@ export default function SimulationView({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const EMOJI_LIST = ["😊", "👍", "😢", "🔥", "💀", "😎", "🤔", "👏", "😡", "🎉", "😂", "🫡"];
+  const [myEmoji, setMyEmoji] = useState<string | null>(null);
+  const myEmojiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -17239,6 +17251,65 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     mobileSpellSlotW: MOBILE_SPELL_W,
     mobileSpellSlotH: MOBILE_SPELL_H,
   };
+
+  const renderChatBubble = (
+    emoji: string | null,
+    isTyping: boolean,
+    player: "A" | "B",
+    isMobileCtx: boolean,
+  ) => {
+    const content = isTyping ? "..." : emoji;
+    if (!content) return null;
+
+    const isMyPlayer =
+      (multiplayMyRole === "player_a" && player === "A") ||
+      (multiplayMyRole === "player_b" && player === "B");
+
+    return (
+      <div
+        style={{
+          position: "absolute",
+          left: isMobileCtx ? -48 : -52,
+          top: "50%",
+          transform: "translateY(-50%)",
+          zIndex: 300,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            background: isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)",
+            borderRadius: "50%",
+            width: isMobileCtx ? 36 : 42,
+            height: isMobileCtx ? 36 : 42,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: isMobileCtx ? 18 : 22,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            border: "2px solid rgba(255,255,255,0.3)",
+          }}
+        >
+          {content}
+        </div>
+        <div
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: "5px solid transparent",
+            borderRight: "5px solid transparent",
+            borderTop: `7px solid ${
+              isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)"
+            }`,
+            marginTop: -1,
+          }}
+        />
+      </div>
+    );
+  };
   const mobileFieldBadgeRenderOpts = {
     mobileFieldLayout: true as const,
     zoneWidth: MOBILE_UNIT_W,
@@ -17777,32 +17848,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         : "rgba(0,0,0,0.25)";
 
     return (
-      <div
-        ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
-        onClick={() => setSelectedHandCard(null)}
-        style={{
-          width: "78%",
-          marginLeft: "auto",
-          marginRight: "auto",
-          ...(isPlayerA
-            ? { marginTop: MOBILE_BOARD_EDGE_GAP }
-            : { marginBottom: MOBILE_BOARD_EDGE_GAP }),
-          height: MOBILE_HAND_H,
-          border: `2px solid ${borderColor}`,
-          borderRadius: 12,
-          background: bgColor,
-          overflow: "hidden",
-          display: "grid",
-          gridTemplateColumns: "repeat(6, 1fr)",
-          gap: MOBILE_HAND_GRID_GAP,
-          paddingTop: MOBILE_HAND_PAD_Y,
-          paddingBottom: MOBILE_HAND_PAD_Y,
-          paddingLeft: MOBILE_HAND_PAD_X,
-          paddingRight: MOBILE_HAND_PAD_X,
-          boxSizing: "border-box",
-          touchAction: "none",
-        }}
-      >
+      <div style={{ position: "relative" }}>
+        {renderChatBubble(
+          isPlayerA
+            ? multiplayMyRole === "player_a"
+              ? myEmoji
+              : opponentEmoji
+            : multiplayMyRole === "player_b"
+              ? myEmoji
+              : opponentEmoji,
+          isPlayerA
+            ? multiplayMyRole === "player_b" && opponentTyping
+            : multiplayMyRole === "player_a" && opponentTyping,
+          player,
+          true,
+        )}
+        <div
+          ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
+          onClick={() => setSelectedHandCard(null)}
+          style={{
+            width: "78%",
+            marginLeft: "auto",
+            marginRight: "auto",
+            ...(isPlayerA
+              ? { marginTop: MOBILE_BOARD_EDGE_GAP }
+              : { marginBottom: MOBILE_BOARD_EDGE_GAP }),
+            height: MOBILE_HAND_H,
+            border: `2px solid ${borderColor}`,
+            borderRadius: 12,
+            background: bgColor,
+            overflow: "hidden",
+            display: "grid",
+            gridTemplateColumns: "repeat(6, 1fr)",
+            gap: MOBILE_HAND_GRID_GAP,
+            paddingTop: MOBILE_HAND_PAD_Y,
+            paddingBottom: MOBILE_HAND_PAD_Y,
+            paddingLeft: MOBILE_HAND_PAD_X,
+            paddingRight: MOBILE_HAND_PAD_X,
+            boxSizing: "border-box",
+            touchAction: "none",
+          }}
+        >
           {Array.from({ length: 6 }).map((_, i) => {
             const card = hand[i];
             const momoDiscard =
@@ -17973,7 +18059,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 {renderFlashOverlay(`hand-${player}-${i}`, "rounded-[6px]")}
               </div>
             );
-          })}
+        })}
+        </div>
       </div>
     );
   };
@@ -18118,7 +18205,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               key={emoji}
               type="button"
               onClick={() => {
-                onSendChatMessage?.(emoji);
+              if (myEmojiTimerRef.current) clearTimeout(myEmojiTimerRef.current);
+              setMyEmoji(emoji);
+              myEmojiTimerRef.current = setTimeout(() => setMyEmoji(null), 3000);
+              onSendChatMessage?.(emoji, true);
                 setShowEmojiPicker(false);
               }}
               style={{
@@ -18154,7 +18244,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         <input
           type="text"
           value={chatInput}
-          onChange={e => setChatInput(e.target.value)}
+          onChange={e => {
+            setChatInput(e.target.value);
+            onSendTypingIndicator?.();
+          }}
           onKeyDown={e => {
             if (e.key === "Enter" && chatInput.trim()) {
               onSendChatMessage?.(chatInput);
@@ -19419,11 +19512,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           >
             <button
               type="button"
-              onClick={e => {
-                e.stopPropagation();
-                setIsDrawerOpen(true);
-              }}
               style={{
+                position: "relative",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -19436,6 +19526,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 cursor: "pointer",
               }}
             >
+              {hasNewChat && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: "#f97316",
+                    border: "1.5px solid #000",
+                  }}
+                />
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ width: 20, height: 2, borderRadius: 9999, backgroundColor: "#e5e7eb" }} />
                 <span style={{ width: 20, height: 2, borderRadius: 9999, backgroundColor: "#e5e7eb" }} />
