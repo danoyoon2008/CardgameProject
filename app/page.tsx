@@ -312,6 +312,7 @@ export default function Home() {
       player_a_id: challengerId,
       player_b_id: game.user.id,
       status: "playing",
+      room_type: "friend",
       player_a_last_seen: now,
       player_b_last_seen: now,
       player_a_connected: true,
