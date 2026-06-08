@@ -254,6 +254,7 @@ export default function Home() {
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
+  const [friends, setFriends] = useState<{ id: string; nickname: string | null; last_seen_at: string | null }[]>([]);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
   const isFullScreenGame = isSimulation || isMultiplay;
@@ -269,6 +270,35 @@ export default function Home() {
       void refreshActiveMultiplayRoom();
     }
   }, [game.mainView, game.user, refreshActiveMultiplayRoom]);
+
+  useEffect(() => {
+    if (!game.user) return;
+    const loadFriends = async () => {
+      const supabase = createClient();
+      if (!supabase) return;
+      const { data } = await supabase
+        .from("friendships")
+        .select("id, requester_id, addressee_id")
+        .eq("status", "accepted")
+        .or(`requester_id.eq.${game.user!.id},addressee_id.eq.${game.user!.id}`);
+      if (!data) return;
+      const profiles = await Promise.all(
+        data.map(async (f) => {
+          const otherId = f.requester_id === game.user!.id ? f.addressee_id : f.requester_id;
+          const { data: p } = await supabase
+            .from("user_profiles")
+            .select("id, nickname, last_seen_at")
+            .eq("id", otherId)
+            .maybeSingle();
+          return p;
+        })
+      );
+      setFriends(profiles.filter(Boolean) as { id: string; nickname: string | null; last_seen_at: string | null }[]);
+    };
+    void loadFriends();
+    const interval = setInterval(() => { void loadFriends(); }, 30000);
+    return () => clearInterval(interval);
+  }, [game.user]);
 
   const handleStartMultiplay = (roomId: string, myRole: PlayerRole) => {
     setMultiplayRoomId(roomId);
@@ -418,6 +448,8 @@ export default function Home() {
                   onCancelFriendChallenge={handleCancelFriendChallenge}
                   friendChallengeRejected={game.friendChallengeRejected}
                   friendChallengeCancelled={game.friendChallengeCancelled}
+                  friends={friends}
+                  onSetFriendChallengeTarget={setFriendChallengeTarget}
                 />
               )}
               
@@ -461,6 +493,8 @@ export default function Home() {
           onCancelFriendChallenge={handleCancelFriendChallenge}
           friendChallengeRejected={game.friendChallengeRejected}
           friendChallengeCancelled={game.friendChallengeCancelled}
+          friends={friends}
+          onSetFriendChallengeTarget={setFriendChallengeTarget}
         />
       )}
       {game.mainView === "shop" && (

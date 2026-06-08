@@ -17,7 +17,7 @@ import type { ActiveMultiplayRoom } from "@/hooks/useActiveMultiplayRoom";
 import { createClient } from "@/utils/supabase/client";
 import type { CardRow } from "@/types/game";
 
-type BattlePhase = "lobby" | "modeSelect" | "friendModeSelect" | "friendWaiting" | "searching" | "countdown";
+type BattlePhase = "lobby" | "modeSelect" | "friendList" | "friendModeSelect" | "friendWaiting" | "searching" | "countdown";
 
 interface BattleViewProps {
   isDarkMode: boolean;
@@ -46,6 +46,8 @@ interface BattleViewProps {
   onCancelFriendChallenge?: () => Promise<void>;
   friendChallengeRejected?: boolean;
   friendChallengeCancelled?: boolean;
+  friends?: { id: string; nickname: string | null; last_seen_at: string | null }[];
+  onSetFriendChallengeTarget?: (target: { id: string; nickname: string }) => void;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -159,6 +161,8 @@ export default function BattleView({
   onCancelFriendChallenge,
   friendChallengeRejected = false,
   friendChallengeCancelled = false,
+  friends = [],
+  onSetFriendChallengeTarget,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -532,6 +536,7 @@ export default function BattleView({
     const canRejoin = !!activeMultiplayRoom && !!onRejoinMultiplay;
     const isFriendBattleRejoin = canRejoin && !!activeMultiplayRoom?.isFriendBattle;
     const isGlobalRejoin = canRejoin && !activeMultiplayRoom?.isFriendBattle;
+    const isSimDisabled = canRejoin || isInFriendBattle;
 
     const rejectionToast = friendChallengeRejected ? (
       <div style={{
@@ -684,7 +689,7 @@ export default function BattleView({
                     onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
                     return;
                   }
-                  setBattlePhase("friendModeSelect");
+                  setBattlePhase("friendList");
                 }}
                 style={{
                   flex: 1,
@@ -728,7 +733,7 @@ export default function BattleView({
 
           <button
             type="button"
-            onClick={onStartSimulation}
+            onClick={() => { if (isSimDisabled) return; onStartSimulation(); }}
             style={{
               width: "100%",
               height: MOBILE_BATTLE_SIM_BTN_H,
@@ -737,6 +742,8 @@ export default function BattleView({
               padding: 4,
               background: "linear-gradient(90deg, #d97706 0%, #ea580c 100%)",
               boxSizing: "border-box",
+              opacity: isSimDisabled ? 0.4 : 1,
+              cursor: isSimDisabled ? "not-allowed" : "pointer",
             }}
           >
             <div
@@ -871,7 +878,7 @@ export default function BattleView({
                   onRejoinMultiplay?.(activeMultiplayRoom.roomId, activeMultiplayRoom.myRole);
                   return;
                 }
-                setBattlePhase("friendModeSelect");
+                setBattlePhase("friendList");
               }}
               className={`group relative flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl active:scale-95 ${
                 isFriendBattleRejoin
@@ -902,8 +909,9 @@ export default function BattleView({
 
         <button
           type="button"
-          onClick={onStartSimulation}
+          onClick={() => { if (isSimDisabled) return; onStartSimulation(); }}
           className="group relative w-full overflow-hidden rounded-2xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-600 to-orange-600 p-1 transition-all duration-300 hover:shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:border-amber-400 active:scale-[0.98]"
+          style={{ opacity: isSimDisabled ? 0.4 : 1, cursor: isSimDisabled ? "not-allowed" : "pointer" }}
         >
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-30 mix-blend-overlay" />
           <div className="relative flex items-center justify-between bg-slate-900/40 backdrop-blur-sm px-6 py-4 rounded-xl">
@@ -931,6 +939,72 @@ export default function BattleView({
     switch (battlePhase) {
       case "modeSelect":
         return renderModeSelect(mobile);
+      case "friendList": {
+        const onlineThreshold = 120000;
+        const content = (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, width: "100%" }}>
+            <h2 style={{ fontSize: mobile ? 20 : 26, fontWeight: 900, color: "#fff", margin: 0 }}>친구와 플레이</h2>
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>친선전을 신청할 친구를 선택하세요.</p>
+            <div style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 6 }}>
+              {!friends || friends.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "32px 0", color: "#475569", fontSize: 14 }}>
+                  친구가 없습니다. 친구를 추가해보세요!
+                </div>
+              ) : (
+                friends.map((f) => {
+                  const online = f.last_seen_at
+                    ? Date.now() - new Date(f.last_seen_at).getTime() < onlineThreshold
+                    : false;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        onClearFriendChallengeTarget?.();
+                        onSetFriendChallengeTarget?.({ id: f.id, nickname: f.nickname ?? "닉네임 없음" });
+                        setBattlePhase("friendModeSelect");
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "12px 14px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.04)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <span style={{ color: "#94a3b8", fontSize: 16 }}>👤</span>
+                        </div>
+                        <div style={{ position: "absolute", top: 0, left: 0, width: 10, height: 10, borderRadius: "50%", background: online ? "#22c55e" : "#475569", border: "2px solid #050a14" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0" }}>{f.nickname ?? "닉네임 없음"}</div>
+                        <div style={{ fontSize: 11, color: online ? "#22c55e" : "#64748b" }}>{online ? "접속 중" : "오프라인"}</div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBattlePhase("lobby")}
+              style={{ fontSize: 14, color: "#64748b", background: "none", border: "none", cursor: "pointer", marginTop: 8 }}
+            >
+              ← 돌아가기
+            </button>
+          </div>
+        );
+        return mobile
+          ? <div style={{ width: MOBILE_LOBBY_CONTENT_W, marginLeft: MOBILE_LOBBY_PAD_X }}>{content}</div>
+          : content;
+      }
       case "friendModeSelect": {
         const content = (
           <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
