@@ -1594,7 +1594,7 @@ export default function SimulationView({
   const isInitializing = controlledSimulation ? controlledSimulation.isInitializing : localIsInitializing;
   const setIsInitializing = controlledSimulation ? controlledSimulation.setIsInitializing : setLocalIsInitializing;
   const [coinTossDisplay, setCoinTossDisplay] = useState<"A" | "B" | "FLIPPING" | null>(null);
-  const [coinFlipSide, setCoinFlipSide] = useState<"A" | "B">("A");
+  const [coinFlipTick, setCoinFlipTick] = useState(0);
   
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [attackingSlot, setAttackingSlot] = useState<string | null>(null);
@@ -6149,7 +6149,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     setCoinTossDisplay("FLIPPING");
 
     openingCoinFlipIntervalRef.current = setInterval(() => {
-      setCoinFlipSide(prev => (prev === "A" ? "B" : "A"));
+      setCoinFlipTick(prev => prev + 1);
     }, 100);
 
     await skippableDelay(1500);
@@ -19897,56 +19897,46 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
           )}
           {coinTossDisplay && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 50,
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 50,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(0,0,0,0.7)",
+              backdropFilter: "blur(4px)",
+              flexDirection: "column",
+              gap: 24,
+            }}>
+              <h3 style={{ color: "#fff", fontWeight: 900, fontSize: 18, letterSpacing: 4, margin: 0 }}>
+                선공 결정
+              </h3>
+              <div style={{
+                width: 100,
+                height: 100,
+                borderRadius: "50%",
+                border: `4px solid ${coinTossDisplay === "FLIPPING" ? "rgba(147,197,253,0.9)" : coinTossDisplay === "A" ? "#93c5fd" : "#fda4af"}`,
+                background: coinTossDisplay === "FLIPPING"
+                  ? "linear-gradient(135deg, #1d4ed8, #1e3a8a)"
+                  : coinTossDisplay === "A"
+                  ? "linear-gradient(135deg, #0ea5e9, #1d4ed8)"
+                  : "linear-gradient(135deg, #f43f5e, #be123c)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "rgba(0,0,0,0.6)",
-              }}
-            >
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <h3 style={{ color: "#fff", fontWeight: 900, fontSize: 14, marginBottom: 16 }}>선공 결정 코인 토스</h3>
-                {coinTossDisplay === "FLIPPING" ? (
-                  <div
-                    style={{
-                      width: 96,
-                      height: 96,
-                      borderRadius: 48,
-                      border: "4px solid",
-                      borderColor: coinFlipSide === "A" ? "#7dd3fc" : "#fda4af",
-                      background: coinFlipSide === "A" ? "#0284c7" : "#e11d48",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <IconUser className="w-10 h-10 text-white opacity-80" />
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      width: 96,
-                      height: 96,
-                      borderRadius: 48,
-                      border: "4px solid",
-                      borderColor: coinTossDisplay === "A" ? "#7dd3fc" : "#fda4af",
-                      background: coinTossDisplay === "A" ? "#0284c7" : "#e11d48",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <span style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>{coinTossDisplay}</span>
-                  </div>
-                )}
-                <p style={{ marginTop: 16, fontSize: 18, fontWeight: 900, color: "#fff" }}>
-                  {coinTossDisplay === "FLIPPING" ? "돌아가는 중..." : `Player ${coinTossDisplay} 선공!`}
-                </p>
+                boxShadow: "0 0 32px rgba(255,255,255,0.3)",
+                animation: coinTossDisplay === "FLIPPING"
+                  ? "witchTarotCoinSpin 0.14s ease-in-out infinite"
+                  : "bounce 0.45s ease-out",
+              }}>
+                <span style={{ color: "#fff", fontWeight: 900, fontSize: coinTossDisplay === "FLIPPING" ? 28 : 36 }}>
+                  {coinTossDisplay === "FLIPPING" ? (coinFlipTick % 2 === 0 ? "A" : "B") : coinTossDisplay}
+                </span>
               </div>
+              <p style={{ color: "#fff", fontWeight: 900, fontSize: 18, margin: 0 }}>
+                {coinTossDisplay === "FLIPPING" ? "돌아가는 중..." : `Player ${coinTossDisplay} 선공!`}
+              </p>
             </div>
           )}
 
@@ -20731,20 +20721,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           </div>
         )}
         {coinTossDisplay && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl animate-[fadeIn_0.3s_ease-out]">
-            <div className="flex flex-col items-center">
-              <h3 className="text-white font-black tracking-widest text-2xl mb-8 animate-pulse drop-shadow-lg">선공 결정 코인 토스</h3>
-              {coinTossDisplay === "FLIPPING" ? (
-                <div className={`w-40 h-40 rounded-full border-4 shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center transition-colors duration-75 ${coinFlipSide === 'A' ? 'bg-sky-600 border-sky-300' : 'bg-rose-600 border-rose-300'}`}>
-                  <IconUser className="w-16 h-16 text-white opacity-80" />
-                </div>
-              ) : (
-                <div className={`w-40 h-40 rounded-full border-4 flex items-center justify-center animate-[bounce_0.5s_ease-out] shadow-[0_0_80px_rgba(255,255,255,0.6)] ${coinTossDisplay === 'A' ? 'bg-sky-600 border-sky-300 shadow-sky-500/50' : 'bg-rose-600 border-rose-300 shadow-rose-500/50'}`}>
-                  <span className="text-5xl font-black text-white">{coinTossDisplay}</span>
-                </div>
-              )}
-              <p className="mt-8 text-3xl font-black text-white drop-shadow-xl">
-                {coinTossDisplay === "FLIPPING" ? "돌아가는 중..." : `Player ${coinTossDisplay} 선공!`}
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm rounded-3xl">
+            <div className="flex flex-col items-center gap-8">
+              <h3 className="text-white font-black tracking-widest text-2xl animate-pulse drop-shadow-lg">
+                선공 결정
+              </h3>
+              <div
+                className={`relative w-40 h-40 rounded-full border-4 shadow-[0_0_48px_rgba(255,255,255,0.35)] flex items-center justify-center ${
+                  coinTossDisplay === "FLIPPING"
+                    ? "animate-[witchTarotCoinSpin_0.14s_ease-in-out_infinite] border-sky-300/90 bg-gradient-to-br from-sky-600 to-blue-900"
+                    : coinTossDisplay === "A"
+                    ? "border-sky-300 bg-gradient-to-br from-sky-500 to-blue-700 animate-[bounce_0.45s_ease-out]"
+                    : "border-rose-300 bg-gradient-to-br from-rose-500 to-red-700 animate-[bounce_0.45s_ease-out]"
+                }`}
+              >
+                {coinTossDisplay === "FLIPPING" ? (
+                  <span className="text-white font-black text-4xl opacity-80">
+                    {coinFlipTick % 2 === 0 ? "A" : "B"}
+                  </span>
+                ) : (
+                  <span className="text-white font-black text-5xl drop-shadow-lg">
+                    {coinTossDisplay}
+                  </span>
+                )}
+              </div>
+              <p className="text-3xl font-black text-white drop-shadow-xl">
+                {coinTossDisplay === "FLIPPING"
+                  ? "돌아가는 중..."
+                  : `Player ${coinTossDisplay} 선공!`}
               </p>
             </div>
           </div>
