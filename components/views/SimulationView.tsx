@@ -17272,7 +17272,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       <div
         style={{
           position: "absolute",
-          left: -bubbleSize - 6,
+          left: isMobileCtx ? 4 : 6,
           top: "50%",
           transform: "translateY(-50%)",
           zIndex: 9999,
@@ -17282,17 +17282,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           pointerEvents: "none",
         }}
       >
-        <div
-          style={{
-            width: 0,
-            height: 0,
-            borderTop: "6px solid transparent",
-            borderBottom: "6px solid transparent",
-            borderLeft: `8px solid ${
-              isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)"
-            }`,
-          }}
-        />
         <div
           style={{
             width: bubbleSize,
@@ -17310,6 +17299,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         >
           {content}
         </div>
+        <div
+          style={{
+            width: 0,
+            height: 0,
+            borderTop: "6px solid transparent",
+            borderBottom: "6px solid transparent",
+            borderLeft: `8px solid ${
+              isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)"
+            }`,
+          }}
+        />
       </div>
     );
   };
