@@ -18156,16 +18156,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       marginTop: 8,
       paddingTop: 8,
       width: "100%",
+      overflowY: "auto",
+      touchAction: "pan-y",
     }}>
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        paddingRight: 4,
-        minHeight: 0,
-      }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          paddingRight: 6,
+          minHeight: 0,
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(148,163,184,0.3) transparent",
+        }}
+      >
         {chatMessages.length === 0 && (
           <p style={{ fontSize: 10, color: "#475569", textAlign: "center", marginTop: 8 }}>
             채팅을 시작해보세요
@@ -18178,13 +18184,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             alignItems: msg.sender === "me" ? "flex-end" : "flex-start",
           }}>
             <div style={{
-              maxWidth: "85%",
-              padding: "4px 8px",
-              borderRadius: msg.sender === "me" ? "10px 10px 2px 10px" : "10px 10px 10px 2px",
-              background: msg.sender === "me" ? "rgba(56,189,248,0.25)" : "rgba(255,255,255,0.08)",
-              fontSize: 11,
-              color: msg.sender === "me" ? "#7dd3fc" : "#cbd5e1",
+              maxWidth: "90%",
+              padding: "5px 10px",
+              borderRadius: msg.sender === "me" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+              background: msg.sender === "me" ? "rgba(56,189,248,0.25)" : "rgba(255,255,255,0.1)",
+              fontSize: 12,
+              color: msg.sender === "me" ? "#7dd3fc" : "#e2e8f0",
               wordBreak: "break-all",
+              lineHeight: 1.5,
             }}>
               {msg.text}
             </div>
@@ -20726,7 +20733,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         )}
 
         {/* ===================== 1. 좌측 영역 (메뉴, 덱, 리와인드) ===================== */}
-        <div className={`flex flex-col justify-start items-center shrink-0 w-[120px] h-full py-2 gap-2 transition-opacity min-h-0 ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`flex flex-col justify-start items-center shrink-0 w-[148px] h-full py-2 gap-2 transition-opacity min-h-0 ${isInitializing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           <div
             className={`relative w-full flex justify-center ${multiplayOpponentDisconnected ? "z-[150]" : "z-50"}`}
           >
