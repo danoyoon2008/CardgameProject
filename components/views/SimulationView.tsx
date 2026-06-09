@@ -1,7 +1,7 @@
 ﻿// components/views/SimulationView.tsx
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction, type MutableRefObject } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction, type MutableRefObject, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { IconBook, IconDeck, IconHome, IconLock, IconSettings, IconUser, IconUsers } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
@@ -18153,24 +18153,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       flex: 1,
       minHeight: 0,
       borderTop: "1px solid rgba(255,255,255,0.08)",
-      marginTop: 8,
       paddingTop: 8,
       width: "100%",
-      overflowY: "auto",
-      touchAction: "pan-y",
+      overflow: "hidden",
     }}>
       <div
         style={{
           flex: 1,
-          overflowY: "auto",
+          overflowY: "scroll",
+          WebkitOverflowScrolling: "touch",
+          touchAction: "pan-y",
           display: "flex",
           flexDirection: "column",
           gap: 5,
-          paddingRight: 6,
+          paddingRight: 4,
           minHeight: 0,
           scrollbarWidth: "thin",
-          scrollbarColor: "rgba(148,163,184,0.3) transparent",
-        }}
+          scrollbarColor: "rgba(148,163,184,0.25) transparent",
+        } as CSSProperties}
       >
         {chatMessages.length === 0 && (
           <p style={{ fontSize: 10, color: "#475569", textAlign: "center", marginTop: 8 }}>
@@ -19595,6 +19595,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               display: "flex",
               flexDirection: "column",
               minHeight: 0,
+              overflow: "hidden",
             }}
           >
             <button
@@ -19803,7 +19804,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               </>
             )}
             {/* 모바일 채팅 — 항복/무승부 버튼 아래 */}
-            {chatPanel}
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              padding: "0 12px 12px",
+            }}>
+              {chatPanel}
+            </div>
           </div>
 
           {/* 헤더 아래 게임 영역 */}
