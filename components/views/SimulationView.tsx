@@ -18171,6 +18171,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           scrollbarWidth: "thin",
           scrollbarColor: "rgba(148,163,184,0.25) transparent",
         } as CSSProperties}
+        onTouchStart={e => e.stopPropagation()}
+        onTouchMove={e => {
+          e.stopPropagation();
+        }}
       >
         {chatMessages.length === 0 && (
           <p style={{ fontSize: 10, color: "#475569", textAlign: "center", marginTop: 8 }}>
@@ -19804,14 +19808,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               </>
             )}
             {/* 모바일 채팅 — 항복/무승부 버튼 아래 */}
-            <div style={{
-              flex: 1,
-              minHeight: 0,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              padding: "0 12px 12px",
-            }}>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                padding: "0 12px 12px",
+              }}
+              onTouchStart={e => e.stopPropagation()}
+              onTouchMove={e => e.stopPropagation()}
+            >
               {chatPanel}
             </div>
           </div>
