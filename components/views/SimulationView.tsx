@@ -17258,55 +17258,58 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     player: "A" | "B",
     isMobileCtx: boolean,
   ) => {
-    const content = isTyping ? "..." : emoji;
+    const content = isTyping ? "···" : emoji;
     if (!content) return null;
 
     const isMyPlayer =
       (multiplayMyRole === "player_a" && player === "A") ||
       (multiplayMyRole === "player_b" && player === "B");
 
+    const bubbleSize = isMobileCtx ? 36 : 42;
+    const fontSize = isMobileCtx ? 18 : 22;
+
     return (
       <div
         style={{
           position: "absolute",
-          left: isMobileCtx ? -48 : -52,
+          left: -bubbleSize - 6,
           top: "50%",
           transform: "translateY(-50%)",
-          zIndex: 300,
+          zIndex: 9999,
           display: "flex",
-          flexDirection: "column",
+          flexDirection: "row",
           alignItems: "center",
           pointerEvents: "none",
         }}
       >
         <div
           style={{
-            background: isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)",
+            width: 0,
+            height: 0,
+            borderTop: "6px solid transparent",
+            borderBottom: "6px solid transparent",
+            borderLeft: `8px solid ${
+              isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)"
+            }`,
+          }}
+        />
+        <div
+          style={{
+            width: bubbleSize,
+            height: bubbleSize,
             borderRadius: "50%",
-            width: isMobileCtx ? 36 : 42,
-            height: isMobileCtx ? 36 : 42,
+            background: isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: isMobileCtx ? 18 : 22,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            fontSize,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
             border: "2px solid rgba(255,255,255,0.3)",
+            flexShrink: 0,
           }}
         >
           {content}
         </div>
-        <div
-          style={{
-            width: 0,
-            height: 0,
-            borderLeft: "5px solid transparent",
-            borderRight: "5px solid transparent",
-            borderTop: `7px solid ${
-              isMyPlayer ? "rgba(56,189,248,0.9)" : "rgba(248,113,113,0.9)"
-            }`,
-            marginTop: -1,
-          }}
-        />
       </div>
     );
   };
@@ -17848,7 +17851,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         : "rgba(0,0,0,0.25)";
 
     return (
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", overflow: "visible" }}>
         {renderChatBubble(
           isPlayerA
             ? multiplayMyRole === "player_a"
@@ -19512,6 +19515,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           >
             <button
               type="button"
+              onClick={() => {
+                setIsDrawerOpen(true);
+                onClearNewChat?.();
+              }}
               style={{
                 position: "relative",
                 display: "flex",
