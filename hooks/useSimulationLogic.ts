@@ -158,6 +158,8 @@ export type ControlledSimulationBinding = {
   receivePopupRef?: MutableRefObject<((slotKey: string, entries: unknown[]) => void) | null>;
   /** 멀티플레이 — 상대방이 최신 상태를 즉시 재전송 요청 */
   onRequestStateSync?: () => void;
+  onUnitFocus?: (slotKey: string | null) => void;
+  opponentFocusedSlot?: string | null;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {

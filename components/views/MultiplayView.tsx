@@ -257,6 +257,7 @@ function MultiplayGameSession({
   const opponentTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasNewChat, setHasNewChat] = useState(false);
+  const [opponentFocusedSlot, setOpponentFocusedSlot] = useState<string | null>(null);
 
   const sendChatMessage = useCallback((text: string, isEmoji?: boolean) => {
     if (!text.trim()) return;
@@ -371,6 +372,14 @@ function MultiplayGameSession({
         type: "broadcast",
         event: "request_state_sync",
         payload: {},
+      });
+    },
+    opponentFocusedSlot,
+    onUnitFocus: (slotKey) => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "unit_focus",
+        payload: { slotKey },
       });
     },
   };
@@ -676,6 +685,10 @@ function MultiplayGameSession({
         isReceivingVfx.current = true;
         receivePopupRef.current?.(slotKey, entries);
         setTimeout(() => { isReceivingVfx.current = false; }, 50);
+      })
+      .on("broadcast", { event: "unit_focus" }, ({ payload }) => {
+        const { slotKey } = payload as { slotKey: string | null };
+        setOpponentFocusedSlot(slotKey);
       })
       .on("broadcast", { event: "chat_message" }, ({ payload }) => {
         const { text, isEmoji } = payload as { text: string; isEmoji?: boolean };

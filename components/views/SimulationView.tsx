@@ -463,6 +463,8 @@ type ControlledSimulationBinding = {
   receivePopupRef?: MutableRefObject<((slotKey: string, entries: CombatPopupEntry[]) => void) | null>;
   /** 멀티플레이 — 상대방이 최신 상태를 즉시 재전송 요청 */
   onRequestStateSync?: () => void;
+  onUnitFocus?: (slotKey: string | null) => void;
+  opponentFocusedSlot?: string | null;
 };
 
 interface SimulationViewProps {
@@ -1608,7 +1610,12 @@ export default function SimulationView({
   
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [attackingSlot, setAttackingSlot] = useState<string | null>(null);
-  
+
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    controlledSimulation?.onUnitFocus?.(selectedSlot);
+  }, [selectedSlot, multiplayMyTeam, controlledSimulation]);
+
   const [pendingSecondaryAttack, setPendingSecondaryAttack] = useState<{
     attackerPlayer: "A" | "B";
     attackerSlotName: "is" | "m" | "os";
@@ -16513,6 +16520,31 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
+  const renderOpponentFocusOverlay = (player: "A" | "B", slot: "is" | "m" | "os" | "spell") => {
+    if (!multiplayMyTeam) return null;
+    const opponentFocusedSlot = controlledSimulation?.opponentFocusedSlot;
+    if (!opponentFocusedSlot) return null;
+    const slotKey = `${player}-${slot}`;
+    if (opponentFocusedSlot !== slotKey) return null;
+    // 상대방 색상: 내가 A이면 상대는 B(빨강), 내가 B이면 상대는 A(파랑)
+    const oppColor = multiplayMyTeam === "A" ? "rgba(239,68,68,0.6)" : "rgba(59,130,246,0.6)";
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 6,
+          border: `2px solid ${oppColor}`,
+          boxShadow: `0 0 8px ${oppColor}`,
+          pointerEvents: "none",
+          zIndex: 50,
+          animation: "pp-opponent-focus-pulse 1s ease-in-out infinite",
+        }}
+        aria-hidden
+      />
+    );
+  };
+
   const renderActionMenu = (player: "A" | "B", slot: "is" | "m" | "os" | "spell", card: FieldCard | null) => {
     if (!card || selectedSlot !== `${player}-${slot}`) return null;
 
@@ -17882,6 +17914,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               ) : (
                 <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>{slotLabel}</span>
               )}
+              {renderOpponentFocusOverlay(player, slot)}
               {renderActionMenu(player, slot, card)}
             </div>
             {renderAebeolaekingRiderOverlay(player, slot, card)}
@@ -18405,6 +18438,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         setSelectedHandCard(null);
       }}
     >
+      <style>{`@keyframes pp-opponent-focus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
       {!isWitchTarotOtherPlayerStep &&
       state?.simpanPeekReveal &&
       state.simpanPeekReveal.peekKind !== "opening" &&
@@ -20332,6 +20366,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       {renderFlashOverlay("B-spell", "rounded-[6px]")}
                       {renderGonchungSpellStackFace("B", state.playerB.field, mobileFieldSpellFaceOpts)}
                       {renderFieldSpellDurationBadge(state.playerB.field, "B")}
+                      {renderOpponentFocusOverlay("B", "spell")}
                       {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
                     </div>
@@ -20393,6 +20428,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       {renderFlashOverlay("A-spell", "rounded-[6px]")}
                       {renderGonchungSpellStackFace("A", state.playerA.field, mobileFieldSpellFaceOpts)}
                       {renderFieldSpellDurationBadge(state.playerA.field, "A")}
+                      {renderOpponentFocusOverlay("A", "spell")}
                       {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                       <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
                     </div>
@@ -21076,6 +21112,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerB.field.is ? (
                       state.playerB.field.is.image_url ? <GuardedImg src={state.playerB.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.is.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
+                    {renderOpponentFocusOverlay("B", "is")}
                     {renderActionMenu("B", "is", state.playerB.field.is)}
                     </div>
                      {renderAebeolaekingRiderOverlay("B", "is", state.playerB.field.is)}
@@ -21121,6 +21158,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerB.field.m ? (
                       state.playerB.field.m.image_url ? <GuardedImg src={state.playerB.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.m.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
+                    {renderOpponentFocusOverlay("B", "m")}
                     {renderActionMenu("B", "m", state.playerB.field.m)}
                     </div>
                      {renderAebeolaekingRiderOverlay("B", "m", state.playerB.field.m)}
@@ -21166,6 +21204,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerB.field.os ? (
                       state.playerB.field.os.image_url ? <GuardedImg src={state.playerB.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("B")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-blue-200 transition-transform duration-300 ${opponentCardRotateClass("B")}`}>{state.playerB.field.os.name}</span>
                     ) : <span className="absolute -top-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
+                    {renderOpponentFocusOverlay("B", "os")}
                     {renderActionMenu("B", "os", state.playerB.field.os)}
                     </div>
                      {renderAebeolaekingRiderOverlay("B", "os", state.playerB.field.os)}
@@ -21212,6 +21251,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {renderFlashOverlay("B-spell", "rounded-[8px]")}
                     {renderGonchungSpellStackFace("B", state.playerB.field)}
                     {renderFieldSpellDurationBadge(state.playerB.field, "B")}
+                    {renderOpponentFocusOverlay("B", "spell")}
                     {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
                   </div>
@@ -21260,6 +21300,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {renderFlashOverlay("A-spell", "rounded-[8px]")}
                     {renderGonchungSpellStackFace("A", state.playerA.field)}
                     {renderFieldSpellDurationBadge(state.playerA.field, "A")}
+                    {renderOpponentFocusOverlay("A", "spell")}
                     {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
                     <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
                   </div>
@@ -21275,6 +21316,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerA.field.is ? (
                       state.playerA.field.is.image_url ? <GuardedImg src={state.playerA.field.is.image_url} alt="Is" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.is.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Is</span>}
+                    {renderOpponentFocusOverlay("A", "is")}
                     {renderActionMenu("A", "is", state.playerA.field.is)}
                     </div>
                      {renderAebeolaekingRiderOverlay("A", "is", state.playerA.field.is)}
@@ -21320,6 +21362,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerA.field.m ? (
                       state.playerA.field.m.image_url ? <GuardedImg src={state.playerA.field.m.image_url} alt="M" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.m.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">M</span>}
+                    {renderOpponentFocusOverlay("A", "m")}
                     {renderActionMenu("A", "m", state.playerA.field.m)}
                     </div>
                      {renderAebeolaekingRiderOverlay("A", "m", state.playerA.field.m)}
@@ -21365,6 +21408,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     {state.playerA.field.os ? (
                       state.playerA.field.os.image_url ? <GuardedImg src={state.playerA.field.os.image_url} alt="Os" className={`w-full h-full object-cover transition-transform duration-300 ${opponentCardRotateClass("A")}`} /> : <span className={`text-xs font-bold text-center leading-tight p-2 text-sky-200 transition-transform duration-300 ${opponentCardRotateClass("A")}`}>{state.playerA.field.os.name}</span>
                     ) : <span className="absolute -bottom-6 text-xs text-slate-400 font-bold whitespace-nowrap">Os</span>}
+                    {renderOpponentFocusOverlay("A", "os")}
                     {renderActionMenu("A", "os", state.playerA.field.os)}
                     </div>
                      {renderAebeolaekingRiderOverlay("A", "os", state.playerA.field.os)}
