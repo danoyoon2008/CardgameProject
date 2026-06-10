@@ -461,6 +461,8 @@ type ControlledSimulationBinding = {
   /** 멀티플레이 — 수신된 VFX를 SimulationView에서 처리할 핸들러 ref */
   receiveVfxRef?: MutableRefObject<((slotKey: string, kind: string, clearMs: number) => void) | null>;
   receivePopupRef?: MutableRefObject<((slotKey: string, entries: CombatPopupEntry[]) => void) | null>;
+  /** 멀티플레이 — 상대방이 최신 상태를 즉시 재전송 요청 */
+  onRequestStateSync?: () => void;
 };
 
 interface SimulationViewProps {
@@ -2087,6 +2089,7 @@ export default function SimulationView({
       spellUsageMotionActiveRef.current = false;
       if (!visualOnly) applySpellUsagePending(null);
       clearSpellUsageVisualState();
+      if (visualOnly) controlledSimulation?.onRequestStateSync?.();
       return;
     }
     if (pending.muhyohwaCounter) {
@@ -2094,6 +2097,7 @@ export default function SimulationView({
         spellUsagePendingRef.current = null;
         spellUsageMotionActiveRef.current = false;
         clearSpellUsageVisualState();
+        controlledSimulation?.onRequestStateSync?.();
         return;
       }
       playMuhyohwaCounterResolveSequenceRef.current?.();
@@ -2104,6 +2108,7 @@ export default function SimulationView({
         spellUsagePendingRef.current = null;
         spellUsageMotionActiveRef.current = false;
         clearSpellUsageVisualState();
+        controlledSimulation?.onRequestStateSync?.();
         return;
       }
       runSuperTeslaCounterCommit();
@@ -2130,8 +2135,13 @@ export default function SimulationView({
     }
     spellUsagePendingRef.current = null;
     spellUsageMotionActiveRef.current = false;
-    if (!visualOnly) applySpellUsagePending(null);
-  }, [runSuperTeslaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState]);
+    if (!visualOnly) {
+      applySpellUsagePending(null);
+    } else {
+      // 시전자에게 최신 상태 재전송 요청 — 슬롯 배치 즉시 반영
+      controlledSimulation?.onRequestStateSync?.();
+    }
+  }, [runSuperTeslaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState, controlledSimulation]);
 
   const scheduleSpellHandUsageSequence = useCallback(
     (

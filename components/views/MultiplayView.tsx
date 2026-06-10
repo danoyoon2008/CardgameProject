@@ -366,6 +366,13 @@ function MultiplayGameSession({
         payload: { slotKey, entries },
       });
     },
+    onRequestStateSync: () => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "request_state_sync",
+        payload: {},
+      });
+    },
   };
 
   useEffect(() => {
@@ -582,17 +589,9 @@ function MultiplayGameSession({
         }
       })
       .on("broadcast", { event: "request_state_sync" }, () => {
-        // 상대가 재접속해서 현재 상태를 요청함 — 즉시 최신 상태 전송
+        // 상대방이 최신 상태 요청 → 즉시 현재 상태 전송
         const latest = stateRef.current;
-        if (!latest || gameFinishedRef.current) return;
-        const ch = channelRef.current;
-        if (ch) {
-          void ch.send({
-            type: "broadcast",
-            event: "game_state_update",
-            payload: { game_state: latest },
-          });
-        }
+        if (latest) syncGameState(latest);
       })
       .on("broadcast", { event: "opponent_left" }, () => {
         setOpponentLeft(true);
@@ -713,7 +712,7 @@ function MultiplayGameSession({
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [roomId, setState, myRematchRequested, myRole, markGameFinished]);
+  }, [roomId, setState, myRematchRequested, myRole, markGameFinished, syncGameState]);
 
   const evaluateOpponentConnection = useCallback(
     (row: GameRoomConnectionRow) => {

@@ -156,6 +156,8 @@ export type ControlledSimulationBinding = {
   /** 멀티플레이 — 수신된 VFX를 SimulationView에서 처리할 핸들러 ref */
   receiveVfxRef?: MutableRefObject<((slotKey: string, kind: string, clearMs: number) => void) | null>;
   receivePopupRef?: MutableRefObject<((slotKey: string, entries: unknown[]) => void) | null>;
+  /** 멀티플레이 — 상대방이 최신 상태를 즉시 재전송 요청 */
+  onRequestStateSync?: () => void;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {
