@@ -1611,11 +1611,6 @@ export default function SimulationView({
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [attackingSlot, setAttackingSlot] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!multiplayMyTeam) return;
-    controlledSimulation?.onUnitFocus?.(selectedSlot);
-  }, [selectedSlot, multiplayMyTeam, controlledSimulation]);
-
   const [pendingSecondaryAttack, setPendingSecondaryAttack] = useState<{
     attackerPlayer: "A" | "B";
     attackerSlotName: "is" | "m" | "os";
@@ -1709,6 +1704,18 @@ export default function SimulationView({
     slot: "is" | "m" | "os";
     name: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    // 우선순위: 공격 > 스킬 > 오버레이 선택
+    const focusSlot =
+      pendingAttackSelection
+        ? `${pendingAttackSelection.player}-${pendingAttackSelection.slot}`
+        : pendingSkill
+        ? `${pendingSkill.player}-${pendingSkill.slot}`
+        : selectedSlot;
+    controlledSimulation?.onUnitFocus?.(focusSlot);
+  }, [selectedSlot, pendingAttackSelection, pendingSkill, multiplayMyTeam]);
 
   const [gonchungHiddenReveal, setGonchungHiddenReveal] = useState<{
     player: "A" | "B";
@@ -16536,8 +16543,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           position: "absolute",
           inset: 0,
           borderRadius: 6,
-          border: `3px solid ${oppColor}`,
-          boxShadow: `0 0 0 1px ${oppColor}, 0 0 12px 2px ${oppGlow}`,
+          border: `4px solid ${oppColor}`,
+          boxShadow: `0 0 0 2px ${oppColor}, 0 0 16px 4px ${oppGlow}`,
           pointerEvents: "none",
           zIndex: 50,
           animation: "pp-opponent-focus-pulse 1s ease-in-out infinite",
