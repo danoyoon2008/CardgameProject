@@ -1709,13 +1709,12 @@ export default function SimulationView({
     if (!multiplayMyTeam) return;
     // 우선순위: 공격 > 스킬 > 오버레이 선택
     const focusSlot =
-      pendingAttackSelection
-        ? `${pendingAttackSelection.player}-${pendingAttackSelection.slot}`
-        : pendingSkill
+      attackingSlot ??
+      (pendingSkill
         ? `${pendingSkill.player}-${pendingSkill.slot}`
-        : selectedSlot;
+        : selectedSlot);
     controlledSimulation?.onUnitFocus?.(focusSlot);
-  }, [selectedSlot, pendingAttackSelection, pendingSkill, multiplayMyTeam]);
+  }, [selectedSlot, attackingSlot, pendingSkill, multiplayMyTeam]);
 
   const [gonchungHiddenReveal, setGonchungHiddenReveal] = useState<{
     player: "A" | "B";
@@ -16543,8 +16542,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           position: "absolute",
           inset: 0,
           borderRadius: 6,
-          border: `4px solid ${oppColor}`,
-          boxShadow: `0 0 0 2px ${oppColor}, 0 0 16px 4px ${oppGlow}`,
+          border: isMobile ? `2px solid ${oppColor}` : `4px solid ${oppColor}`,
+          boxShadow: isMobile
+            ? `0 0 0 1px ${oppColor}, 0 0 8px 2px ${oppGlow}`
+            : `0 0 0 2px ${oppColor}, 0 0 16px 4px ${oppGlow}`,
           pointerEvents: "none",
           zIndex: 50,
           animation: "pp-opponent-focus-pulse 1s ease-in-out infinite",
@@ -16708,6 +16709,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   secondary: bracketMatch[2].trim(),
                   position: { x: rect.left + rect.width / 2, y: rect.top }
                 });
+                setAttackingSlot(`${player}-${slot}`);
                 setSelectedSlot(null);
                 return;
               }
@@ -19303,7 +19305,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       {pendingAttackSelection && (
         <div 
           className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[1px]"
-          onClick={() => setPendingAttackSelection(null)}
+          onClick={() => {
+            setPendingAttackSelection(null);
+            setAttackingSlot(null);
+          }}
         >
           <div 
             className="absolute bg-[#0a1628] border-2 border-sky-500 rounded-3xl p-5 md:p-6 shadow-[0_0_50px_rgba(14,165,233,0.8)] flex flex-col items-center min-w-[280px] z-[101] animate-[scaleIn_0.15s_ease-out]"
@@ -19343,7 +19348,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             </div>
             
             <button 
-              onClick={() => setPendingAttackSelection(null)} 
+              onClick={() => {
+                setPendingAttackSelection(null);
+                setAttackingSlot(null);
+              }} 
               className="mt-4 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 text-sm rounded-xl font-bold transition-colors w-full active:scale-95"
             >
               취소
