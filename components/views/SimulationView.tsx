@@ -2161,6 +2161,23 @@ export default function SimulationView({
       snap: SimulationState,
       params: Omit<SpellUsagePending, "superTeslaCounter"> & { fieldCard?: FieldCard }
     ) => {
+      // 이미 연출 진행 중이면 즉시 완료 후 새 연출 시작
+      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly || spellUsageReveal !== null) {
+        finishSpellUsageSequence();
+      }
+      // 드로우 연출 중이면 즉시 종료
+      if (state?.simpanPeekReveal) {
+        setState(prev => {
+          if (!prev || !prev.simpanPeekReveal) return prev;
+          const card = prev.simpanPeekReveal.pendingCard;
+          const player = prev.simpanPeekReveal.player;
+          const hand = player === "A" ? prev.playerA.hand : prev.playerB.hand;
+          const newHand = [...hand, card];
+          return player === "A"
+            ? { ...prev, simpanPeekReveal: null, playerA: { ...prev.playerA, hand: newHand } }
+            : { ...prev, simpanPeekReveal: null, playerB: { ...prev.playerB, hand: newHand } };
+        });
+      }
       const snapForTeslaCounter = simulationStateRef.current ?? snap;
       const superTeslaCounter = isAttackTypeSpellCard(params.previewCard)
         ? resolveSuperTeslaCounter(snapForTeslaCounter, params.casterPlayer)
@@ -2204,7 +2221,7 @@ export default function SimulationView({
       });
       setSpellUsageRevealTick(t => t + 1);
     },
-    [applySpellUsagePending]
+    [applySpellUsagePending, finishSpellUsageSequence, setState, state?.simpanPeekReveal, spellUsageReveal, spellUsageFly]
   );
 
   /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸·하이퍼 빔 적 유닛 / 자기 스펠칸(방어막 등) */
@@ -6350,6 +6367,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return;
     }
 
+    if (spellUsageMotionActiveRef.current) {
+      finishSpellUsageSequence();
+    }
+
     simpanPeekRevealTransitionStartedRef.current = false;
 
     const peekKind = state.simpanPeekReveal.peekKind ?? "simpan";
@@ -6456,7 +6477,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       simpanPeekRevealTimerRef.current = null;
       simpanPeekSkipToFlyRef.current = null;
     };
-  }, [state?.simpanPeekReveal, state?.simpanPeekTick]);
+  }, [state?.simpanPeekReveal, state?.simpanPeekTick, finishSpellUsageSequence]);
 
   useLayoutEffect(() => {
     if (!simpanPeekFly || simpanPeekFly.phase !== 0) return;
@@ -8145,8 +8166,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!state || isInitializing) return;
     if (spellUsageRestoreOnMountDoneRef.current) return;
     if (!state.spellUsagePending) return;
-    if (spellUsageMotionActiveRef.current) return;
-    if (spellUsageReveal || spellUsageFly) return;
+    // 이미 연출 중이면 즉시 완료 후 새 연출 시작
+    if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
+      finishSpellUsageSequence();
+      // finishSpellUsageSequence는 비동기 cleanup을 포함하므로 다음 tick에 재시도
+      return;
+    }
 
     spellUsageRestoreOnMountDoneRef.current = true;
 
@@ -8168,6 +8193,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellUsageReveal,
     spellUsageFly,
     resumeSpellUsageSequence,
+    finishSpellUsageSequence,
   ]);
 
   // 멀티플레이 상대방 스펠 완료 후 restore ref 리셋 (다음 스펠 대비)
