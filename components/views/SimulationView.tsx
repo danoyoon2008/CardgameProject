@@ -1789,6 +1789,7 @@ export default function SimulationView({
   } | null>(null);
   const spellUsagePendingRef = useRef<SpellUsagePending | null>(null);
   const spellUsageRestoreOnMountDoneRef = useRef(false);
+  const multiplayOpponentSpellVisualOnlyRef = useRef(false);
   const buildSpellUsageHandlersRef = useRef<
     ((save: SpellUsagePendingSave) => SpellUsagePending | null) | null
   >(null);
@@ -2077,19 +2078,34 @@ export default function SimulationView({
   }, []);
 
   const finishSpellUsageSequence = useCallback(() => {
+    const visualOnly = multiplayOpponentSpellVisualOnlyRef.current;
+    multiplayOpponentSpellVisualOnlyRef.current = false;
+
     const pending = spellUsagePendingRef.current;
 
     if (!pending) {
       spellUsageMotionActiveRef.current = false;
-      applySpellUsagePending(null);
+      if (!visualOnly) applySpellUsagePending(null);
       clearSpellUsageVisualState();
       return;
     }
     if (pending.muhyohwaCounter) {
+      if (visualOnly) {
+        spellUsagePendingRef.current = null;
+        spellUsageMotionActiveRef.current = false;
+        clearSpellUsageVisualState();
+        return;
+      }
       playMuhyohwaCounterResolveSequenceRef.current?.();
       return;
     }
     if (pending.superTeslaCounter) {
+      if (visualOnly) {
+        spellUsagePendingRef.current = null;
+        spellUsageMotionActiveRef.current = false;
+        clearSpellUsageVisualState();
+        return;
+      }
       runSuperTeslaCounterCommit();
       spellUsagePendingRef.current = null;
       spellUsageMotionActiveRef.current = false;
@@ -2101,17 +2117,20 @@ export default function SimulationView({
     flushSync(() => {
       clearSpellUsageVisualState();
     });
-    /* 플라이 종료 등 setTimeout 경로에서는 commit 업데이터가 afterCommitVfx보다 늦게 돌 수 있음 */
-    flushSync(() => {
-      setState(prev => {
-        if (!prev) return prev;
-        return pending.commit(prev);
+    /* 멀티플레이 상대방 스펠 시각 연출 모드: commit·afterCommitVfx 스킵 (시전자 sync가 처리) */
+    if (!visualOnly) {
+      /* 플라이 종료 등 setTimeout 경로에서는 commit 업데이터가 afterCommitVfx보다 늦게 돌 수 있음 */
+      flushSync(() => {
+        setState(prev => {
+          if (!prev) return prev;
+          return pending.commit(prev);
+        });
       });
-    });
-    pending.afterCommitVfx?.();
+      pending.afterCommitVfx?.();
+    }
     spellUsagePendingRef.current = null;
     spellUsageMotionActiveRef.current = false;
-    applySpellUsagePending(null);
+    if (!visualOnly) applySpellUsagePending(null);
   }, [runSuperTeslaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState]);
 
   const scheduleSpellHandUsageSequence = useCallback(
@@ -8108,29 +8127,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     spellUsageRestoreOnMountDoneRef.current = true;
 
-    // 멀티플레이에서 상대방 스펠: 시각 연출만 표시, 효과 적용은 시전자 sync로 처리
+    // 멀티플레이에서 상대방 스펠: 전체 시각 연출 실행, 효과 적용만 스킵
     if (
       multiplayMyTeam &&
       state.spellUsagePending.casterPlayer !== multiplayMyTeam
     ) {
-      const save = state.spellUsagePending;
-      spellUsageMotionActiveRef.current = true;
-      setSpellUsageReveal({
-        casterPlayer: save.casterPlayer,
-        previewCard: save.previewCard,
-        centerShowsCardBack: save.centerShowsCardBack ?? false,
-      });
-      setSpellUsageRevealTick(t => t + 1);
-      // spellUsagePendingRef를 설정하지 않으므로 runAfterPreview에서 효과 적용 스킵됨
-      // spellUsageRestoreOnMountDoneRef는 true 유지 — useEffect 재진입 방지
-      // 정리는 state.spellUsagePending이 null이 될 때 별도 처리
-      window.setTimeout(() => {
-        setSpellUsageReveal(null);
-        setSpellUsageFly(null);
-        spellUsageMotionActiveRef.current = false;
-        // 여기서 restoreOnMountDoneRef를 false로 리셋하지 않음
-        // → 다음 스펠은 state.spellUsagePending 변화로 트리거
-      }, SPELL_USAGE_PREVIEW_MS + 300);
+      multiplayOpponentSpellVisualOnlyRef.current = true;
+      resumeSpellUsageSequence(state.spellUsagePending);
       return;
     }
 
