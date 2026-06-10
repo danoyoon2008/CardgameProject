@@ -8122,12 +8122,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
       setSpellUsageRevealTick(t => t + 1);
       // spellUsagePendingRef를 설정하지 않으므로 runAfterPreview에서 효과 적용 스킵됨
-      // SPELL_USAGE_PREVIEW_MS 후 자동 정리
+      // spellUsageRestoreOnMountDoneRef는 true 유지 — useEffect 재진입 방지
+      // 정리는 state.spellUsagePending이 null이 될 때 별도 처리
       window.setTimeout(() => {
         setSpellUsageReveal(null);
         setSpellUsageFly(null);
         spellUsageMotionActiveRef.current = false;
-        spellUsageRestoreOnMountDoneRef.current = false;
+        // 여기서 restoreOnMountDoneRef를 false로 리셋하지 않음
+        // → 다음 스펠은 state.spellUsagePending 변화로 트리거
       }, SPELL_USAGE_PREVIEW_MS + 300);
       return;
     }
@@ -8141,6 +8143,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellUsageFly,
     resumeSpellUsageSequence,
   ]);
+
+  // 멀티플레이 상대방 스펠 완료 후 restore ref 리셋 (다음 스펠 대비)
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    if (state?.spellUsagePending) return;
+    if (!spellUsageRestoreOnMountDoneRef.current) return;
+    if (spellUsagePendingRef.current) return; // 내가 시전자인 경우 제외
+    // 상대방 스펠이 완료됨 → 다음 스펠 감지를 위해 리셋
+    spellUsageRestoreOnMountDoneRef.current = false;
+  }, [state?.spellUsagePending, multiplayMyTeam]);
 
   const placeHandCardFromHand = (
     gameState: SimulationState,
