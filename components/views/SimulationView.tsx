@@ -8107,6 +8107,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (spellUsageReveal || spellUsageFly) return;
 
     spellUsageRestoreOnMountDoneRef.current = true;
+
+    // 멀티플레이에서 상대방 스펠: 시각 연출만 표시, 효과 적용은 시전자 sync로 처리
+    if (
+      multiplayMyTeam &&
+      state.spellUsagePending.casterPlayer !== multiplayMyTeam
+    ) {
+      const save = state.spellUsagePending;
+      spellUsageMotionActiveRef.current = true;
+      setSpellUsageReveal({
+        casterPlayer: save.casterPlayer,
+        previewCard: save.previewCard,
+        centerShowsCardBack: save.centerShowsCardBack ?? false,
+      });
+      setSpellUsageRevealTick(t => t + 1);
+      // spellUsagePendingRef를 설정하지 않으므로 runAfterPreview에서 효과 적용 스킵됨
+      // SPELL_USAGE_PREVIEW_MS 후 자동 정리
+      window.setTimeout(() => {
+        setSpellUsageReveal(null);
+        setSpellUsageFly(null);
+        spellUsageMotionActiveRef.current = false;
+        spellUsageRestoreOnMountDoneRef.current = false;
+      }, SPELL_USAGE_PREVIEW_MS + 300);
+      return;
+    }
+
+    // 시뮬레이션 모드 또는 시전자 측: 기존 복원 로직
     resumeSpellUsageSequence(state.spellUsagePending);
   }, [
     state,
