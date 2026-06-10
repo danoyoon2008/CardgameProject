@@ -453,6 +453,14 @@ type ControlledSimulationBinding = {
   /** 멀티플레이 — 마녀 타로 시퀀스 완전 종료 신호 */
   onWitchTarotFinish?: () => void;
   witchTarotFinishTriggerRef?: MutableRefObject<(() => void) | null>;
+  /** 멀티플레이 — VFX 이벤트를 상대에게 전송 */
+  onCombatVfx?: (slotKey: string, kind: string, clearMs: number) => void;
+  onCombatPopup?: (slotKey: string, entries: CombatPopupEntry[]) => void;
+  /** 멀티플레이 — 수신 중 여부 (수신 중엔 재전송 차단) */
+  isReceivingVfx?: MutableRefObject<boolean>;
+  /** 멀티플레이 — 수신된 VFX를 SimulationView에서 처리할 핸들러 ref */
+  receiveVfxRef?: MutableRefObject<((slotKey: string, kind: string, clearMs: number) => void) | null>;
+  receivePopupRef?: MutableRefObject<((slotKey: string, entries: CombatPopupEntry[]) => void) | null>;
 };
 
 interface SimulationViewProps {
@@ -2532,6 +2540,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       });
       delete flashClearTimeoutsRef.current[slotKey];
     }, FLASH_CLEAR_MS[kind]);
+
+    // 멀티플레이: 수신 중이 아닐 때만 상대에게 전송
+    if (multiplayMyRole && !controlledSimulation?.isReceivingVfx?.current) {
+      controlledSimulation?.onCombatVfx?.(slotKey, kind, FLASH_CLEAR_MS[kind]);
+    }
+  };
+
+  const addCombatPopup = (slotKey: string, entry: CombatPopupEntry) => {
+    setCombatPopups(prev => ({
+      ...prev,
+      [slotKey]: [...(prev[slotKey] ?? []), entry],
+    }));
+    // 멀티플레이: 수신 중이 아닐 때만 전송
+    if (multiplayMyRole && !controlledSimulation?.isReceivingVfx?.current) {
+      controlledSimulation?.onCombatPopup?.(slotKey, [entry]);
+    }
   };
 
   const witchTarotPlayerHandCount = (snap: SimulationState | null, player: "A" | "B"): number => {
@@ -2724,6 +2748,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const casterPlayer = witchTarotSequenceRef.current?.casterPlayer;
       if (!casterPlayer) return;
       finishWitchTarotSequence(casterPlayer);
+    };
+  }
+
+  // VFX 수신 핸들러 등록
+  if (controlledSimulation?.receiveVfxRef) {
+    controlledSimulation.receiveVfxRef.current = (slotKey, kind, clearMs) => {
+      const prevT = flashClearTimeoutsRef.current[slotKey];
+      if (prevT) window.clearTimeout(prevT);
+      const id = ++flashOverlaySeqRef.current;
+      setFlashOverlay(f => ({ ...f, [slotKey]: { kind: kind as FlashOverlayKind, id } }));
+      flashClearTimeoutsRef.current[slotKey] = window.setTimeout(() => {
+        setFlashOverlay(f => {
+          const next = { ...f };
+          delete next[slotKey];
+          return next;
+        });
+      }, clearMs);
+    };
+  }
+
+  if (controlledSimulation?.receivePopupRef) {
+    controlledSimulation.receivePopupRef.current = (slotKey, entries) => {
+      setCombatPopups(prev => ({
+        ...prev,
+        [slotKey]: [...(prev[slotKey] ?? []), ...(entries as CombatPopupEntry[])],
+      }));
     };
   }
 
@@ -3360,10 +3410,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               : {}),
           }
         : { id, kind, amount };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];
@@ -3382,10 +3429,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const pushBanjitgoriBuffFloat = (slotKey: string) => {
     const id = ++combatPopupIdRef.current;
     const entry: CombatPopupEntry = { id, kind: "banjitgoriBuff", lines: BANJITGORI_BUFF_FLOAT_LINES };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];
@@ -3403,10 +3447,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const pushLimeBubbleBuffFloat = (slotKey: string) => {
     const id = ++combatPopupIdRef.current;
     const entry: CombatPopupEntry = { id, kind: "limeBubbleBuff", lines: LIME_BUBBLE_BUFF_FLOAT_LINES };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];
@@ -3429,10 +3470,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       kind: "cheolgibyeongPassiveFloat",
       lines: CHEOLGIBYEONG_PASSIVE_FLOAT_LINES,
     };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];
@@ -3455,10 +3493,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       kind: "ryeomchoPassiveFloat",
       lines: RYEOMCHO_PASSIVE_FLOAT_LINES,
     };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];
@@ -3481,10 +3516,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       kind: "ironKiwiPassiveFloat",
       lines: IRON_KIWI_PASSIVE_FLOAT_LINES,
     };
-    setCombatPopups(prev => ({
-      ...prev,
-      [slotKey]: [...(prev[slotKey] ?? []), entry],
-    }));
+    addCombatPopup(slotKey, entry);
     window.setTimeout(() => {
       setCombatPopups(prev => {
         const list = prev[slotKey];

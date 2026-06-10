@@ -148,6 +148,14 @@ export type ControlledSimulationBinding = {
   /** 멀티플레이 — 마녀 타로 시퀀스 완전 종료 신호 */
   onWitchTarotFinish?: () => void;
   witchTarotFinishTriggerRef?: MutableRefObject<(() => void) | null>;
+  /** 멀티플레이 — VFX 이벤트를 상대에게 전송 */
+  onCombatVfx?: (slotKey: string, kind: string, clearMs: number) => void;
+  onCombatPopup?: (slotKey: string, entries: unknown[]) => void;
+  /** 멀티플레이 — 수신 중 여부 (수신 중엔 재전송 차단) */
+  isReceivingVfx?: MutableRefObject<boolean>;
+  /** 멀티플레이 — 수신된 VFX를 SimulationView에서 처리할 핸들러 ref */
+  receiveVfxRef?: MutableRefObject<((slotKey: string, kind: string, clearMs: number) => void) | null>;
+  receivePopupRef?: MutableRefObject<((slotKey: string, entries: unknown[]) => void) | null>;
 };
 
 export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOptions) {

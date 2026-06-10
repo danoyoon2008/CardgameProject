@@ -323,6 +323,9 @@ function MultiplayGameSession({
     ((stepIndex: number, casterPlayer: "A" | "B") => void) | null
   >(null);
   const witchTarotFinishTriggerRef = useRef<(() => void) | null>(null);
+  const isReceivingVfx = useRef(false);
+  const receiveVfxRef = useRef<((slotKey: string, kind: string, clearMs: number) => void) | null>(null);
+  const receivePopupRef = useRef<((slotKey: string, entries: unknown[]) => void) | null>(null);
 
   const controlledSimulation: ControlledSimulationBinding = {
     state,
@@ -344,6 +347,23 @@ function MultiplayGameSession({
         type: "broadcast",
         event: "witch_tarot_finish",
         payload: {},
+      });
+    },
+    isReceivingVfx,
+    receiveVfxRef,
+    receivePopupRef,
+    onCombatVfx: (slotKey, kind, clearMs) => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "combat_vfx",
+        payload: { slotKey, kind, clearMs },
+      });
+    },
+    onCombatPopup: (slotKey, entries) => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "combat_popup",
+        payload: { slotKey, entries },
       });
     },
   };
@@ -645,6 +665,18 @@ function MultiplayGameSession({
         const myLetter: "A" | "B" = myRole === "player_a" ? "A" : "B";
         // 시전자(caster)에게만 처리 - 트리거 ref로 종료 함수 호출
         witchTarotFinishTriggerRef.current?.();
+      })
+      .on("broadcast", { event: "combat_vfx" }, ({ payload }) => {
+        const { slotKey, kind, clearMs } = payload as { slotKey: string; kind: string; clearMs: number };
+        isReceivingVfx.current = true;
+        receiveVfxRef.current?.(slotKey, kind, clearMs);
+        setTimeout(() => { isReceivingVfx.current = false; }, 50);
+      })
+      .on("broadcast", { event: "combat_popup" }, ({ payload }) => {
+        const { slotKey, entries } = payload as { slotKey: string; entries: unknown[] };
+        isReceivingVfx.current = true;
+        receivePopupRef.current?.(slotKey, entries);
+        setTimeout(() => { isReceivingVfx.current = false; }, 50);
       })
       .on("broadcast", { event: "chat_message" }, ({ payload }) => {
         const { text, isEmoji } = payload as { text: string; isEmoji?: boolean };
