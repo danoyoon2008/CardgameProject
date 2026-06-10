@@ -16526,16 +16526,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!opponentFocusedSlot) return null;
     const slotKey = `${player}-${slot}`;
     if (opponentFocusedSlot !== slotKey) return null;
-    // 상대방 색상: 내가 A이면 상대는 B(빨강), 내가 B이면 상대는 A(파랑)
-    const oppColor = multiplayMyTeam === "A" ? "rgba(239,68,68,0.6)" : "rgba(59,130,246,0.6)";
+    // 상대가 A(파랑)이면 파랑, 상대가 B(빨강)이면 빨강 — 체력바 색상 기준
+    const oppIsA = multiplayMyTeam === "B";
+    const oppColor = oppIsA ? "#3b82f6" : "#ef4444";
+    const oppGlow = oppIsA ? "rgba(59,130,246,0.5)" : "rgba(239,68,68,0.5)";
     return (
       <div
         style={{
           position: "absolute",
           inset: 0,
           borderRadius: 6,
-          border: `2px solid ${oppColor}`,
-          boxShadow: `0 0 8px ${oppColor}`,
+          border: `3px solid ${oppColor}`,
+          boxShadow: `0 0 0 1px ${oppColor}, 0 0 12px 2px ${oppGlow}`,
           pointerEvents: "none",
           zIndex: 50,
           animation: "pp-opponent-focus-pulse 1s ease-in-out infinite",
