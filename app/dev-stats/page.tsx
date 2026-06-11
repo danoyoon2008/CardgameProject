@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { createClient } from "@/utils/supabase/client";
 
 const DEV_PASSWORD = "1234";
@@ -10,6 +10,8 @@ interface GameStatRow {
   room_id: string | null;
   room_type: string;
   game_mode: string;
+  player_a_id: string | null;
+  player_b_id: string | null;
   player_a_nickname: string | null;
   player_b_nickname: string | null;
   winner: string | null;
@@ -43,6 +45,262 @@ function formatDate(iso: string): string {
     month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+interface UnitStat {
+  cardName: string;
+  player: "A" | "B";
+  damageDealt: number;
+  kills: number;
+  damageTaken: number;
+  selfHeal: number;
+  allyHealGiven: number;
+  damageMitigated: number;
+}
+
+interface AggregatedUnit {
+  cardName: string;
+  games: number;
+  wins: number;
+  damageDealt: number;
+  kills: number;
+  damageTaken: number;
+  selfHeal: number;
+  allyHealGiven: number;
+  damageMitigated: number;
+}
+
+interface PlayerAgg {
+  nickname: string;
+  games: number;
+  wins: number;
+  unitCount: Record<string, { count: number; wins: number }>;
+  recentGames: GameStatRow[];
+}
+
+function MetricsTab({ stats }: { stats: GameStatRow[] }) {
+  const [subTab, setSubTab] = useState<"units" | "players">("units");
+  const [expandedName, setExpandedName] = useState<string | null>(null);
+
+  const unitMap = useMemo(() => {
+    const map: Record<string, AggregatedUnit> = {};
+    for (const game of stats) {
+      for (const u of game.unit_stats as UnitStat[]) {
+        if (!map[u.cardName]) {
+          map[u.cardName] = { cardName: u.cardName, games: 0, wins: 0, damageDealt: 0, kills: 0, damageTaken: 0, selfHeal: 0, allyHealGiven: 0, damageMitigated: 0 };
+        }
+        const agg = map[u.cardName];
+        agg.games += 1;
+        const playerWon = (u.player === "A" && game.winner === "A") || (u.player === "B" && game.winner === "B");
+        if (playerWon) agg.wins += 1;
+        agg.damageDealt += u.damageDealt;
+        agg.kills += u.kills;
+        agg.damageTaken += u.damageTaken;
+        agg.selfHeal += u.selfHeal;
+        agg.allyHealGiven += u.allyHealGiven;
+        agg.damageMitigated += u.damageMitigated;
+      }
+    }
+    return map;
+  }, [stats]);
+
+  const unitList = useMemo(() =>
+    Object.values(unitMap).sort((a, b) => b.games - a.games),
+    [unitMap]
+  );
+
+  const playerMap = useMemo(() => {
+    const map: Record<string, PlayerAgg> = {};
+    const ensure = (id: string, nick: string) => {
+      if (!map[id]) map[id] = { nickname: nick, games: 0, wins: 0, unitCount: {}, recentGames: [] };
+    };
+    for (const game of stats) {
+      if (game.player_a_id) {
+        ensure(game.player_a_id, game.player_a_nickname ?? "A");
+        const p = map[game.player_a_id];
+        p.games += 1;
+        if (game.winner === "A") p.wins += 1;
+        p.recentGames.push(game);
+        for (const u of game.unit_stats as UnitStat[]) {
+          if (u.player === "A") {
+            if (!p.unitCount[u.cardName]) p.unitCount[u.cardName] = { count: 0, wins: 0 };
+            p.unitCount[u.cardName].count += 1;
+            if (game.winner === "A") p.unitCount[u.cardName].wins += 1;
+          }
+        }
+      }
+      if (game.player_b_id) {
+        ensure(game.player_b_id, game.player_b_nickname ?? "B");
+        const p = map[game.player_b_id];
+        p.games += 1;
+        if (game.winner === "B") p.wins += 1;
+        p.recentGames.push(game);
+        for (const u of game.unit_stats as UnitStat[]) {
+          if (u.player === "B") {
+            if (!p.unitCount[u.cardName]) p.unitCount[u.cardName] = { count: 0, wins: 0 };
+            p.unitCount[u.cardName].count += 1;
+            if (game.winner === "B") p.unitCount[u.cardName].wins += 1;
+          }
+        }
+      }
+    }
+    return map;
+  }, [stats]);
+
+  const playerList = useMemo(() =>
+    Object.entries(playerMap)
+      .map(([id, p]) => ({ id, ...p }))
+      .sort((a, b) => b.games - a.games),
+    [playerMap]
+  );
+
+  const cellStyle: CSSProperties = { padding: "7px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", whiteSpace: "nowrap" };
+  const headStyle: CSSProperties = { ...cellStyle, color: "#475569", fontWeight: 700, fontSize: 12 };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+        {(["units", "players"] as const).map(t => (
+          <button key={t} onClick={() => { setSubTab(t); setExpandedName(null); }}
+            style={{ padding: "6px 18px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              background: subTab === t ? "rgba(14,165,233,0.25)" : "rgba(255,255,255,0.05)",
+              color: subTab === t ? "#38bdf8" : "#64748b" }}>
+            {t === "units" ? "유닛 지표" : "플레이어 지표"}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "units" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {unitList.length === 0 && <div style={{ color: "#475569", padding: 32 }}>데이터 없음</div>}
+          {unitList.map(u => {
+            const winRate = u.games > 0 ? Math.round((u.wins / u.games) * 100) : 0;
+            const expanded = expandedName === u.cardName;
+            return (
+              <div key={u.cardName}>
+                <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: expanded ? "12px 12px 0 0" : 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ fontSize: 20, width: 36, textAlign: "center" }}>🃏</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#e2e8f0" }}>{u.cardName}</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: winRate >= 50 ? "#4ade80" : "#f87171", fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                    승률 {winRate}%
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", minWidth: 50, textAlign: "right" }}>
+                    {u.games}판
+                  </div>
+                  <button onClick={() => setExpandedName(expanded ? null : u.cardName)}
+                    style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 7, color: "#94a3b8", fontSize: 16, cursor: "pointer", padding: "2px 10px" }}>
+                    ···
+                  </button>
+                </div>
+                {expanded && (
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderTop: "none", borderRadius: "0 0 12px 12px", padding: 16, overflowX: "auto" }}>
+                    <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%" }}>
+                      <thead>
+                        <tr>
+                          {["항목", "입힌 피해", "총 처치", "받은 피해", "자가힐", "힐 제공", "피해 감소"].map(h => (
+                            <th key={h} style={headStyle}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style={{ ...cellStyle, color: "#94a3b8", fontWeight: 700 }}>합산 ({u.games}판)</td>
+                          <td style={{ ...cellStyle, color: "#f97316" }}>{u.damageDealt.toLocaleString()}</td>
+                          <td style={{ ...cellStyle, color: "#ef4444" }}>{u.kills}</td>
+                          <td style={{ ...cellStyle, color: "#94a3b8" }}>{u.damageTaken.toLocaleString()}</td>
+                          <td style={{ ...cellStyle, color: "#22c55e" }}>{u.selfHeal.toLocaleString()}</td>
+                          <td style={{ ...cellStyle, color: "#4ade80" }}>{u.allyHealGiven.toLocaleString()}</td>
+                          <td style={{ ...cellStyle, color: "#60a5fa" }}>{u.damageMitigated.toLocaleString()}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ ...cellStyle, color: "#94a3b8", fontWeight: 700 }}>판당 평균</td>
+                          <td style={{ ...cellStyle, color: "#f97316" }}>{u.games > 0 ? Math.round(u.damageDealt / u.games).toLocaleString() : 0}</td>
+                          <td style={{ ...cellStyle, color: "#ef4444" }}>{u.games > 0 ? (u.kills / u.games).toFixed(2) : 0}</td>
+                          <td style={{ ...cellStyle, color: "#94a3b8" }}>{u.games > 0 ? Math.round(u.damageTaken / u.games).toLocaleString() : 0}</td>
+                          <td style={{ ...cellStyle, color: "#22c55e" }}>{u.games > 0 ? Math.round(u.selfHeal / u.games).toLocaleString() : 0}</td>
+                          <td style={{ ...cellStyle, color: "#4ade80" }}>{u.games > 0 ? Math.round(u.allyHealGiven / u.games).toLocaleString() : 0}</td>
+                          <td style={{ ...cellStyle, color: "#60a5fa" }}>{u.games > 0 ? Math.round(u.damageMitigated / u.games).toLocaleString() : 0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {subTab === "players" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {playerList.length === 0 && <div style={{ color: "#475569", padding: 32 }}>데이터 없음</div>}
+          {playerList.map(p => {
+            const winRate = p.games > 0 ? Math.round((p.wins / p.games) * 100) : 0;
+            const expanded = expandedName === p.id;
+            const top5Units = Object.entries(p.unitCount)
+              .sort((a, b) => b[1].count - a[1].count)
+              .slice(0, 5);
+            return (
+              <div key={p.id}>
+                <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: expanded ? "12px 12px 0 0" : 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ fontSize: 20 }}>👤</div>
+                  <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: "#e2e8f0" }}>{p.nickname}</div>
+                  <div style={{ fontSize: 13, color: winRate >= 50 ? "#4ade80" : "#f87171", fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                    승률 {winRate}%
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", minWidth: 50, textAlign: "right" }}>{p.games}판</div>
+                  <button onClick={() => setExpandedName(expanded ? null : p.id)}
+                    style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 7, color: "#94a3b8", fontSize: 16, cursor: "pointer", padding: "2px 10px" }}>
+                    ···
+                  </button>
+                </div>
+                {expanded && (
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderTop: "none", borderRadius: "0 0 12px 12px", padding: 16 }}>
+                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, marginBottom: 10 }}>자주 사용한 유닛 TOP 5</div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+                      {top5Units.map(([name, data]) => {
+                        const wr = data.count > 0 ? Math.round((data.wins / data.count) * 100) : 0;
+                        return (
+                          <div key={name} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 14px", minWidth: 110, textAlign: "center" }}>
+                            <div style={{ fontSize: 24, marginBottom: 4 }}>🃏</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 2 }}>{name}</div>
+                            <div style={{ fontSize: 11, color: "#64748b" }}>{data.count}판</div>
+                            <div style={{ fontSize: 11, color: wr >= 50 ? "#4ade80" : "#f87171", fontWeight: 700 }}>승률 {wr}%</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, marginBottom: 10 }}>참여 게임 전적</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {p.recentGames.slice(0, 20).map(game => (
+                        <div key={game.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 9, padding: "9px 14px", display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
+                          <div style={{ color: "#475569", minWidth: 80 }}>{formatDate(game.played_at)}</div>
+                          <div style={{ padding: "2px 7px", borderRadius: 5, background: game.room_type === "friend" ? "rgba(99,102,241,0.2)" : "rgba(14,165,233,0.2)", color: game.room_type === "friend" ? "#818cf8" : "#38bdf8", fontWeight: 700, fontSize: 11 }}>
+                            {game.room_type === "friend" ? "친선전" : "글로벌"}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ color: "#7dd3fc" }}>{game.player_a_nickname ?? "A"}</span>
+                            <span style={{ color: "#475569", margin: "0 6px" }}>vs</span>
+                            <span style={{ color: "#fca5a5" }}>{game.player_b_nickname ?? "B"}</span>
+                          </div>
+                          <div style={{ fontWeight: 700, color: game.winner === "A" ? "#7dd3fc" : game.winner === "B" ? "#fca5a5" : "#94a3b8" }}>
+                            {game.winner === "A" ? `${game.player_a_nickname ?? "A"} 승` : game.winner === "B" ? `${game.player_b_nickname ?? "B"} 승` : "무승부"}
+                          </div>
+                          <div style={{ color: "#475569" }}>{formatElapsed(game.elapsed_seconds)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function DevStatsPage() {
@@ -308,9 +566,7 @@ export default function DevStatsPage() {
         )}
 
         {tab === "metrics" && (
-          <div style={{ color: "#475569", padding: 48, textAlign: "center", fontSize: 15 }}>
-            준비 중입니다.
-          </div>
+          <MetricsTab stats={stats} />
         )}
       </div>
     </div>
