@@ -631,6 +631,9 @@ export default function Home() {
                 isDarkMode={game.isDarkMode}
                 cards={game.cards}
                 onOpenDetail={game.handleOpenCardDetail}
+                myUserId={game.user?.id ?? ""}
+                myNickname={game.nickname ?? null}
+                roomType={game.isInFriendBattle ? "friend" : "global"}
               />
             ) : null
           ) : (
