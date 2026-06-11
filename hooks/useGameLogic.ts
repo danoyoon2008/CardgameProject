@@ -7,6 +7,8 @@ import { createClient } from "@/utils/supabase/client";
 import { MainView, CardRow, PullResult } from "../types/game";
 import { displayNameFromUser, profileImageUrl, getRarityWeight, getShardRewardValue, getShardShopPrice } from "../utils/cardUtils";
 
+const TUTORIAL_CARD_IDS = [21, 25, 30, 35, 36, 38, 39, 46, 58, 59, 62, 64];
+
 export function useGameLogic() {
   const [mode, setMode] = useState<"global" | "friend">("global");
   const [mainView, setMainView] = useState<MainView>("battle"); 
@@ -61,8 +63,6 @@ export function useGameLogic() {
   const [showProbModal, setShowProbModal] = useState(false);
 
   const [isFlipping, setIsFlipping] = useState(false);
-
-  const TUTORIAL_CARD_IDS = [21, 25, 30, 35, 36, 38, 39, 46, 58, 59, 62, 64];
 
   const [deck, setDeck] = useState<number[]>(TUTORIAL_CARD_IDS);
   const [selectedForDeck, setSelectedForDeck] = useState<CardRow | null>(null);
@@ -157,6 +157,22 @@ export function useGameLogic() {
         setCardShards(Number(data.shards ?? 0));
         setPrimeTokens(Number(data.tokens ?? 0));
         setNickname(typeof data.nickname === "string" ? data.nickname : null);
+        // DB에 저장된 덱이 있으면 로드, 없으면 localStorage 마이그레이션 시도
+        if (Array.isArray(data.deck) && data.deck.length === 12) {
+          setDeck(data.deck);
+        } else {
+          // 기존 localStorage에서 마이그레이션 (최초 1회)
+          const storageKey = `powerprime_settings_${user!.id}`;
+          try {
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed.deck) && parsed.deck.length === 12) {
+                setDeck(parsed.deck);
+              }
+            }
+          } catch {}
+        }
         setProfileLoaded(true);
         return;
       }
@@ -329,6 +345,7 @@ export function useGameLogic() {
         shards: cardShards,
         tokens: primeTokens,
         nickname,
+        deck,
         updated_at: new Date().toISOString(),
       });
 
@@ -338,7 +355,7 @@ export function useGameLogic() {
     }, 1500);
 
     return () => window.clearTimeout(timeoutId);
-  }, [user, profileLoaded, gold, cardShards, primeTokens, nickname]);
+  }, [user, profileLoaded, gold, cardShards, primeTokens, nickname, deck]);
 
   useEffect(() => {
     if (!authReady) return; 
@@ -353,7 +370,6 @@ export function useGameLogic() {
         if (typeof parsed.sortOption === "string") setSortOption(parsed.sortOption);
         if (typeof parsed.filterOwnedFirst === "boolean") setFilterOwnedFirst(parsed.filterOwnedFirst);
         if (typeof parsed.showOutline === "boolean") setShowOutline(parsed.showOutline);
-        if (Array.isArray(parsed.deck) && parsed.deck.length === 12) setDeck(parsed.deck);
       } catch (e) { console.error("설정 로드 실패", e); }
     }
     setSettingsLoaded(true);
@@ -364,9 +380,9 @@ export function useGameLogic() {
     const storageKey = user ? `powerprime_settings_${user.id}` : "powerprime_settings_guest";
     localStorage.setItem(storageKey, JSON.stringify({
       isDarkMode, volume,
-      newCardIds: Array.from(newCardIds), sortOption, filterOwnedFirst, showOutline, deck
+      newCardIds: Array.from(newCardIds), sortOption, filterOwnedFirst, showOutline
     }));
-  }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, deck, user, settingsLoaded]);
+  }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, user, settingsLoaded]);
 
   useEffect(() => {
     if (!["codex", "shop", "deck", "simulation", "multiplay"].includes(mainView) || !user) return; 
@@ -498,6 +514,7 @@ export function useGameLogic() {
           shards: 0,
           tokens: 0,
           nickname: null,
+          deck: TUTORIAL_CARD_IDS,
           updated_at: new Date().toISOString(),
         });
         if (profileError) console.error("[user_profiles] 초기화 실패:", profileError.message);
