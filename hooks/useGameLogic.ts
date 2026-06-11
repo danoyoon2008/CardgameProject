@@ -67,6 +67,7 @@ export function useGameLogic() {
   const [deck, setDeck] = useState<number[]>(TUTORIAL_CARD_IDS);
   const [selectedForDeck, setSelectedForDeck] = useState<CardRow | null>(null);
   const deckContainerRef = useRef<HTMLDivElement>(null);
+  const deckLoadedFromDB = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -159,6 +160,7 @@ export function useGameLogic() {
         setNickname(typeof data.nickname === "string" ? data.nickname : null);
         // DB에 저장된 덱이 있으면 로드, 없으면 localStorage 마이그레이션 시도
         if (Array.isArray(data.deck) && data.deck.length === 12) {
+          deckLoadedFromDB.current = true;
           setDeck(data.deck);
         } else {
           // 기존 localStorage에서 마이그레이션 (최초 1회)
@@ -331,6 +333,12 @@ export function useGameLogic() {
 
   useEffect(() => {
     if (!user || !profileLoaded) return;
+    // DB에서 방금 로드한 초기값으로 덮어쓰는 것을 방지
+    // 첫 로드 직후에는 저장하지 않고, 이후 사용자 변경 시에만 저장
+    if (deckLoadedFromDB.current) {
+      deckLoadedFromDB.current = false;
+      return;
+    }
 
     const timeoutId = window.setTimeout(async () => {
       const supabase = createClient();
