@@ -118,10 +118,16 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
     return list.sort((a, b) => {
       const ma = cardMeta[a.cardName];
       const mb = cardMeta[b.cardName];
-      if (sortBy === "number") return (ma?.number ?? 999) - (mb?.number ?? 999);
+      if (sortBy === "number") {
+        const na = ma?.number ?? 99999;
+        const nb = mb?.number ?? 99999;
+        return na - nb;
+      }
       if (sortBy === "rarity") {
-        const order = { L: 0, A: 1, E: 2, R: 3, C: 4 };
-        return (order[ma?.rarity as keyof typeof order] ?? 9) - (order[mb?.rarity as keyof typeof order] ?? 9);
+        const order: Record<string, number> = { C: 0, R: 1, E: 2, L: 3, A: 4 };
+        const ra = order[ma?.rarity ?? ""] ?? 9;
+        const rb = order[mb?.rarity ?? ""] ?? 9;
+        return ra - rb;
       }
       if (sortBy === "cost") return (ma?.cost ?? 99) - (mb?.cost ?? 99);
       return 0;
