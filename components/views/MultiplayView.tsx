@@ -314,10 +314,16 @@ function MultiplayGameSession({
   );
 
   const scheduleSyncAfterAction = useCallback(() => {
+    // 1차 sync
     setTimeout(() => {
       const latest = stateRef.current;
       if (latest) syncGameState(latest);
     }, 100);
+    // 백업 sync — 1차가 드롭된 경우 대비 (스펠 연출 1750ms 이내)
+    setTimeout(() => {
+      const latest = stateRef.current;
+      if (latest) syncGameState(latest);
+    }, 800);
   }, [syncGameState]);
 
   const witchTarotTriggerRef = useRef<
@@ -598,9 +604,14 @@ function MultiplayGameSession({
         }
       })
       .on("broadcast", { event: "request_state_sync" }, () => {
-        // 상대방이 최신 상태 요청 → 즉시 현재 상태 전송
+        // isSyncing 가드를 우회하여 즉시 응답
         const latest = stateRef.current;
-        if (latest) syncGameState(latest);
+        if (!latest || gameFinishedRef.current) return;
+        void channelRef.current?.send({
+          type: "broadcast",
+          event: "game_state_update",
+          payload: { game_state: latest },
+        });
       })
       .on("broadcast", { event: "opponent_left" }, () => {
         setOpponentLeft(true);
