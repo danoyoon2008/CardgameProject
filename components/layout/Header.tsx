@@ -220,16 +220,28 @@ export default function Header({
     type RoomInfo = { modeLabel: string; playerANick: string | null; playerBNick: string | null };
     const inGameMap = new Map<string, RoomInfo>();
 
-    if (roomData && profileData) {
-      const profileMap = new Map<string, string | null>(
-        (profileData as UserProfile[]).map(p => [p.id, p.nickname])
+    if (roomData && roomData.length > 0) {
+      // 게임 중인 모든 플레이어 ID 수집
+      const playerIds = Array.from(new Set(
+        roomData.flatMap(r => [r.player_a_id, r.player_b_id])
+      ));
+
+      // 해당 플레이어들의 닉네임을 직접 조회 (profileData와 무관하게)
+      const { data: playerProfiles } = await supabase
+        .from("user_profiles")
+        .select("id, nickname")
+        .in("id", playerIds);
+
+      const nickMap = new Map<string, string | null>(
+        (playerProfiles ?? []).map((p: { id: string; nickname: string | null }) => [p.id, p.nickname])
       );
+
       for (const room of roomData) {
         const modeLabel = room.game_mode === "normal" ? "일반전" : "클래식";
         const info: RoomInfo = {
           modeLabel,
-          playerANick: profileMap.get(room.player_a_id) ?? null,
-          playerBNick: profileMap.get(room.player_b_id) ?? null,
+          playerANick: nickMap.get(room.player_a_id) ?? null,
+          playerBNick: nickMap.get(room.player_b_id) ?? null,
         };
         inGameMap.set(room.player_a_id, info);
         inGameMap.set(room.player_b_id, info);
@@ -275,16 +287,28 @@ export default function Header({
     type RoomInfo = { modeLabel: string; playerANick: string | null; playerBNick: string | null };
     const inGameMap = new Map<string, RoomInfo>();
 
-    if (roomData && profileData) {
-      const profileMap = new Map<string, string | null>(
-        (profileData as UserProfile[]).map(p => [p.id, p.nickname])
+    if (roomData && roomData.length > 0) {
+      // 게임 중인 모든 플레이어 ID 수집
+      const playerIds = Array.from(new Set(
+        roomData.flatMap(r => [r.player_a_id, r.player_b_id])
+      ));
+
+      // 해당 플레이어들의 닉네임을 직접 조회 (profileData와 무관하게)
+      const { data: playerProfiles } = await supabase
+        .from("user_profiles")
+        .select("id, nickname")
+        .in("id", playerIds);
+
+      const nickMap = new Map<string, string | null>(
+        (playerProfiles ?? []).map((p: { id: string; nickname: string | null }) => [p.id, p.nickname])
       );
+
       for (const room of roomData) {
         const modeLabel = room.game_mode === "normal" ? "일반전" : "클래식";
         const info: RoomInfo = {
           modeLabel,
-          playerANick: profileMap.get(room.player_a_id) ?? null,
-          playerBNick: profileMap.get(room.player_b_id) ?? null,
+          playerANick: nickMap.get(room.player_a_id) ?? null,
+          playerBNick: nickMap.get(room.player_b_id) ?? null,
         };
         inGameMap.set(room.player_a_id, info);
         inGameMap.set(room.player_b_id, info);
