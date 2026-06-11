@@ -23,6 +23,11 @@ interface UserProfile {
   nickname: string | null;
   avatar_url: string | null;
   last_seen_at: string | null;
+  // 게임 진행 상태 (loadAllUsers에서 조합)
+  inGame?: boolean;
+  inGameModeLabel?: string; // 예: "클래식"
+  inGamePlayerA?: string | null;
+  inGamePlayerB?: string | null;
 }
 
 interface Friendship {
@@ -200,14 +205,46 @@ export default function Header({
 
     const friendIds = new Set(friends.map(f => f.other.id));
 
-    const { data } = await supabase
+    const { data: profileData } = await supabase
       .from("user_profiles")
       .select("id, nickname, avatar_url, last_seen_at")
       .ilike("nickname", `%${query}%`)
       .neq("id", user.id)
       .limit(50);
 
-    const filtered = (data as UserProfile[] || []).filter(u => !friendIds.has(u.id));
+    const { data: roomData } = await supabase
+      .from("game_rooms")
+      .select("player_a_id, player_b_id, game_mode")
+      .eq("status", "playing");
+
+    type RoomInfo = { modeLabel: string; playerANick: string | null; playerBNick: string | null };
+    const inGameMap = new Map<string, RoomInfo>();
+
+    if (roomData && profileData) {
+      const profileMap = new Map<string, string | null>(
+        (profileData as UserProfile[]).map(p => [p.id, p.nickname])
+      );
+      for (const room of roomData) {
+        const modeLabel = room.game_mode === "normal" ? "일반전" : "클래식";
+        const info: RoomInfo = {
+          modeLabel,
+          playerANick: profileMap.get(room.player_a_id) ?? null,
+          playerBNick: profileMap.get(room.player_b_id) ?? null,
+        };
+        inGameMap.set(room.player_a_id, info);
+        inGameMap.set(room.player_b_id, info);
+      }
+    }
+
+    const profiles = (profileData as UserProfile[] || []).map(p => ({
+      ...p,
+      inGame: inGameMap.has(p.id),
+      inGameModeLabel: inGameMap.get(p.id)?.modeLabel ?? undefined,
+      inGamePlayerA: inGameMap.get(p.id)?.playerANick ?? null,
+      inGamePlayerB: inGameMap.get(p.id)?.playerBNick ?? null,
+    }));
+
+    const filtered = profiles.filter(u => !friendIds.has(u.id));
     setUserSearchResults(filtered);
     setUserSearchLoading(false);
   };
@@ -220,14 +257,49 @@ export default function Header({
 
     const friendIds = new Set(friends.map(f => f.other.id));
 
-    const { data } = await supabase
+    // 유저 목록 로드
+    const { data: profileData } = await supabase
       .from("user_profiles")
       .select("id, nickname, avatar_url, last_seen_at")
       .neq("id", user.id)
       .order("last_seen_at", { ascending: false })
       .limit(100);
 
-    const filtered = (data as UserProfile[] || []).filter(u => !friendIds.has(u.id));
+    // 현재 진행 중인 게임 방 목록 로드 (플레이어 닉네임 포함)
+    const { data: roomData } = await supabase
+      .from("game_rooms")
+      .select("player_a_id, player_b_id, game_mode")
+      .eq("status", "playing");
+
+    // 각 방의 플레이어 닉네임 매핑 빌드
+    type RoomInfo = { modeLabel: string; playerANick: string | null; playerBNick: string | null };
+    const inGameMap = new Map<string, RoomInfo>();
+
+    if (roomData && profileData) {
+      const profileMap = new Map<string, string | null>(
+        (profileData as UserProfile[]).map(p => [p.id, p.nickname])
+      );
+      for (const room of roomData) {
+        const modeLabel = room.game_mode === "normal" ? "일반전" : "클래식";
+        const info: RoomInfo = {
+          modeLabel,
+          playerANick: profileMap.get(room.player_a_id) ?? null,
+          playerBNick: profileMap.get(room.player_b_id) ?? null,
+        };
+        inGameMap.set(room.player_a_id, info);
+        inGameMap.set(room.player_b_id, info);
+      }
+    }
+
+    const profiles = (profileData as UserProfile[] || []).map(p => ({
+      ...p,
+      inGame: inGameMap.has(p.id),
+      inGameModeLabel: inGameMap.get(p.id)?.modeLabel ?? undefined,
+      inGamePlayerA: inGameMap.get(p.id)?.playerANick ?? null,
+      inGamePlayerB: inGameMap.get(p.id)?.playerBNick ?? null,
+    }));
+
+    const filtered = profiles.filter(u => !friendIds.has(u.id));
     setUserSearchResults(filtered);
     setUserSearchLoading(false);
   };
@@ -531,9 +603,29 @@ export default function Header({
                         ? <img src={u.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         : <IconUser className="h-4 w-4 text-sky-200" />}
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {u.nickname || "닉네임 없음"}
-                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {/* 온라인/오프라인 상태 점 */}
+                        <div style={{
+                          width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                          background: isOnline(u.last_seen_at) ? "#22c55e" : "#475569",
+                        }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {u.nickname || "닉네임 없음"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, marginTop: 1 }}>
+                        {u.inGame ? (
+                          <span style={{ color: "#f59e0b" }}>
+                            🎮 게임 진행 중 - {u.inGameModeLabel} ({u.inGamePlayerA ?? "?"} vs {u.inGamePlayerB ?? "?"})
+                          </span>
+                        ) : isOnline(u.last_seen_at) ? (
+                          <span style={{ color: "#22c55e" }}>접속 중</span>
+                        ) : (
+                          <span style={{ color: "#475569" }}>마지막 접속: {formatLastSeen(u.last_seen_at)}</span>
+                        )}
+                      </div>
+                    </div>
                   </button>
                   {selectedUser?.id === u.id && (
                     <div style={{ display: "flex", gap: 6, padding: "4px 6px 8px", marginBottom: 4 }}>
