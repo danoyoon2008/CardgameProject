@@ -2162,8 +2162,12 @@ export default function SimulationView({
       params: Omit<SpellUsagePending, "superTeslaCounter"> & { fieldCard?: FieldCard }
     ) => {
       // 이미 연출 진행 중이면 즉시 완료 후 새 연출 시작
-      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly || spellUsageReveal !== null) {
-        finishSpellUsageSequence();
+      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
+        // 이전 스펠 연출 즉시 완료
+        setSpellUsageReveal(null);
+        setSpellUsageFly(null);
+        spellUsageMotionActiveRef.current = false;
+        spellUsageRestoreOnMountDoneRef.current = false;
       }
       // 드로우 연출 중이면 즉시 종료
       if (state?.simpanPeekReveal) {
@@ -8164,36 +8168,48 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (!state || isInitializing) return;
-    if (spellUsageRestoreOnMountDoneRef.current) return;
     if (!state.spellUsagePending) return;
-    // 이미 연출 중이면 즉시 완료 후 새 연출 시작
-    if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
-      finishSpellUsageSequence();
-      // finishSpellUsageSequence는 비동기 cleanup을 포함하므로 다음 tick에 재시도
+
+    // 이미 연출 중이고 ref가 true인 상태 → 새 스펠이 도착한 경우 강제 교체
+    if (spellUsageRestoreOnMountDoneRef.current) {
+      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
+        // 현재 연출 강제 종료
+        setSpellUsageReveal(null);
+        setSpellUsageFly(null);
+        spellUsageMotionActiveRef.current = false;
+        multiplayOpponentSpellVisualOnlyRef.current = false;
+        spellUsageRestoreOnMountDoneRef.current = false;
+        // 이 렌더에서 바로 재진입하지 않고 다음 effect에서 처리
+        return;
+      }
       return;
     }
 
+    if (spellUsageMotionActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly) return;
+
     spellUsageRestoreOnMountDoneRef.current = true;
 
-    // 멀티플레이에서 상대방 스펠: 전체 시각 연출 실행, 효과 적용만 스킵
+    // 멀티플레이에서 상대방 스펠: 시각 연출만, 효과 미적용
     if (
       multiplayMyTeam &&
       state.spellUsagePending.casterPlayer !== multiplayMyTeam
     ) {
+      const save = state.spellUsagePending;
+      spellUsageMotionActiveRef.current = true;
       multiplayOpponentSpellVisualOnlyRef.current = true;
-      resumeSpellUsageSequence(state.spellUsagePending);
+      resumeSpellUsageSequence(save);
       return;
     }
 
-    // 시뮬레이션 모드 또는 시전자 측: 기존 복원 로직
+    // 시뮬레이션 모드 또는 시전자 측
     resumeSpellUsageSequence(state.spellUsagePending);
   }, [
-    state,
+    state?.spellUsagePending,
     isInitializing,
     spellUsageReveal,
     spellUsageFly,
     resumeSpellUsageSequence,
-    finishSpellUsageSequence,
   ]);
 
   // 멀티플레이 상대방 스펠 완료 후 restore ref 리셋 (다음 스펠 대비)
