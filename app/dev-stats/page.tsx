@@ -34,10 +34,15 @@ interface GameStatRow {
 
 interface CardMeta {
   name: string;
-  number: number;
+  number: number | string;
   rarity: string;
-  cost: number;
+  cost: number | string;
   image_url: string | null;
+}
+
+function parseCardNumber(value: any, fallback = 0): number {
+  const n = Number(value);
+  return isNaN(n) ? fallback : n;
 }
 
 function formatElapsed(seconds: number | null): string {
@@ -119,9 +124,7 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
       const ma = cardMeta[a.cardName];
       const mb = cardMeta[b.cardName];
       if (sortBy === "number") {
-        const na = ma?.number ?? 99999;
-        const nb = mb?.number ?? 99999;
-        return na - nb;
+        return parseCardNumber(ma?.number, 99999) - parseCardNumber(mb?.number, 99999);
       }
       if (sortBy === "rarity") {
         const order: Record<string, number> = { C: 0, R: 1, E: 2, L: 3, A: 4 };
@@ -129,7 +132,7 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
         const rb = order[mb?.rarity ?? ""] ?? 9;
         return ra - rb;
       }
-      if (sortBy === "cost") return (ma?.cost ?? 99) - (mb?.cost ?? 99);
+      if (sortBy === "cost") return (Number(ma?.cost) || 0) - (Number(mb?.cost) || 0);
       return 0;
     });
   }, [unitMap, cardMeta, sortBy]);
@@ -394,9 +397,16 @@ export default function DevStatsPage() {
       .select("name, number, rarity, cost, image_url")
       .eq("category", "unit")
       .then(({ data }) => {
+        const rows = [...(data ?? [])].sort(
+          (a, b) => parseCardNumber(a.number) - parseCardNumber(b.number),
+        );
         const map: Record<string, CardMeta> = {};
-        for (const c of (data ?? []) as CardMeta[]) {
-          map[c.name] = c;
+        for (const c of rows as CardMeta[]) {
+          map[c.name] = {
+            ...c,
+            number: parseCardNumber(c.number),
+            cost: Number(c.cost) || 0,
+          };
         }
         setCardMeta(map);
       });
