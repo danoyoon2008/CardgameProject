@@ -49,7 +49,14 @@ async function finishGameRoom(
   client: SupabaseClient,
   roomId: string,
   winnerRole: PlayerRole,
+  gameState: SimulationState | null,
+  playerAId: string | null,
+  playerBId: string | null,
+  roomType: string,
 ): Promise<void> {
+  const winnerTeam: "A" | "B" | "draw" =
+    winnerRole === "player_a" ? "A" : "B";
+
   const { error } = await client
     .from("game_rooms")
     .update({
@@ -62,6 +69,28 @@ async function finishGameRoom(
   if (error) {
     console.warn("[MultiplayView] 게임 종료 저장 실패:", error.message);
   }
+
+  if (!gameState) return;
+
+  const unitStatsArray = Object.entries(
+    (gameState as SimulationState & { unitCombatStats?: Record<string, Record<string, unknown>> })
+      .unitCombatStats ?? {},
+  ).map(([id, row]) => ({ id, ...row }));
+
+  const { error: statsError } = await client.from("game_stats").insert({
+    room_id: roomId,
+    room_type: roomType,
+    player_a_id: playerAId,
+    player_b_id: playerBId,
+    winner: winnerTeam,
+    turn_count: gameState.turnCount ?? null,
+    played_at: new Date().toISOString(),
+    unit_stats: unitStatsArray,
+  });
+
+  if (statsError) {
+    console.warn("[MultiplayView] 통계 저장 실패:", statsError.message);
+  }
 }
 
 interface MultiplayViewProps {
@@ -72,6 +101,9 @@ interface MultiplayViewProps {
   isDarkMode: boolean;
   cards: CardRow[];
   onOpenDetail?: (card: CardRow) => void;
+  myUserId?: string;
+  opponentUserId?: string;
+  roomType?: string;
 }
 
 const ANONYMOUS_OPPONENT_LABEL = "익명의 플레이어";
@@ -103,10 +135,14 @@ async function fetchOpponentNickname(
 async function fetchGameRoomPlayerIds(
   client: SupabaseClient,
   roomId: string,
-): Promise<{ player_a_id: string | null; player_b_id: string | null } | null> {
+): Promise<{
+  player_a_id: string | null;
+  player_b_id: string | null;
+  room_type: string | null;
+} | null> {
   const { data, error } = await client
     .from("game_rooms")
-    .select("player_a_id, player_b_id")
+    .select("player_a_id, player_b_id, room_type")
     .eq("id", roomId)
     .single();
 
@@ -118,6 +154,7 @@ async function fetchGameRoomPlayerIds(
   return {
     player_a_id: data.player_a_id ?? null,
     player_b_id: data.player_b_id ?? null,
+    room_type: data.room_type ?? null,
   };
 }
 
@@ -211,6 +248,9 @@ type MultiplayGameSessionProps = {
   onRematchReady: () => void;
   opponentNickname: string | null;
   onOpenDetail?: (card: CardRow) => void;
+  myUserId: string;
+  opponentUserId?: string;
+  roomType?: string;
 };
 
 function MultiplayGameSession({
@@ -223,6 +263,9 @@ function MultiplayGameSession({
   onRematchReady,
   opponentNickname,
   onOpenDetail,
+  myUserId,
+  opponentUserId,
+  roomType,
 }: MultiplayGameSessionProps) {
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -432,10 +475,18 @@ function MultiplayGameSession({
 
       const supabase = createClient();
       if (supabase) {
-        await finishGameRoom(supabase, roomId, winnerRole);
+        await finishGameRoom(
+          supabase,
+          roomId,
+          winnerRole,
+          stateRef.current,
+          myRole === "player_a" ? myUserId : (opponentUserId ?? null),
+          myRole === "player_a" ? (opponentUserId ?? null) : myUserId,
+          roomType ?? "global",
+        );
       }
     },
-    [roomId],
+    [roomId, myRole, myUserId, opponentUserId, roomType],
   );
 
   const handleMultiplayWin = useCallback(
@@ -524,7 +575,15 @@ function MultiplayGameSession({
     if (supabase) {
       if (!gameFinishedRef.current) {
         // 정상 이탈: 상대방에게 패배 처리
-        await finishGameRoom(supabase, roomId, opponentRole);
+        await finishGameRoom(
+          supabase,
+          roomId,
+          opponentRole,
+          stateRef.current,
+          myRole === "player_a" ? myUserId : (opponentUserId ?? null),
+          myRole === "player_a" ? (opponentUserId ?? null) : myUserId,
+          roomType ?? "global",
+        );
         gameFinishedRef.current = true;
         void channelRef.current?.send({
           type: "broadcast",
@@ -541,7 +600,7 @@ function MultiplayGameSession({
       }
     }
     onBackToLobby();
-  }, [roomId, opponentRole, onBackToLobby]);
+  }, [roomId, opponentRole, onBackToLobby, myRole, myUserId, opponentUserId, roomType]);
 
   const handleRematchRequest = useCallback(() => {
     setMyRematchRequested(true);
@@ -1051,11 +1110,63 @@ export default function MultiplayView({
   isDarkMode,
   cards,
   onOpenDetail,
+  myUserId: myUserIdProp,
+  opponentUserId: opponentUserIdProp,
+  roomType: roomTypeProp,
 }: MultiplayViewProps) {
   const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
   const [opponentNickname, setOpponentNickname] = useState<string | null>(null);
   const [roomRejected, setRoomRejected] = useState(false);
+  const [resolvedMyUserId, setResolvedMyUserId] = useState(myUserIdProp ?? "");
+  const [resolvedOpponentUserId, setResolvedOpponentUserId] = useState(opponentUserIdProp);
+  const [resolvedRoomType, setResolvedRoomType] = useState(roomTypeProp ?? "global");
+
+  useEffect(() => {
+    if (myUserIdProp) setResolvedMyUserId(myUserIdProp);
+  }, [myUserIdProp]);
+
+  useEffect(() => {
+    if (opponentUserIdProp) setResolvedOpponentUserId(opponentUserIdProp);
+  }, [opponentUserIdProp]);
+
+  useEffect(() => {
+    if (roomTypeProp) setResolvedRoomType(roomTypeProp);
+  }, [roomTypeProp]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      if (!myUserIdProp) {
+        const { data: authData } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (authData.user?.id) {
+          setResolvedMyUserId(authData.user.id);
+        }
+      }
+
+      const room = await fetchGameRoomPlayerIds(supabase, roomId);
+      if (cancelled || !room) return;
+
+      if (!opponentUserIdProp) {
+        const opponentId =
+          myRole === "player_a" ? room.player_b_id : room.player_a_id;
+        if (opponentId) setResolvedOpponentUserId(opponentId);
+      }
+
+      if (!roomTypeProp && room.room_type) {
+        setResolvedRoomType(room.room_type);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, myRole, myUserIdProp, opponentUserIdProp, roomTypeProp]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -1251,6 +1362,9 @@ export default function MultiplayView({
           onRematchReady={onRematchReady}
           opponentNickname={opponentNickname}
           onOpenDetail={onOpenDetail}
+          myUserId={resolvedMyUserId}
+          opponentUserId={resolvedOpponentUserId}
+          roomType={resolvedRoomType}
         />
       ) : (
         <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">
