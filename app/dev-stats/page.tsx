@@ -32,6 +32,14 @@ interface GameStatRow {
   }>;
 }
 
+interface CardMeta {
+  name: string;
+  number: number;
+  rarity: string;
+  cost: number;
+  image_url: string | null;
+}
+
 function formatElapsed(seconds: number | null): string {
   if (!seconds) return "-";
   const m = Math.floor(seconds / 60);
@@ -78,9 +86,10 @@ interface PlayerAgg {
   recentGames: GameStatRow[];
 }
 
-function MetricsTab({ stats }: { stats: GameStatRow[] }) {
+function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Record<string, CardMeta> }) {
   const [subTab, setSubTab] = useState<"units" | "players">("units");
   const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"number" | "rarity" | "cost">("number");
 
   const unitMap = useMemo(() => {
     const map: Record<string, AggregatedUnit> = {};
@@ -104,10 +113,20 @@ function MetricsTab({ stats }: { stats: GameStatRow[] }) {
     return map;
   }, [stats]);
 
-  const unitList = useMemo(() =>
-    Object.values(unitMap).sort((a, b) => b.games - a.games),
-    [unitMap]
-  );
+  const unitList = useMemo(() => {
+    const list = Object.values(unitMap);
+    return list.sort((a, b) => {
+      const ma = cardMeta[a.cardName];
+      const mb = cardMeta[b.cardName];
+      if (sortBy === "number") return (ma?.number ?? 999) - (mb?.number ?? 999);
+      if (sortBy === "rarity") {
+        const order = { L: 0, A: 1, E: 2, R: 3, C: 4 };
+        return (order[ma?.rarity as keyof typeof order] ?? 9) - (order[mb?.rarity as keyof typeof order] ?? 9);
+      }
+      if (sortBy === "cost") return (ma?.cost ?? 99) - (mb?.cost ?? 99);
+      return 0;
+    });
+  }, [unitMap, cardMeta, sortBy]);
 
   const playerMap = useMemo(() => {
     const map: Record<string, PlayerAgg> = {};
@@ -171,6 +190,19 @@ function MetricsTab({ stats }: { stats: GameStatRow[] }) {
       </div>
 
       {subTab === "units" && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {(["number", "rarity", "cost"] as const).map(s => (
+            <button key={s} onClick={() => setSortBy(s)}
+              style={{ padding: "4px 14px", borderRadius: 7, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                background: sortBy === s ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.05)",
+                color: sortBy === s ? "#a5b4fc" : "#64748b" }}>
+              {s === "number" ? "번호순" : s === "rarity" ? "등급순" : "코스트순"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {subTab === "units" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {unitList.length === 0 && <div style={{ color: "#475569", padding: 32 }}>데이터 없음</div>}
           {unitList.map(u => {
@@ -179,7 +211,14 @@ function MetricsTab({ stats }: { stats: GameStatRow[] }) {
             return (
               <div key={u.cardName}>
                 <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: expanded ? "12px 12px 0 0" : 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ fontSize: 20, width: 36, textAlign: "center" }}>🃏</div>
+                  <div style={{ width: 40, height: 56, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)" }}>
+                    {cardMeta[u.cardName]?.image_url ? (
+                      <img src={cardMeta[u.cardName].image_url!} alt={u.cardName}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🃏</div>
+                    )}
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 800, color: "#e2e8f0" }}>{u.cardName}</div>
                   </div>
@@ -264,7 +303,14 @@ function MetricsTab({ stats }: { stats: GameStatRow[] }) {
                         const wr = data.count > 0 ? Math.round((data.wins / data.count) * 100) : 0;
                         return (
                           <div key={name} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 14px", minWidth: 110, textAlign: "center" }}>
-                            <div style={{ fontSize: 24, marginBottom: 4 }}>🃏</div>
+                            <div style={{ width: 52, height: 72, borderRadius: 7, overflow: "hidden", margin: "0 auto 6px", background: "rgba(255,255,255,0.05)" }}>
+                              {cardMeta[name]?.image_url ? (
+                                <img src={cardMeta[name].image_url!} alt={name}
+                                  style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              ) : (
+                                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🃏</div>
+                              )}
+                            </div>
                             <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 2 }}>{name}</div>
                             <div style={{ fontSize: 11, color: "#64748b" }}>{data.count}판</div>
                             <div style={{ fontSize: 11, color: wr >= 50 ? "#4ade80" : "#f87171", fontWeight: 700 }}>승률 {wr}%</div>
@@ -309,6 +355,7 @@ export default function DevStatsPage() {
   const [pwError, setPwError] = useState(false);
   const [tab, setTab] = useState<"records" | "metrics">("records");
   const [stats, setStats] = useState<GameStatRow[]>([]);
+  const [cardMeta, setCardMeta] = useState<Record<string, CardMeta>>({});
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -334,6 +381,18 @@ export default function DevStatsPage() {
       .then(({ data }) => {
         setStats((data as GameStatRow[]) ?? []);
         setLoading(false);
+      });
+
+    supabase
+      .from("cards")
+      .select("name, number, rarity, cost, image_url")
+      .eq("category", "unit")
+      .then(({ data }) => {
+        const map: Record<string, CardMeta> = {};
+        for (const c of (data ?? []) as CardMeta[]) {
+          map[c.name] = c;
+        }
+        setCardMeta(map);
       });
   }, [unlocked]);
 
@@ -566,7 +625,7 @@ export default function DevStatsPage() {
         )}
 
         {tab === "metrics" && (
-          <MetricsTab stats={stats} />
+          <MetricsTab stats={stats} cardMeta={cardMeta} />
         )}
       </div>
     </div>
