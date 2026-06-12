@@ -92,7 +92,7 @@ async function finishGameRoom(
     elapsed_seconds: gameState.elapsedTime
       ? Math.floor(gameState.elapsedTime / 1000)
       : null,
-    game_mode: "classic",
+    game_mode: gameState.gameMode === "normal" ? "normal" : "classic",
     played_at: new Date().toISOString(),
     unit_stats: unitStatsArray,
   });

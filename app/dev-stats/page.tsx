@@ -363,6 +363,7 @@ export default function DevStatsPage() {
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
   const [tab, setTab] = useState<"records" | "metrics">("records");
+  const [modeTab, setModeTab] = useState<"all" | "classic" | "normal">("all");
   const [stats, setStats] = useState<GameStatRow[]>([]);
   const [cardMeta, setCardMeta] = useState<Record<string, CardMeta>>({});
   const [loading, setLoading] = useState(false);
@@ -411,6 +412,14 @@ export default function DevStatsPage() {
         setCardMeta(map);
       });
   }, [unlocked]);
+
+  const filteredStats = useMemo(() => {
+    if (modeTab === "all") return stats;
+    return stats.filter((s) => {
+      const mode = s.game_mode === "normal" ? "normal" : "classic";
+      return mode === modeTab;
+    });
+  }, [stats, modeTab]);
 
   if (!unlocked) {
     return (
@@ -493,6 +502,32 @@ export default function DevStatsPage() {
           </span>
         </div>
 
+        {/* 상위 분류: 게임 모드 */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {([
+            { key: "all", label: "전체 모드" },
+            { key: "classic", label: "클래식 모드" },
+            { key: "normal", label: "일반전 모드" },
+          ] as const).map((m) => (
+            <button
+              key={m.key}
+              onClick={() => setModeTab(m.key)}
+              style={{
+                padding: "8px 22px",
+                borderRadius: 10,
+                border: modeTab === m.key ? "2px solid #38bdf8" : "2px solid transparent",
+                background: modeTab === m.key ? "rgba(56,189,248,0.15)" : "rgba(255,255,255,0.04)",
+                color: modeTab === m.key ? "#7dd3fc" : "#64748b",
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
         <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
           {(["records", "metrics"] as const).map(t => (
             <button
@@ -517,11 +552,11 @@ export default function DevStatsPage() {
         {tab === "records" && (
           <div>
             {loading && <div style={{ color: "#64748b", padding: 32 }}>불러오는 중...</div>}
-            {!loading && stats.length === 0 && (
+            {!loading && filteredStats.length === 0 && (
               <div style={{ color: "#64748b", padding: 32 }}>저장된 게임 기록이 없습니다.</div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {stats.map(row => (
+              {filteredStats.map(row => (
                 <div key={row.id}>
                   <div style={{
                     background: "rgba(255,255,255,0.04)",
@@ -641,7 +676,7 @@ export default function DevStatsPage() {
         )}
 
         {tab === "metrics" && (
-          <MetricsTab stats={stats} cardMeta={cardMeta} />
+          <MetricsTab stats={filteredStats} cardMeta={cardMeta} />
         )}
       </div>
     </div>
