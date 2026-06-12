@@ -1403,6 +1403,26 @@ export default function SimulationView({
       ? "B"
       : "A"
     : null;
+
+  // ===== 일반전 덱/리와인드 표시값 =====
+  // 내 팀 기준 (멀티플레이가 아니면 A를 기본 시점으로)
+  const viewMyTeam: "A" | "B" = multiplayMyTeam ?? "A";
+  const viewOppTeam: "A" | "B" = viewMyTeam === "A" ? "B" : "A";
+
+  const normalMyDeckCount = state
+    ? (viewMyTeam === "A" ? (state.deckCardsA ?? []) : (state.deckCardsB ?? [])).length
+    : 0;
+  const normalOppDeckCount = state
+    ? (viewOppTeam === "A" ? (state.deckCardsA ?? []) : (state.deckCardsB ?? [])).length
+    : 0;
+  const normalMyRewindCount = state
+    ? state.rewindCards.filter((c) => c._ownerTeam === viewMyTeam).length
+    : 0;
+  const normalOppRewindCount = state
+    ? state.rewindCards.filter((c) => c._ownerTeam === viewOppTeam).length
+    : 0;
+  const isNormal = state?.gameMode === "normal";
+
   const multiplayFlipBoard = multiplayMyRole === "player_b";
 
   // 마녀 타로 진행 중 현재 스텝이 상대 것인지 여부
@@ -20220,8 +20240,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                 >
                   <IconDeck className={`w-5 h-5 mb-1 ${isDrawHighlight ? "text-white" : "text-indigo-400"}`} />
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "#a5b4fc" }}>덱</span>
-                  <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{state.deckCards.length}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#a5b4fc" }}>{isNormal ? "내 덱" : "덱"}</span>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{isNormal ? normalMyDeckCount : state.deckCards.length}</span>
                 </button>
                 <button
                   onClick={e => {
@@ -20243,8 +20263,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                   className={state.simpanHandChoice ? "pp-rewind-simpan-white-blink" : ""}
                 >
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>리와인드</span>
-                  <span style={{ fontSize: 18, fontWeight: 900, color: "#64748b" }}>{state.rewindCards.length}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>{isNormal ? "내 리와인드" : "리와인드"}</span>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: "#64748b" }}>{isNormal ? normalMyRewindCount : state.rewindCards.length}</span>
                 </button>
               </div>
 
@@ -21070,8 +21090,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }`}
             >
               <IconDeck className={`w-8 h-8 mb-2 drop-shadow-md transition-colors ${isDrawHighlight ? 'text-white' : 'text-indigo-400'}`} />
-              <span className={`text-[11px] font-bold transition-colors ${isDrawHighlight ? 'text-indigo-200' : 'text-indigo-300'}`}>공용 덱</span>
-              <span className="text-3xl font-black text-white leading-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">{state.deckCards.length}</span>
+              <span className={`text-[11px] font-bold transition-colors ${isDrawHighlight ? 'text-indigo-200' : 'text-indigo-300'}`}>{isNormal ? "내 덱" : "공용 덱"}</span>
+              <span className="text-3xl font-black text-white leading-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">{isNormal ? normalMyDeckCount : state.deckCards.length}</span>
               
               {state.settings.drawMode === "SELECT" && (
                 <div className="absolute -top-2 -right-2 bg-indigo-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md border border-white/20">
@@ -21091,8 +21111,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 state.simpanHandChoice ? "pp-rewind-simpan-white-blink border-white/50" : ""
               }`}
             >
-              <span className="text-[11px] font-bold text-slate-400 group-hover:text-slate-300 transition-colors">리와인드</span>
-              <span className="text-2xl font-black text-slate-500 group-hover:text-slate-300 leading-tight transition-colors">{state.rewindCards.length}</span>
+              <span className="text-[11px] font-bold text-slate-400 group-hover:text-slate-300 transition-colors">{isNormal ? "내 리와인드" : "리와인드"}</span>
+              <span className="text-2xl font-black text-slate-500 group-hover:text-slate-300 leading-tight transition-colors">{isNormal ? normalMyRewindCount : state.rewindCards.length}</span>
             </button>
 
           </div>
