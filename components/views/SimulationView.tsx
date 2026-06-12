@@ -392,6 +392,11 @@ interface SimulationState {
     isOpponentCardFlipped: boolean; 
     drawMode: "RANDOM" | "SELECT";
   };
+  gameMode?: "classic" | "normal";
+  deckCardsA?: CardRow[];
+  deckCardsB?: CardRow[];
+  rewindCardsA?: CardRow[];
+  rewindCardsB?: CardRow[];
   deckCards: CardRow[];
   rewindCards: CardRow[];
   playerA: PlayerState;
@@ -7787,6 +7792,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     });
   };
 
+  // ===== 일반전 덱/리와인드 분리 헬퍼 =====
+  const isNormalMode = (s: SimulationState): boolean => s.gameMode === "normal";
+
+  const getPlayerDeck = (s: SimulationState, isA: boolean): CardRow[] => {
+    if (isNormalMode(s)) {
+      return isA ? (s.deckCardsA ?? []) : (s.deckCardsB ?? []);
+    }
+    return s.deckCards;
+  };
+
+  const withPlayerDeck = (s: SimulationState, isA: boolean, newDeck: CardRow[]): Partial<SimulationState> => {
+    if (isNormalMode(s)) {
+      return isA ? { deckCardsA: newDeck } : { deckCardsB: newDeck };
+    }
+    return { deckCards: newDeck };
+  };
+
+  const getMaxHand = (s: SimulationState): number => (isNormalMode(s) ? 4 : 6);
+
   const handleDrawClick = () => {
     if (pendingLegendarySwordStrike) {
       alert("전설의 검 연격이 끝날 때까지 다른 행동을 할 수 없습니다.");
@@ -7794,7 +7818,37 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
     if (!state || isInitializing || !state.currentTurn || winner) return;
     if (!canMultiplayDraw()) return;
-    if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
+    {
+      const isADraw = state.currentTurn === "A";
+      const playerDeck = getPlayerDeck(state, isADraw);
+      if (playerDeck.length === 0) {
+        if (isNormalMode(state)) {
+          // 일반전: 리와인드 복원은 executeDraw 진입 전 별도 처리 (2단계에서 추가)
+          // 우선 리와인드가 남아있으면 복원 가능하다고 안내
+          const myRewind = state.rewindCards.filter(
+            (c) => c._ownerTeam === (isADraw ? "A" : "B")
+          );
+          if (myRewind.length === 0) {
+            return alert("덱과 리와인드에 카드가 없습니다!");
+          }
+          // 복원 처리 (2단계에서 자동화). 지금은 즉시 복원.
+          setState((prev) => {
+            if (!prev) return prev;
+            const team = prev.currentTurn === "A" ? "A" : "B";
+            const mine = prev.rewindCards.filter((c) => c._ownerTeam === team);
+            const others = prev.rewindCards.filter((c) => c._ownerTeam !== team);
+            const restoredDeck = [...mine]; // 들어온 순서 유지
+            return {
+              ...prev,
+              rewindCards: others,
+              ...withPlayerDeck(prev, team === "A", restoredDeck),
+            };
+          });
+          return;
+        }
+        return alert("덱에 더 이상 카드가 없습니다!");
+      }
+    }
     if (
       state.simpanHandChoice ||
       state.simpanPeekReveal ||
@@ -7813,7 +7867,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const targetPlayer = isA ? state.playerA : state.playerB;
 
     if (targetPlayer.hasDrawnThisTurn) return alert("이번 턴에는 이미 카드를 뽑았습니다! (턴당 1회 제한)");
-    if (targetPlayer.hand.length >= 6) return alert("패가 가득 찼습니다! (최대 6장)");
+    if (targetPlayer.hand.length >= getMaxHand(state)) return alert(`패가 가득 찼습니다! (최대 ${getMaxHand(state)}장)`);
 
     if (state.settings.drawMode === "SELECT") {
       setIsDrawModalOpen(true);
@@ -7832,9 +7886,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       }
       const isA = prev.currentTurn === "A";
       const targetPlayer = isA ? prev.playerA : prev.playerB;
-      if (targetPlayer.hand.length >= 6) return prev;
+      if (targetPlayer.hand.length >= getMaxHand(prev)) return prev;
 
-      const newDeck = [...prev.deckCards];
+      const newDeck = [...getPlayerDeck(prev, isA)];
       let drawnCard: CardRow;
 
       if (selectedCardIndex !== null) {
@@ -7848,7 +7902,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
       return {
         ...prev,
-        deckCards: newDeck,
+        ...withPlayerDeck(prev, isA, newDeck),
         simpanPeekReveal: {
           player: isA ? "A" : "B",
           pendingCard,

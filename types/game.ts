@@ -20,6 +20,8 @@ export interface CardRow {
   active_detail?: string | null;
   description_detail?: string | null; // 스펠 효과 설명
   image_url?: string | null;
+  _deckInstanceId?: string;   // 일반전 덱 인스턴스 고유 ID (중복 카드 대응)
+  _ownerTeam?: "A" | "B";     // 일반전 카드 소유자 (덱/리와인드 분리용)
   [key: string]: any;        // 추가 필드 허용 (하위 호환)
 }
 

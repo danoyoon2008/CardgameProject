@@ -227,8 +227,12 @@ function createInitialGameState(
 
   if (options?.gameMode === "normal" && options.deckA && options.deckB) {
     // 일반전: 각자 12장 덱에서 3장씩 뽑아 시작
-    const currentDeckA = assignDeckInstanceIds([...options.deckA]).sort(() => Math.random() - 0.5);
-    const currentDeckB = assignDeckInstanceIds([...options.deckB]).sort(() => Math.random() - 0.5);
+    // 모든 카드에 소유자 태그(_ownerTeam) 부여 — 리와인드 분리의 핵심
+    const tagOwner = (cards: CardRow[], team: "A" | "B"): CardRow[] =>
+      cards.map((c) => ({ ...c, _ownerTeam: team }));
+
+    const currentDeckA = assignDeckInstanceIds(tagOwner([...options.deckA], "A")).sort(() => Math.random() - 0.5);
+    const currentDeckB = assignDeckInstanceIds(tagOwner([...options.deckB], "B")).sort(() => Math.random() - 0.5);
     const pAHand: CardRow[] = [];
     const pBHand: CardRow[] = [];
 
