@@ -111,18 +111,34 @@ export interface PlayerState {
 export interface SimulationState {
   currentTurn: "A" | "B" | null;
   turnCount: number;
-  globalTurnCount: number; 
-  elapsedTime: number; 
-  turnTimeLeft: number; 
-  settings: {            
+  globalTurnCount: number;
+  elapsedTime: number;
+  turnTimeLeft: number;
+  settings: {
     isTimeLimitEnabled: boolean;
-    isOpponentCardFlipped: boolean; 
+    isOpponentCardFlipped: boolean;
     drawMode: "RANDOM" | "SELECT";
   };
+  // 게임 모드: 미지정 시 클래식으로 취급 (하위 호환)
+  gameMode?: "classic" | "normal";
+  // 클래식 모드: 공통 덱/리와인드
   deckCards: CardRow[];
   rewindCards: CardRow[];
+  // 일반전 모드: 플레이어별 분리 덱/리와인드
+  deckCardsA?: CardRow[];
+  deckCardsB?: CardRow[];
+  rewindCardsA?: CardRow[];
+  rewindCardsB?: CardRow[];
   playerA: PlayerState;
   playerB: PlayerState;
+}
+
+// 덱 카드에 고유 인스턴스 ID 부여 (일반전 중복 카드 대응)
+export function assignDeckInstanceIds(deck: CardRow[]): CardRow[] {
+  return deck.map((card, idx) => ({
+    ...card,
+    _deckInstanceId: `${card.id}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+  }));
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

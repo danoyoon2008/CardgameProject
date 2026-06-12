@@ -149,10 +149,11 @@ async function fetchGameRoomPlayerIds(
   player_a_id: string | null;
   player_b_id: string | null;
   room_type: string | null;
+  game_mode: string | null;
 } | null> {
   const { data, error } = await client
     .from("game_rooms")
-    .select("player_a_id, player_b_id, room_type")
+    .select("player_a_id, player_b_id, room_type, game_mode")
     .eq("id", roomId)
     .single();
 
@@ -165,6 +166,7 @@ async function fetchGameRoomPlayerIds(
     player_a_id: data.player_a_id ?? null,
     player_b_id: data.player_b_id ?? null,
     room_type: data.room_type ?? null,
+    game_mode: data.game_mode ?? null,
   };
 }
 
