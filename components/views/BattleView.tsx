@@ -667,7 +667,7 @@ export default function BattleView({
                 <span style={{ fontSize: 13, color: "#fff", fontWeight: 900, textAlign: "center" }}>
                   {incomingChallenge.challengerNickname}
                 </span>
-                <span style={{ fontSize: 10, color: "#818cf8" }}>클래식 모드</span>
+                <span style={{ fontSize: 10, color: "#818cf8" }}>{incomingChallenge.mode === "normal" ? "일반전" : "클래식"} 모드</span>
                 <div style={{ display: "flex", gap: 6, width: "100%" }}>
                   <button
                     type="button"
@@ -856,7 +856,7 @@ export default function BattleView({
               <span className={`text-lg font-black sm:text-xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
                 {incomingChallenge.challengerNickname}
               </span>
-              <span className="text-xs text-indigo-400">클래식 모드</span>
+              <span className="text-xs text-indigo-400">{incomingChallenge.mode === "normal" ? "일반전" : "클래식"} 모드</span>
               <div className="flex gap-2 w-full max-w-[240px]">
                 <button
                   type="button"
