@@ -1399,8 +1399,9 @@ export default function MultiplayView({
         const buildDeck = (ids: number[]): CardRow[] =>
           ids.map((id) => cardById.get(id)).filter((c): c is CardRow => !!c);
 
-        const deckAIds = deckMap.get(roomInfo.player_a_id) ?? [];
-        const deckBIds = deckMap.get(roomInfo.player_b_id) ?? [];
+        // 빈 슬롯(0) 제거 후 실제 카드 ID만
+        const deckAIds = (deckMap.get(roomInfo.player_a_id) ?? []).filter((id) => id && id !== 0);
+        const deckBIds = (deckMap.get(roomInfo.player_b_id) ?? []).filter((id) => id && id !== 0);
 
         if (deckAIds.length === 12 && deckBIds.length === 12) {
           initialState = createInitialGameState(deckCards, {

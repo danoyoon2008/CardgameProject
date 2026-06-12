@@ -266,7 +266,10 @@ export default function Home() {
   );
   const { matchStatus } = useMatchmaking();
   const isGlobalPlaying = matchStatus === "searching" || matchStatus === "matched";
-  const deckIsValid = game.deck.length === 12;
+  // 빈 슬롯(0)을 제외하고, 실제 카드가 정확히 12장 채워졌는지 검증
+  const deckIsValid =
+    game.deck.length === 12 &&
+    game.deck.filter((id) => id && id !== 0).length === 12;
 
   useEffect(() => {
     if (game.mainView === "battle" && game.user) {
