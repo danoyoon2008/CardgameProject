@@ -143,6 +143,92 @@ export function assignDeckInstanceIds(deck: CardRow[]): CardRow[] {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// =========================================
+// 게임 모드별 덱/리와인드 처리 헬퍼
+// =========================================
+
+/**
+ * 현재 턴 플레이어의 덱 반환
+ */
+function getDeckForPlayer(state: SimulationState, isPlayerA: boolean): CardRow[] {
+  if (state.gameMode === "normal") {
+    return isPlayerA ? (state.deckCardsA ?? []) : (state.deckCardsB ?? []);
+  }
+  return state.deckCards;
+}
+
+/**
+ * 현재 턴 플레이어의 덱 설정 및 새 state 반환
+ */
+function setDeckForPlayer(
+  state: SimulationState,
+  isPlayerA: boolean,
+  newDeck: CardRow[]
+): SimulationState {
+  if (state.gameMode === "normal") {
+    return isPlayerA
+      ? { ...state, deckCardsA: newDeck }
+      : { ...state, deckCardsB: newDeck };
+  }
+  return { ...state, deckCards: newDeck };
+}
+
+/**
+ * 리와인드에 카드 추가 (일반전에서는 소유자별로 분리)
+ */
+function addCardToRewind(
+  state: SimulationState,
+  card: CardRow,
+  playerRole: "A" | "B"
+): SimulationState {
+  if (state.gameMode === "normal") {
+    return playerRole === "A"
+      ? { ...state, rewindCardsA: [...(state.rewindCardsA ?? []), card] }
+      : { ...state, rewindCardsB: [...(state.rewindCardsB ?? []), card] };
+  }
+  return { ...state, rewindCards: [...state.rewindCards, card] };
+}
+
+/**
+ * 덱이 비어있는지 확인 (모드별)
+ */
+function isDeckEmpty(state: SimulationState, isPlayerA: boolean): boolean {
+  const deck = getDeckForPlayer(state, isPlayerA);
+  return deck.length === 0;
+}
+
+/**
+ * 리와인드를 덱으로 복원 (일반전에서만 사용, 클래식은 무시)
+ */
+function restoreDeckFromRewind(
+  state: SimulationState,
+  isPlayerA: boolean
+): SimulationState {
+  if (state.gameMode !== "normal") {
+    return state; // 클래식은 덱 복원 없음 (알림만)
+  }
+
+  const rewind = isPlayerA ? (state.rewindCardsA ?? []) : (state.rewindCardsB ?? []);
+  if (rewind.length === 0) {
+    return state;
+  }
+
+  // 리와인드 순서 유지하며 덱으로 복원 (역순이 아님 — 들어온 순서 그대로)
+  if (isPlayerA) {
+    return {
+      ...state,
+      deckCardsA: [...rewind],
+      rewindCardsA: [],
+    };
+  } else {
+    return {
+      ...state,
+      deckCardsB: [...rewind],
+      rewindCardsB: [],
+    };
+  }
+}
+
 export type SimulationLogicOptions = {
   skipAutoInit?: boolean;
   multiplay?: boolean;
@@ -690,13 +776,34 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
 
   const handleDrawClick = (onOpenSelectModal: () => void) => {
     if (!state || isInitializing || !state.currentTurn || winner) return;
-    if (state.deckCards.length === 0) return alert("덱에 더 이상 카드가 없습니다!");
-    
     const isA = state.currentTurn === "A";
+    const currentDeck = getDeckForPlayer(state, isA);
+    
+    if (currentDeck.length === 0) {
+      if (state.gameMode === "normal") {
+        // 일반전: 자동 리와인드 복원
+        setState(prev => {
+          if (!prev) return prev;
+          const restored = restoreDeckFromRewind(prev, isA);
+          const deckAfterRestore = getDeckForPlayer(restored, isA);
+          if (deckAfterRestore.length === 0) {
+            return prev; // 리와인드도 비어있으면 불가
+          }
+          // 복원 후 다시 드로우 클릭 처리 필요 (또는 자동 드로우)
+          // 여기서는 간단히 유저가 다시 클릭하도록 유도
+          return restored;
+        });
+        return;
+      } else {
+        return alert("덱에 더 이상 카드가 없습니다!");
+      }
+    }
+    
     const targetPlayer = isA ? state.playerA : state.playerB;
+    const maxHand = state.gameMode === "normal" ? 4 : 6;
     
     if (targetPlayer.hasDrawnThisTurn) return alert("이번 턴에는 이미 카드를 뽑았습니다! (턴당 1회 제한)");
-    if (targetPlayer.hand.length >= 6) return alert("패가 가득 찼습니다! (최대 6장)");
+    if (targetPlayer.hand.length >= maxHand) return alert(`패가 가득 찼습니다! (최대 ${maxHand}장)`);
 
     if (state.settings.drawMode === "SELECT") {
       onOpenSelectModal();
@@ -712,7 +819,12 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
       const isA = prev.currentTurn === "A";
       const targetPlayer = isA ? prev.playerA : prev.playerB;
 
-      const newDeck = [...prev.deckCards];
+      let currentDeck = getDeckForPlayer(prev, isA);
+      if (currentDeck.length === 0) {
+        return prev;
+      }
+
+      const newDeck = [...currentDeck];
       let drawnCard: CardRow;
 
       if (selectedCardIndex !== null) {
@@ -721,9 +833,10 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
         drawnCard = newDeck.pop()!;
       }
 
+      const afterDraw = setDeckForPlayer(prev, isA, newDeck);
+
       return {
-        ...prev,
-        deckCards: newDeck,
+        ...afterDraw,
         [isA ? "playerA" : "playerB"]: {
           ...targetPlayer,
           hand: [...targetPlayer.hand, drawnCard],
