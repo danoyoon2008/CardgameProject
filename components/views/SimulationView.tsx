@@ -18113,7 +18113,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
           onClick={() => setSelectedHandCard(null)}
           style={{
-            width: "78%",
+            width: isNormal ? "52%" : "78%",
             marginLeft: "auto",
             marginRight: "auto",
             ...(isPlayerA
@@ -18125,7 +18125,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             background: bgColor,
             overflow: "hidden",
             display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
+            gridTemplateColumns: isNormal ? "repeat(4, 1fr)" : "repeat(6, 1fr)",
             gap: MOBILE_HAND_GRID_GAP,
             paddingTop: MOBILE_HAND_PAD_Y,
             paddingBottom: MOBILE_HAND_PAD_Y,
@@ -18135,7 +18135,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             touchAction: "none",
           }}
         >
-          {Array.from({ length: 6 }).map((_, i) => {
+          {Array.from({ length: isNormal ? 4 : 6 }).map((_, i) => {
             const card = hand[i];
             const momoDiscard =
               pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
@@ -19704,7 +19704,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       {isRewindModalOpen && (
         <RewindModal
           onClose={() => setIsRewindModalOpen(false)}
-          rewindCards={state.rewindCards}
+          rewindCards={isNormal ? state.rewindCards.filter((c) => c._ownerTeam === viewMyTeam) : state.rewindCards}
           onOpenDetail={openHandCardCodexDetail}
         />
       )}
@@ -21618,7 +21618,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           {/* 우측 상단: 상대(Player B) 패 */}
           <div className={`border-2 rounded-2xl p-4 flex items-center justify-center gap-3 h-[200px] lg:h-[250px] ${state.currentTurn === 'B' ? 'border-rose-500/60 bg-rose-950/30 shadow-[inset_0_0_30px_rgba(244,63,94,0.15)]' : 'border-slate-700/50 bg-black/20'}`}>
             <div className="w-full flex justify-center gap-2 lg:gap-4 px-2">
-            {Array.from({ length: 6 }).map((_, i) => {
+            {Array.from({ length: isNormal ? 4 : 6 }).map((_, i) => {
                 const card = state.playerB.hand[i];
                 const momoDiscardHandB =
                   pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
@@ -21828,7 +21828,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           {/* 우측 하단: 내(Player A) 패 */}
           <div className={`border-2 rounded-2xl p-4 flex items-center justify-center gap-3 h-[200px] lg:h-[250px] ${state.currentTurn === 'A' ? 'border-sky-500/60 bg-sky-950/30 shadow-[inset_0_0_30px_rgba(14,165,233,0.15)]' : 'border-slate-700/50 bg-black/20'}`}>
             <div className="w-full flex justify-center gap-2 lg:gap-4 px-2">
-              {Array.from({ length: 6 }).map((_, i) => {
+              {Array.from({ length: isNormal ? 4 : 6 }).map((_, i) => {
                 const card = state.playerA.hand[i];
                 const momoDiscardHandA =
                   pendingSkill?.name === PENDING_SKILL.MOMO_EAT &&
