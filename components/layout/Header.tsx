@@ -170,7 +170,55 @@ export default function Header({
           return { ...f, other: profile as UserProfile };
         })
       );
-      setFriends(withProfiles.filter(f => f.other));
+      const validFriends = withProfiles.filter(f => f.other);
+
+      // 친구들의 게임 진행 상태 조회
+      if (validFriends.length > 0) {
+        const friendIdsList = validFriends.map(f => f.other.id);
+        const { data: roomData } = await supabase
+          .from("game_rooms")
+          .select("player_a_id, player_b_id, game_mode")
+          .eq("status", "playing");
+
+        if (roomData && roomData.length > 0) {
+          const playerIds = Array.from(new Set(
+            roomData.flatMap(r => [r.player_a_id, r.player_b_id])
+          ));
+          const { data: playerProfiles } = await supabase
+            .from("user_profiles")
+            .select("id, nickname")
+            .in("id", playerIds);
+
+          const nickMap = new Map<string, string | null>(
+            (playerProfiles ?? []).map((p: { id: string; nickname: string | null }) => [p.id, p.nickname])
+          );
+
+          type RoomInfo = { modeLabel: string; playerANick: string | null; playerBNick: string | null };
+          const inGameMap = new Map<string, RoomInfo>();
+          for (const room of roomData) {
+            const modeLabel = room.game_mode === "normal" ? "일반전" : "클래식";
+            const info: RoomInfo = {
+              modeLabel,
+              playerANick: nickMap.get(room.player_a_id) ?? null,
+              playerBNick: nickMap.get(room.player_b_id) ?? null,
+            };
+            inGameMap.set(room.player_a_id, info);
+            inGameMap.set(room.player_b_id, info);
+          }
+
+          for (const f of validFriends) {
+            const info = inGameMap.get(f.other.id);
+            if (info) {
+              f.other.inGame = true;
+              f.other.inGameModeLabel = info.modeLabel;
+              f.other.inGamePlayerA = info.playerANick;
+              f.other.inGamePlayerB = info.playerBNick;
+            }
+          }
+        }
+      }
+
+      setFriends(validFriends);
     }
 
     // 받은 친구 요청 목록
@@ -529,8 +577,16 @@ export default function Header({
                     <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {f.other.nickname || "닉네임 없음"}
                     </div>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>
-                      {isOnline(f.other.last_seen_at) ? "접속 중" : `마지막 접속: ${formatLastSeen(f.other.last_seen_at)}`}
+                    <div style={{ fontSize: 11 }}>
+                      {f.other.inGame ? (
+                        <span style={{ color: "#f59e0b" }}>
+                          🎮 게임 진행 중 - {f.other.inGameModeLabel} ({f.other.inGamePlayerA ?? "?"} vs {f.other.inGamePlayerB ?? "?"})
+                        </span>
+                      ) : isOnline(f.other.last_seen_at) ? (
+                        <span style={{ color: "#22c55e" }}>접속 중</span>
+                      ) : (
+                        <span style={{ color: "#64748b" }}>마지막 접속: {formatLastSeen(f.other.last_seen_at)}</span>
+                      )}
                     </div>
                   </div>
                 </button>
