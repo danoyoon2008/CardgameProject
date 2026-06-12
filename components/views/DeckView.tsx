@@ -59,6 +59,15 @@ export default function DeckView({
     layoutMobile
   );
 
+  const avgCost = (() => {
+    const costs = deck
+      .map((id) => cards.find((c) => Number(c.id) === id))
+      .filter((c): c is CardRow => !!c)
+      .map((c) => Number(c.cost) || 0);
+    if (costs.length === 0) return 0;
+    return costs.reduce((a, b) => a + b, 0) / costs.length;
+  })();
+
   if (layoutMobile) {
     return (
       <MobileViewShell isDarkMode={isDarkMode}>
@@ -70,9 +79,14 @@ export default function DeckView({
               </h1>
               <p style={{ fontSize: 14, margin: "6px 0 0", color: "#94a3b8" }}>전장에 나설 12장의 카드를 선택하세요.</p>
             </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.35)", background: "rgba(69,26,3,0.45)" }}>
-              {deck.length} / 12
-            </span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.35)", background: "rgba(69,26,3,0.45)" }}>
+                {deck.length} / 12
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#7dd3fc", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(56,189,248,0.35)", background: "rgba(3,42,69,0.45)" }}>
+                평균 {avgCost.toFixed(1)}
+              </span>
+            </div>
           </div>
 
           {selectedForDeck ? (
@@ -247,9 +261,14 @@ export default function DeckView({
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">전장에 나설 12장의 카드를 선택하세요.</p>
             </div>
-            <span className="text-amber-400 text-sm font-bold bg-amber-950/30 px-3 py-1 rounded-lg border border-amber-900/50">
-               {deck.length} / 12 장
-            </span>
+            <div className="flex items-center">
+              <span className="text-amber-400 text-sm font-bold bg-amber-950/30 px-3 py-1 rounded-lg border border-amber-900/50">
+                 {deck.length} / 12 장
+              </span>
+              <span style={{ marginLeft: 8, fontSize: 14, fontWeight: 700, color: "#7dd3fc", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(56,189,248,0.35)", background: "rgba(3,42,69,0.45)" }}>
+                평균 코스트 {avgCost.toFixed(1)}
+              </span>
+            </div>
           </div>
           
           {selectedForDeck && (

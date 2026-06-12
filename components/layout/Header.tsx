@@ -603,14 +603,21 @@ export default function Header({
                     </button>
                     <button
                       type="button"
+                      disabled={f.other.inGame}
                       onClick={() => {
+                        if (f.other.inGame) return;
                         setFriendPanelOpen(false);
                         setSelectedFriend(null);
                         onSendFriendChallenge?.(f.other.id, f.other.nickname ?? "상대방");
                       }}
-                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                      style={{
+                        width: "100%", padding: "8px 0", borderRadius: 8, border: "none",
+                        background: f.other.inGame ? "rgba(71,85,105,0.4)" : "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                        color: f.other.inGame ? "#64748b" : "#fff",
+                        fontSize: 13, fontWeight: 700, cursor: f.other.inGame ? "not-allowed" : "pointer",
+                      }}
                     >
-                      친선전
+                      {f.other.inGame ? "게임 중" : "친선전"}
                     </button>
                     <button
                       type="button"

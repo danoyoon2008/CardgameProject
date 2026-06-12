@@ -169,6 +169,7 @@ export default function BattleView({
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
   const [countdownValue, setCountdownValue] = useState<number | null>(null);
+  const [deckIncompleteToast, setDeckIncompleteToast] = useState(false);
 
   const { matchStatus, roomId, myRole, opponentNickname, startMatchmaking, cancelMatchmaking } =
     useMatchmaking();
@@ -583,11 +584,25 @@ export default function BattleView({
       </div>
     ) : null;
 
+    const deckToast = deckIncompleteToast ? (
+      <div style={{
+        position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)",
+        zIndex: 999, background: "#1e293b", border: "1px solid #475569",
+        borderRadius: 14, padding: "12px 20px", whiteSpace: "nowrap",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+      }}>
+        <p style={{ color: "#fca5a5", fontSize: 13, fontWeight: 600, margin: 0 }}>
+          먼저 '덱 구성' 탭에서 12장의 덱을 구성해주세요.
+        </p>
+      </div>
+    ) : null;
+
     if (mobile) {
       return (
         <>
           {rejectionToast}
           {cancelledToast}
+          {deckToast}
           <header style={{ textAlign: "center", marginBottom: 24 }}>
             <h1
               style={{
@@ -803,6 +818,7 @@ export default function BattleView({
       <>
         {rejectionToast}
         {cancelledToast}
+        {deckToast}
         <header className="mb-4">
           <h1 className="text-3xl font-black tracking-tight sm:text-4xl md:text-5xl mb-3">대전 센터</h1>
           <p className="text-sm text-slate-400 sm:text-base">전 세계의 플레이어, 혹은 친구와 실력을 겨뤄보세요.</p>
@@ -1030,15 +1046,22 @@ export default function BattleView({
               onClick={async () => {
                 if (!friendChallengeTarget || !onSendChallenge) return;
                 if (!deckIsValid) {
-                  alert("일반전을 시작하려면 먼저 '덱 구성' 탭에서 12장의 덱을 완성해주세요.");
+                  setDeckIncompleteToast(true);
+                  setTimeout(() => setDeckIncompleteToast(false), 2500);
                   return;
                 }
                 await onSendChallenge(friendChallengeTarget.id, "normal");
                 setBattlePhase("friendWaiting");
               }}
-              style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(34,197,94,0.5)", background: "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.15))", color: "#fff", fontSize: 18, fontWeight: 900, cursor: "pointer" }}
+              style={{
+                width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16,
+                border: deckIsValid ? "2px solid rgba(34,197,94,0.5)" : "2px solid rgba(100,116,139,0.3)",
+                background: deckIsValid ? "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.15))" : "rgba(30,41,59,0.4)",
+                color: deckIsValid ? "#fff" : "#64748b",
+                fontSize: 18, fontWeight: 900, cursor: deckIsValid ? "pointer" : "not-allowed",
+              }}
             >
-              ⚔️ 일반전
+              ⚔️ 일반전{deckIsValid ? "" : " (덱 미완성)"}
             </button>
             <button
               type="button"
