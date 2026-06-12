@@ -48,6 +48,7 @@ interface BattleViewProps {
   friendChallengeCancelled?: boolean;
   friends?: { id: string; nickname: string | null; last_seen_at: string | null }[];
   onSetFriendChallengeTarget?: (target: { id: string; nickname: string }) => void;
+  deckIsValid?: boolean;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -163,6 +164,7 @@ export default function BattleView({
   friendChallengeCancelled = false,
   friends = [],
   onSetFriendChallengeTarget,
+  deckIsValid = false,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
@@ -1025,10 +1027,18 @@ export default function BattleView({
             </button>
             <button
               type="button"
-              disabled
-              style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(255,255,255,0.1)", background: "transparent", color: "#475569", fontSize: 18, fontWeight: 900, cursor: "not-allowed" }}
+              onClick={async () => {
+                if (!friendChallengeTarget || !onSendChallenge) return;
+                if (!deckIsValid) {
+                  alert("일반전을 시작하려면 먼저 '덱 구성' 탭에서 12장의 덱을 완성해주세요.");
+                  return;
+                }
+                await onSendChallenge(friendChallengeTarget.id, "normal");
+                setBattlePhase("friendWaiting");
+              }}
+              style={{ width: "100%", maxWidth: 320, padding: "18px 0", borderRadius: 16, border: "2px solid rgba(34,197,94,0.5)", background: "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.15))", color: "#fff", fontSize: 18, fontWeight: 900, cursor: "pointer" }}
             >
-              일반전 (준비 중)
+              ⚔️ 일반전
             </button>
             <button
               type="button"

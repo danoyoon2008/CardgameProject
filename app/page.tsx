@@ -266,6 +266,7 @@ export default function Home() {
   );
   const { matchStatus } = useMatchmaking();
   const isGlobalPlaying = matchStatus === "searching" || matchStatus === "matched";
+  const deckIsValid = game.deck.length === 12;
 
   useEffect(() => {
     if (game.mainView === "battle" && game.user) {
@@ -342,11 +343,13 @@ export default function Home() {
     const supabase = createClient();
     if (!supabase || !game.user) return;
     const now = new Date().toISOString();
+    const challengeMode = game.incomingChallenge?.mode === "normal" ? "normal" : "classic";
     const { data: room, error: roomError } = await supabase.from("game_rooms").insert({
       player_a_id: challengerId,
       player_b_id: game.user.id,
       status: "playing",
       room_type: "friend",
+      game_mode: challengeMode,
       player_a_last_seen: now,
       player_b_last_seen: now,
       player_a_connected: true,
@@ -363,7 +366,7 @@ export default function Home() {
     game.setIsInFriendBattle(true);
     game.setIncomingChallenge(null);
     handleStartMultiplay(room.id, "player_b");
-  }, [game]);
+  }, [game, game.incomingChallenge]);
 
   const handleRejectChallenge = useCallback(async (challengeId: string) => {
     const supabase = createClient();
@@ -453,6 +456,7 @@ export default function Home() {
                   friendChallengeCancelled={game.friendChallengeCancelled}
                   friends={friends}
                   onSetFriendChallengeTarget={setFriendChallengeTarget}
+                  deckIsValid={deckIsValid}
                 />
               )}
               
@@ -499,6 +503,7 @@ export default function Home() {
           friendChallengeCancelled={game.friendChallengeCancelled}
           friends={friends}
           onSetFriendChallengeTarget={setFriendChallengeTarget}
+          deckIsValid={deckIsValid}
         />
       )}
       {game.mainView === "shop" && (
