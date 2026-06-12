@@ -20222,16 +20222,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   gap: 12,
                 }}
               >
-                {/* 일반전: 상대 덱/리와인드 (모바일, 정보 표시용) */}
+                {/* 일반전: 상대 리와인드/덱 (모바일, 정보 표시용) */}
                 {isNormal && (
                   <>
-                    <div style={{ width: 52, height: 234, borderRadius: 8, border: "2px solid rgba(244,63,94,0.4)", background: "rgba(80,7,36,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "#fda4af" }}>상대 덱</span>
-                      <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{normalOppDeckCount}</span>
-                    </div>
                     <div style={{ width: 52, height: 234, borderRadius: 8, border: "2px dashed #475569", background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", opacity: 0.7 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>상대 리와인드</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>리와인드</span>
                       <span style={{ fontSize: 18, fontWeight: 900, color: "#64748b" }}>{normalOppRewindCount}</span>
+                    </div>
+                    <div style={{ width: 52, height: 234, borderRadius: 8, border: "2px solid rgba(244,63,94,0.4)", background: "rgba(80,7,36,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#fda4af" }}>덱</span>
+                      <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{normalOppDeckCount}</span>
                     </div>
                   </>
                 )}
@@ -20253,7 +20253,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                 >
                   <IconDeck className={`w-5 h-5 mb-1 ${isDrawHighlight ? "text-white" : "text-indigo-400"}`} />
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "#a5b4fc" }}>{isNormal ? "내 덱" : "덱"}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#a5b4fc" }}>덱</span>
                   <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{isNormal ? normalMyDeckCount : state.deckCards.length}</span>
                 </button>
                 <button
@@ -20276,7 +20276,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                   className={state.simpanHandChoice ? "pp-rewind-simpan-white-blink" : ""}
                 >
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>{isNormal ? "내 리와인드" : "리와인드"}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8" }}>리와인드</span>
                   <span style={{ fontSize: 18, fontWeight: 900, color: "#64748b" }}>{isNormal ? normalMyRewindCount : state.rewindCards.length}</span>
                 </button>
               </div>
@@ -21092,17 +21092,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             )}
           </div>
 
-          {/* 일반전: 상대 덱/리와인드 (상단, 정보 표시용) */}
+          {/* 일반전: 상대 리와인드/덱 (상단, 정보 표시용) */}
           {isNormal && (
             <div className="flex flex-col gap-4 w-full">
+              <div className="w-full aspect-[1.58/1] border-2 border-slate-600/60 border-dashed bg-black/30 rounded-xl flex flex-col items-center justify-center opacity-70">
+                <span className="text-[11px] font-bold text-slate-400">리와인드</span>
+                <span className="text-2xl font-black text-slate-500 leading-tight">{normalOppRewindCount}</span>
+              </div>
               <div className="w-full aspect-[1/1.2] border-2 border-rose-500/40 rounded-2xl flex flex-col items-center justify-center bg-rose-950/30 shadow-xl opacity-90">
                 <IconDeck className="w-8 h-8 mb-2 text-rose-400/70" />
-                <span className="text-[11px] font-bold text-rose-300/80">상대 덱</span>
+                <span className="text-[11px] font-bold text-rose-300/80">덱</span>
                 <span className="text-3xl font-black text-white/90 leading-tight">{normalOppDeckCount}</span>
-              </div>
-              <div className="w-full aspect-[1.58/1] border-2 border-slate-600/60 border-dashed bg-black/30 rounded-xl flex flex-col items-center justify-center opacity-70">
-                <span className="text-[11px] font-bold text-slate-400">상대 리와인드</span>
-                <span className="text-2xl font-black text-slate-500 leading-tight">{normalOppRewindCount}</span>
               </div>
             </div>
           )}
@@ -21118,7 +21118,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }`}
             >
               <IconDeck className={`w-8 h-8 mb-2 drop-shadow-md transition-colors ${isDrawHighlight ? 'text-white' : 'text-indigo-400'}`} />
-              <span className={`text-[11px] font-bold transition-colors ${isDrawHighlight ? 'text-indigo-200' : 'text-indigo-300'}`}>{isNormal ? "내 덱" : "공용 덱"}</span>
+              <span className={`text-[11px] font-bold transition-colors ${isDrawHighlight ? 'text-indigo-200' : 'text-indigo-300'}`}>{isNormal ? "덱" : "공용 덱"}</span>
               <span className="text-3xl font-black text-white leading-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">{isNormal ? normalMyDeckCount : state.deckCards.length}</span>
               
               {state.settings.drawMode === "SELECT" && (
@@ -21139,7 +21139,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 state.simpanHandChoice ? "pp-rewind-simpan-white-blink border-white/50" : ""
               }`}
             >
-              <span className="text-[11px] font-bold text-slate-400 group-hover:text-slate-300 transition-colors">{isNormal ? "내 리와인드" : "리와인드"}</span>
+              <span className="text-[11px] font-bold text-slate-400 group-hover:text-slate-300 transition-colors">리와인드</span>
               <span className="text-2xl font-black text-slate-500 group-hover:text-slate-300 leading-tight transition-colors">{isNormal ? normalMyRewindCount : state.rewindCards.length}</span>
             </button>
 
