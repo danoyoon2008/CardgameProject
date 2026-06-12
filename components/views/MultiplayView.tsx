@@ -9,6 +9,7 @@ import {
   useSimulationLogic,
   type SimulationState,
   type ControlledSimulationBinding,
+  assignDeckInstanceIds,
 } from "@/hooks/useSimulationLogic";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
 import {
@@ -187,49 +188,26 @@ async function resolveDeckCatalog(
   return (data ?? []) as CardRow[];
 }
 
-function createInitialGameState(initialDeck: CardRow[]): SimulationState {
-  const currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
-  const pAHand: CardRow[] = [];
-  const pBHand: CardRow[] = [];
-
-  for (let i = 0; i < 4; i++) {
-    pAHand.push(currentDeck.pop()!);
-    pBHand.push(currentDeck.pop()!);
-  }
-
+function createInitialGameState(
+  initialDeck: CardRow[],
+  options?: { gameMode?: "classic" | "normal"; deckA?: CardRow[]; deckB?: CardRow[] }
+): SimulationState {
   const firstTurn: "A" | "B" = Math.random() < 0.5 ? "A" : "B";
-
-  return {
-    currentTurn: firstTurn,
-    turnCount: 1,
-    globalTurnCount: 1,
-    elapsedTime: 0,
-    turnTimeLeft: 60,
-    settings: {
-      isTimeLimitEnabled: false,
-      isOpponentCardFlipped: false,
-      drawMode: "RANDOM",
-    },
-    deckCards: currentDeck,
-    rewindCards: [],
-    playerA: {
-      hp: 2000,
-      tokens: 4,
-      hand: pAHand,
-      hasDrawnThisTurn: false,
-      attacksThisTurn: 0,
-      hasBeenAttackedThisTurn: false,
-      field: { is: null, m: null, os: null, spellStack: [] },
-    },
-    playerB: {
-      hp: 2000,
-      tokens: 4,
-      hand: pBHand,
-      hasDrawnThisTurn: false,
-      attacksThisTurn: 0,
-      hasBeenAttackedThisTurn: false,
-      field: { is: null, m: null, os: null, spellStack: [] },
-    },
+  const baseSettings = {
+    isTimeLimitEnabled: false,
+    isOpponentCardFlipped: false,
+    drawMode: "RANDOM" as const,
+  };
+  const basePlayer = () => ({
+    hp: 2000,
+    tokens: 4,
+    hand: [] as CardRow[],
+    hasDrawnThisTurn: false,
+    attacksThisTurn: 0,
+    hasBeenAttackedThisTurn: false,
+    field: { is: null, m: null, os: null, spellStack: [] },
+  });
+  const extendedStateFields = {
     unitCombatStats: {},
     unitStatsOrder: [],
     spellDeployLog: [],
@@ -245,6 +223,63 @@ function createInitialGameState(initialDeck: CardRow[]): SimulationState {
     spellUsagePending: null,
     guihwanPending: null,
     bubbleStationPending: null,
+  };
+
+  if (options?.gameMode === "normal" && options.deckA && options.deckB) {
+    // 일반전: 각자 12장 덱에서 3장씩 뽑아 시작
+    const currentDeckA = assignDeckInstanceIds([...options.deckA]).sort(() => Math.random() - 0.5);
+    const currentDeckB = assignDeckInstanceIds([...options.deckB]).sort(() => Math.random() - 0.5);
+    const pAHand: CardRow[] = [];
+    const pBHand: CardRow[] = [];
+
+    for (let i = 0; i < 3; i++) {
+      pAHand.push(currentDeckA.pop()!);
+      pBHand.push(currentDeckB.pop()!);
+    }
+
+    return {
+      currentTurn: firstTurn,
+      turnCount: 1,
+      globalTurnCount: 1,
+      elapsedTime: 0,
+      turnTimeLeft: 60,
+      settings: baseSettings,
+      gameMode: "normal",
+      deckCards: [],
+      rewindCards: [],
+      deckCardsA: currentDeckA,
+      deckCardsB: currentDeckB,
+      rewindCardsA: [],
+      rewindCardsB: [],
+      playerA: { ...basePlayer(), hand: pAHand },
+      playerB: { ...basePlayer(), hand: pBHand },
+      ...extendedStateFields,
+    } as SimulationState;
+  }
+
+  // 클래식: 공통 56장 덱에서 4장씩 뽑아 시작
+  const currentDeck = [...initialDeck].sort(() => Math.random() - 0.5);
+  const pAHand: CardRow[] = [];
+  const pBHand: CardRow[] = [];
+
+  for (let i = 0; i < 4; i++) {
+    pAHand.push(currentDeck.pop()!);
+    pBHand.push(currentDeck.pop()!);
+  }
+
+  return {
+    currentTurn: firstTurn,
+    turnCount: 1,
+    globalTurnCount: 1,
+    elapsedTime: 0,
+    turnTimeLeft: 60,
+    settings: baseSettings,
+    gameMode: "classic",
+    deckCards: currentDeck,
+    rewindCards: [],
+    playerA: { ...basePlayer(), hand: pAHand },
+    playerB: { ...basePlayer(), hand: pBHand },
+    ...extendedStateFields,
   } as SimulationState;
 }
 
@@ -1338,7 +1373,44 @@ export default function MultiplayView({
         return;
       }
 
-      const initialState = createInitialGameState(deckCards);
+      // 방의 game_mode 및 플레이어 ID 조회
+      const roomInfo = await fetchGameRoomPlayerIds(client, roomId);
+      const roomGameMode = roomInfo?.game_mode === "normal" ? "normal" : "classic";
+
+      let initialState: SimulationState;
+      if (roomGameMode === "normal" && roomInfo?.player_a_id && roomInfo?.player_b_id) {
+        // 각 플레이어의 user_profiles.deck (카드 ID 12개) 조회
+        const { data: profilesData } = await client
+          .from("user_profiles")
+          .select("id, deck")
+          .in("id", [roomInfo.player_a_id, roomInfo.player_b_id]);
+
+        const deckMap = new Map<string, number[]>(
+          (profilesData ?? []).map((p: { id: string; deck: number[] | null }) => [p.id, Array.isArray(p.deck) ? p.deck : []])
+        );
+        const cardById = new Map<number, CardRow>(
+          deckCards.map((c) => [Number(c.id), c])
+        );
+
+        const buildDeck = (ids: number[]): CardRow[] =>
+          ids.map((id) => cardById.get(id)).filter((c): c is CardRow => !!c);
+
+        const deckAIds = deckMap.get(roomInfo.player_a_id) ?? [];
+        const deckBIds = deckMap.get(roomInfo.player_b_id) ?? [];
+
+        if (deckAIds.length === 12 && deckBIds.length === 12) {
+          initialState = createInitialGameState(deckCards, {
+            gameMode: "normal",
+            deckA: buildDeck(deckAIds),
+            deckB: buildDeck(deckBIds),
+          });
+        } else {
+          console.warn("[MultiplayView] 일반전 덱이 12장이 아닙니다. 클래식으로 대체합니다.");
+          initialState = createInitialGameState(deckCards);
+        }
+      } else {
+        initialState = createInitialGameState(deckCards);
+      }
       const { data: inserted } = await client
         .from("game_rooms")
         .update({
