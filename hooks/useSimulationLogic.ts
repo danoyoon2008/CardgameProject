@@ -88,6 +88,7 @@ import {
   suppressionBlocksExternalBuffEffects,
   normalizeUnitHpSurvivalOnesForCombat,
 } from "../utils/battle";
+import type { SpellUsagePendingSave } from "../utils/battle/spells/spellUsagePending";
 
 const ATTACK_DISABLED_UNITS: Set<string> = new Set(["모닝 무드", "시작의 나무", "전설의 검", "애벌레킹"]);
 const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
@@ -258,6 +259,12 @@ export type ControlledSimulationBinding = {
   /** 멀티플레이 — 수신된 VFX를 SimulationView에서 처리할 핸들러 ref */
   receiveVfxRef?: MutableRefObject<((slotKey: string, kind: string, clearMs: number) => void) | null>;
   receivePopupRef?: MutableRefObject<((slotKey: string, entries: unknown[]) => void) | null>;
+  /** 멀티플레이 — 스펠 연출 수신 중 여부 (수신 중엔 재전송 차단) */
+  isReceivingSpell?: MutableRefObject<boolean>;
+  /** 멀티플레이 — 수신된 스펠 연출을 SimulationView에서 처리할 핸들러 ref */
+  receiveSpellRef?: MutableRefObject<((save: SpellUsagePendingSave) => void) | null>;
+  /** 멀티플레이 — 스펠 연출을 상대에게 전송 */
+  onSpellCast?: (save: SpellUsagePendingSave) => void;
   /** 멀티플레이 — 상대방이 최신 상태를 즉시 재전송 요청 */
   onRequestStateSync?: () => void;
   onUnitFocus?: (slotKey: string | null) => void;

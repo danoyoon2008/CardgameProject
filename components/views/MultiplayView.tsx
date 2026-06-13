@@ -22,6 +22,7 @@ import {
   isOpponentHeartbeatStale,
   sendDisconnectedOnBeforeUnload,
 } from "@/utils/multiplayConnection";
+import type { SpellUsagePendingSave } from "@/utils/battle/spells/spellUsagePending";
 
 const DISCONNECT_FORFEIT_SECONDS = 60;
 
@@ -429,6 +430,9 @@ function MultiplayGameSession({
   const isReceivingVfx = useRef(false);
   const receiveVfxRef = useRef<((slotKey: string, kind: string, clearMs: number) => void) | null>(null);
   const receivePopupRef = useRef<((slotKey: string, entries: unknown[]) => void) | null>(null);
+  // 스펠 연출 전용 푸시 (유닛 VFX와 동일 패턴)
+  const isReceivingSpell = useRef(false);
+  const receiveSpellRef = useRef<((save: SpellUsagePendingSave) => void) | null>(null);
 
   const controlledSimulation: ControlledSimulationBinding = {
     state,
@@ -455,6 +459,15 @@ function MultiplayGameSession({
     isReceivingVfx,
     receiveVfxRef,
     receivePopupRef,
+    isReceivingSpell,
+    receiveSpellRef,
+    onSpellCast: (save: SpellUsagePendingSave) => {
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "spell_cast",
+        payload: { save },
+      });
+    },
     onCombatVfx: (slotKey, kind, clearMs) => {
       void channelRef.current?.send({
         type: "broadcast",
@@ -800,6 +813,14 @@ function MultiplayGameSession({
         const myLetter: "A" | "B" = myRole === "player_a" ? "A" : "B";
         // 시전자(caster)에게만 처리 - 트리거 ref로 종료 함수 호출
         witchTarotFinishTriggerRef.current?.();
+      })
+      .on("broadcast", { event: "spell_cast" }, ({ payload }) => {
+        if (gameFinishedRef.current) return;
+        const { save } = payload as { save: SpellUsagePendingSave };
+        if (!save) return;
+        isReceivingSpell.current = true;
+        receiveSpellRef.current?.(save);
+        setTimeout(() => { isReceivingSpell.current = false; }, 50);
       })
       .on("broadcast", { event: "combat_vfx" }, ({ payload }) => {
         const { slotKey, kind, clearMs } = payload as { slotKey: string; kind: string; clearMs: number };
