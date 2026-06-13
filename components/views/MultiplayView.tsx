@@ -462,6 +462,7 @@ function MultiplayGameSession({
     isReceivingSpell,
     receiveSpellRef,
     onSpellCast: (save: SpellUsagePendingSave) => {
+      console.log("[SPELL-CHANNEL] 송신, channel 존재:", !!channelRef.current);
       void channelRef.current?.send({
         type: "broadcast",
         event: "spell_cast",
@@ -815,11 +816,13 @@ function MultiplayGameSession({
         witchTarotFinishTriggerRef.current?.();
       })
       .on("broadcast", { event: "spell_cast" }, ({ payload }) => {
+        console.log("[SPELL-RECV] 수신함", { gameFinished: gameFinishedRef.current, hasRef: !!receiveSpellRef.current });
         if (gameFinishedRef.current) return;
         const { save } = payload as { save: SpellUsagePendingSave };
         if (!save) return;
         isReceivingSpell.current = true;
         receiveSpellRef.current?.(save);
+        console.log("[SPELL-RECV] 재생 호출 완료");
         setTimeout(() => { isReceivingSpell.current = false; }, 50);
       })
       .on("broadcast", { event: "combat_vfx" }, ({ payload }) => {

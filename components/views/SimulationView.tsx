@@ -2300,7 +2300,14 @@ export default function SimulationView({
       applySpellUsagePending(save);
       // 스펠 연출 전용 푸시 — 상대에게 즉시 전송 (유닛 VFX와 동일 패턴)
       // 수신측에서 재생 중(isReceivingSpell)일 때는 재전송하지 않아 피드백 루프 방지
+      console.log("[SPELL-SEND] 시도", {
+        multiplayMyRole,
+        isReceivingSpell: controlledSimulation?.isReceivingSpell?.current,
+        hasOnSpellCast: !!controlledSimulation?.onSpellCast,
+        caster: save.casterPlayer,
+      });
       if (multiplayMyRole && !controlledSimulation?.isReceivingSpell?.current) {
+        console.log("[SPELL-SEND] 발사함");
         controlledSimulation?.onSpellCast?.(save);
       }
       setSpellUsageTeslaHideOppCenterCard(false);
@@ -8358,6 +8365,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!controlledSimulation?.receiveSpellRef) return;
     controlledSimulation.receiveSpellRef.current = (save: SpellUsagePendingSave) => {
+      console.log("[SPELL-PLAY] 재생 함수 진입", { caster: save?.casterPlayer });
       if (!save) return;
       // 이미 연출 중이면 강제 종료 후 새 연출로 교체
       if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
