@@ -2073,18 +2073,22 @@ export default function SimulationView({
 
   const scheduleTeslaRewardDrawPeek = useCallback((counterPlayer: "A" | "B") => {
     setState(prev => {
-      if (!prev || prev.deckCards.length === 0) return prev;
-      const deck = [...prev.deckCards];
+      if (!prev) return prev;
+      // 일반전: 덱 비었으면 리와인드 복원
+      const refilled = refillDeckIfEmpty(prev, counterPlayer);
+      const curDeck = getDeckByLetter(refilled, counterPlayer);
+      if (curDeck.length === 0) return refilled;
+      const deck = [...curDeck];
       const drawn = deck.pop()!;
       return {
-        ...prev,
-        deckCards: deck,
+        ...refilled,
+        ...patchDeckByLetter(refilled, counterPlayer, deck),
         simpanPeekReveal: {
           player: counterPlayer,
           pendingCard: stripPpSimHandNewGlow(drawn),
           peekKind: "teslaDrawRewind",
         },
-        simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+        simpanPeekTick: (refilled.simpanPeekTick ?? 0) + 1,
       };
     });
   }, []);
@@ -2752,40 +2756,44 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       let skipped = false;
       setState(prev => {
         if (!prev) return prev;
-        if (prev.deckCards.length === 0) {
+        const refilled = refillDeckIfEmpty(prev, player);
+        const curDeck = getDeckByLetter(refilled, player);
+        if (curDeck.length === 0) {
           skipped = true;
-          return prev;
+          return refilled;
         }
-        const ps = player === "A" ? prev.playerA : prev.playerB;
-        const deck = [...prev.deckCards];
+        const ps = player === "A" ? refilled.playerA : refilled.playerB;
+        const maxHand = refilled.gameMode === "normal" ? 4 : 6;
+        const deck = [...curDeck];
         const drawn = deck.pop()!;
-        if (ps.hand.length >= 6) {
-          if (prev.simpanHandChoice) {
+        const deckPatch = patchDeckByLetter(refilled, player, deck);
+        if (ps.hand.length >= maxHand) {
+          if (refilled.simpanHandChoice) {
             return {
-              ...prev,
-              deckCards: deck,
+              ...refilled,
+              ...deckPatch,
               simpanHandChoiceQueue: [
-                ...(prev.simpanHandChoiceQueue ?? []),
+                ...(refilled.simpanHandChoiceQueue ?? []),
                 { player, pendingCard: stripPpSimHandNewGlow(drawn) },
               ],
             };
           }
           return {
-            ...prev,
-            deckCards: deck,
+            ...refilled,
+            ...deckPatch,
             simpanHandChoice: { player, pendingCard: stripPpSimHandNewGlow(drawn) },
-            simpanHandChoiceQueue: prev.simpanHandChoiceQueue ?? [],
+            simpanHandChoiceQueue: refilled.simpanHandChoiceQueue ?? [],
           };
         }
         return {
-          ...prev,
-          deckCards: deck,
+          ...refilled,
+          ...deckPatch,
           simpanPeekReveal: {
             player,
             pendingCard: stripPpSimHandNewGlow(drawn),
             peekKind: "witchTarot",
           },
-          simpanPeekTick: (prev.simpanPeekTick ?? 0) + 1,
+          simpanPeekTick: (refilled.simpanPeekTick ?? 0) + 1,
         };
       });
       if (skipped) runWitchTarotAdvanceRef.current();
