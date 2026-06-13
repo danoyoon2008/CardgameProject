@@ -8189,15 +8189,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const resumeSpellUsageSequence = useCallback(
     (save: SpellUsagePendingSave) => {
-      if (spellUsageMotionActiveRef.current) return;
+      console.log("[RESUME] 진입", { motionActive: spellUsageMotionActiveRef.current });
+      if (spellUsageMotionActiveRef.current) {
+        console.log("[RESUME] 중단: motionActive=true");
+        return;
+      }
       const snap = simulationStateRef.current;
-      if (!snap || winner || isInitializing) return;
+      console.log("[RESUME] 가드체크", { hasSnap: !!snap, winner, isInitializing });
+      if (!snap || winner || isInitializing) {
+        console.log("[RESUME] 중단: snap/winner/init 가드");
+        return;
+      }
 
       const rebuilt = buildSpellUsageHandlersFromSave(save);
+      console.log("[RESUME] rebuilt 결과", { rebuilt: !!rebuilt, saveMode: save?.mode, savePreviewCard: !!save?.previewCard });
       if (!rebuilt) {
+        console.log("[RESUME] 중단: rebuilt=null");
         applySpellUsagePending(null);
         return;
       }
+      console.log("[RESUME] 통과! 연출 시작");
 
       const tesla = resolveSuperTeslaCounterFromSave(snap, save);
       spellUsagePendingRef.current = { ...rebuilt, superTeslaCounter: tesla };
