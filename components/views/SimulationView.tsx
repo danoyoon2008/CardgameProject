@@ -8365,7 +8365,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   useEffect(() => {
     if (!controlledSimulation?.receiveSpellRef) return;
     controlledSimulation.receiveSpellRef.current = (save: SpellUsagePendingSave) => {
-      console.log("[SPELL-PLAY] 재생 함수 진입", { caster: save?.casterPlayer });
       if (!save) return;
       // 이미 연출 중이면 강제 종료 후 새 연출로 교체
       if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
@@ -8374,8 +8373,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         spellUsageMotionActiveRef.current = false;
         spellUsageRestoreOnMountDoneRef.current = false;
       }
-      // 상대 스펠: 시각 연출만 재생, 효과는 별도 state sync가 담당
-      spellUsageMotionActiveRef.current = true;
+      // 상대 스펠: 시각 연출만 재생 (효과는 별도 state sync 담당)
+      // 주의: spellUsageMotionActiveRef는 resumeSpellUsageSequence 내부에서 설정하므로
+      // 여기서 미리 true로 두면 함수 첫 줄 가드(if motionActive return)에 걸려 연출이 재생되지 않음
       multiplayOpponentSpellVisualOnlyRef.current = true;
       spellUsageRestoreOnMountDoneRef.current = true;
       resumeSpellUsageSequence(save);
