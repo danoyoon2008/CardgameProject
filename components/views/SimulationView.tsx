@@ -1298,6 +1298,50 @@ function primeSimpanPeekReveal(s: SimulationState): SimulationState {
   return promoteNextSimpanHandChoice(s);
 }
 
+// ===== 일반전 덱/리와인드 분리 — 모듈 레벨 헬퍼 =====
+// 자동 드로우(심판/테슬라/마녀타로/베프끼리/보글보글 등)와 덱 소진 복원에서 공통 사용
+
+/** 해당 플레이어의 덱 반환 (클래식이면 공통 덱) */
+function getDeckByLetter(s: SimulationState, playerLetter: "A" | "B"): CardRow[] {
+  if (s.gameMode === "normal") {
+    return playerLetter === "A" ? (s.deckCardsA ?? []) : (s.deckCardsB ?? []);
+  }
+  return s.deckCards;
+}
+
+/** 해당 플레이어의 덱을 교체하는 patch 객체 반환 */
+function patchDeckByLetter(s: SimulationState, playerLetter: "A" | "B", newDeck: CardRow[]): Partial<SimulationState> {
+  if (s.gameMode === "normal") {
+    return playerLetter === "A" ? { deckCardsA: newDeck } : { deckCardsB: newDeck };
+  }
+  return { deckCards: newDeck };
+}
+
+/**
+ * 덱이 비었으면 해당 플레이어의 리와인드를 덱으로 즉시 복원.
+ * 리와인드는 공통 rewindCards에 _ownerTeam 태그로 저장됨.
+ * 순서: 오래된 카드가 먼저 뽑히도록 역순 배치(덱은 pop으로 끝에서 뽑음).
+ * 일반전에서만 동작.
+ */
+function refillDeckIfEmpty(s: SimulationState, playerLetter: "A" | "B"): SimulationState {
+  if (s.gameMode !== "normal") return s;
+  const deck = getDeckByLetter(s, playerLetter);
+  if (deck.length > 0) return s;
+
+  const myRewind = (s.rewindCards ?? []).filter((c) => c._ownerTeam === playerLetter);
+  if (myRewind.length === 0) return s;
+
+  // myRewind는 [오래된...최신] 순. 오래된 게 먼저 뽑히려면 역순으로 덱에 배치.
+  const newDeck = [...myRewind].reverse();
+  const remainingRewind = (s.rewindCards ?? []).filter((c) => c._ownerTeam !== playerLetter);
+
+  return {
+    ...s,
+    ...patchDeckByLetter(s, playerLetter, newDeck),
+    rewindCards: remainingRewind,
+  };
+}
+
 function mergeOnePlayerSimpanDraw(s: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
   const field = playerLetter === "A" ? s.playerA.field : s.playerB.field;
   const oppField = playerLetter === "A" ? s.playerB.field : s.playerA.field;
