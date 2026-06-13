@@ -29,6 +29,9 @@ type SimpanHandChoiceEntry = { player: "A" | "B"; pendingCard: CardRow };
 type BefpkkiriCommitSlice = {
   deckCards: CardRow[];
   rewindCards: CardRow[];
+  deckCardsA?: CardRow[];
+  deckCardsB?: CardRow[];
+  gameMode?: "classic" | "normal";
   playerA: { hand: CardRow[] };
   playerB: { hand: CardRow[] };
   simpanPeekReveal: {
@@ -53,9 +56,30 @@ export function applyBefpkkiriSpellCommit<T extends BefpkkiriCommitSlice>(
   spellCard: CardRow,
   markHandGlow: (card: CardRow) => CardRow
 ): T {
-  const deck = [...prev.deckCards];
-  const rewindCards = [...prev.rewindCards, spellCard];
+  const isNormal = prev.gameMode === "normal";
+  // 일반전: caster 자신의 덱에서 드로우 / 덱 비었으면 자신 리와인드 복원(오래된 것 먼저)
+  let sourceDeck: CardRow[];
+  if (isNormal) {
+    const own = caster === "A" ? (prev.deckCardsA ?? []) : (prev.deckCardsB ?? []);
+    if (own.length === 0) {
+      const myRewind = (prev.rewindCards ?? []).filter((c) => c._ownerTeam === caster);
+      sourceDeck = [...myRewind].reverse();
+    } else {
+      sourceDeck = [...own];
+    }
+  } else {
+    sourceDeck = [...prev.deckCards];
+  }
+  const deck = sourceDeck;
+  // 베프끼리 스펠 카드는 caster 소유로 리와인드에 추가
+  const taggedSpell = isNormal ? { ...spellCard, _ownerTeam: caster } : spellCard;
+  // 일반전에서 덱 복원이 일어났다면 기존 리와인드에서 caster 카드 제거
+  const baseRewind = isNormal && (caster === "A" ? (prev.deckCardsA ?? []).length === 0 : (prev.deckCardsB ?? []).length === 0)
+    ? (prev.rewindCards ?? []).filter((c) => c._ownerTeam !== caster)
+    : (prev.rewindCards ?? []);
+  const rewindCards = [...baseRewind, taggedSpell];
   const ps = caster === "A" ? prev.playerA : prev.playerB;
+  const maxHandBef = isNormal ? 4 : 6;
   let handLen = ps.hand.length;
 
   const queueAdds: SimpanPeekQueueEntry[] = [];
@@ -85,7 +109,7 @@ export function applyBefpkkiriSpellCommit<T extends BefpkkiriCommitSlice>(
     const drawn = deck.pop()!;
     const glowed = markHandGlow(drawn);
 
-    if (handLen < 6) {
+    if (handLen < maxHandBef) {
       const peekEntry: SimpanPeekQueueEntry = {
         player: caster,
         pendingCard: glowed,
@@ -107,9 +131,13 @@ export function applyBefpkkiriSpellCommit<T extends BefpkkiriCommitSlice>(
 
   const mergedQueue = [...(prev.simpanPeekQueue ?? []), ...queueAdds];
 
+  const deckPatch = isNormal
+    ? (caster === "A" ? { deckCardsA: deck } : { deckCardsB: deck })
+    : { deckCards: deck };
+
   return {
     ...prev,
-    deckCards: deck,
+    ...deckPatch,
     rewindCards,
     simpanHandChoice: handChoice,
     simpanHandChoiceQueue: handChoiceQueue,

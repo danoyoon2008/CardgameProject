@@ -97,6 +97,9 @@ type PlayerSlice = {
 type BubbleStationCommitSlice = {
   deckCards: CardRow[];
   rewindCards: CardRow[];
+  deckCardsA?: CardRow[];
+  deckCardsB?: CardRow[];
+  gameMode?: "classic" | "normal";
   playerA: PlayerSlice;
   playerB: PlayerSlice;
   bubbleStationPending: BubbleStationPendingSave | null;
@@ -317,8 +320,12 @@ export function applyBubbleStationFlashEnd<T extends BubbleStationCommitSlice>(
   const pending = prev.bubbleStationPending;
   if (!pending || pending.phase !== "selectionFlash") return prev;
 
-  const deck = [...prev.deckCards];
+  const isNormal = prev.gameMode === "normal";
   const drawOrder = pending.drawOrder;
+  // 일반전: 플레이어별 덱을 따로 관리 (드로우 시 자기 덱에서 pop)
+  const deckA = isNormal ? [...(prev.deckCardsA ?? [])] : [];
+  const deckB = isNormal ? [...(prev.deckCardsB ?? [])] : [];
+  const deck = isNormal ? [] : [...prev.deckCards];
 
   const queueAdds: SimpanPeekQueueEntry[] = [];
   let reveal = prev.simpanPeekReveal ?? null;
@@ -334,9 +341,16 @@ export function applyBubbleStationFlashEnd<T extends BubbleStationCommitSlice>(
 
   let enqueued = 0;
   for (let i = 0; i < drawOrder.length; i++) {
-    if (deck.length === 0) break;
     const player = drawOrder[i]!;
-    const drawn = deck.pop()!;
+    let drawn: CardRow | undefined;
+    if (isNormal) {
+      const pDeck = player === "A" ? deckA : deckB;
+      if (pDeck.length === 0) continue; // 해당 플레이어 덱 소진 시 스킵
+      drawn = pDeck.pop()!;
+    } else {
+      if (deck.length === 0) break;
+      drawn = deck.pop()!;
+    }
     const glowed = markHandGlow(drawn);
 
     if (handLens[player] < 6) {
@@ -375,9 +389,13 @@ export function applyBubbleStationFlashEnd<T extends BubbleStationCommitSlice>(
     arrivedDrawCount: 0,
   };
 
+  const deckPatch = isNormal
+    ? { deckCardsA: deckA, deckCardsB: deckB }
+    : { deckCards: deck };
+
   return {
     ...prev,
-    deckCards: deck,
+    ...deckPatch,
     simpanPeekReveal: reveal,
     simpanPeekQueue: mergedQueue,
     simpanPeekTick: tickBump,
