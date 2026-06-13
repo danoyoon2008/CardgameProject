@@ -13560,7 +13560,26 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           const baseAtkRaw =
             resolveFieldUnitSimulationBaseAtkRaw(attackerCardBanner, attackOptionOverride);
-          const healAmount = parseAttack(baseAtkRaw.replace(/[\(\)]/g, "")).primaryDamage;
+          let healAmount = parseAttack(baseAtkRaw.replace(/[\(\)]/g, "")).primaryDamage;
+
+          // 공격력 증가 버프(파이레드/시작의나무/맥셀렌드 등)를 회복량에 반영.
+          // 렴초는 자기 자신을 타격하므로 attacker/defender 필드 모두 자기 진영 필드를 사용.
+          {
+            const ryeomchoField =
+              attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
+            ({ primaryDamage: healAmount } =
+              applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
+                attackerPlayer,
+                attackerSlotName,
+                attackerCardBanner,
+                ryeomchoField,
+                ryeomchoField,
+                state!.playerA.field,
+                state!.playerB.field,
+                healAmount,
+                0
+              ));
+          }
 
           if (healAmount <= 0) {
             alert("공격력 데이터가 0이거나 유효하지 않습니다.");
