@@ -64,7 +64,13 @@ export function useGameLogic() {
 
   const [isFlipping, setIsFlipping] = useState(false);
 
-  const [decks, setDecks] = useState<number[][]>([TUTORIAL_CARD_IDS, [], [], [], []]);
+  const [decks, setDecks] = useState<number[][]>([
+    [...TUTORIAL_CARD_IDS],
+    [...TUTORIAL_CARD_IDS],
+    [...TUTORIAL_CARD_IDS],
+    [...TUTORIAL_CARD_IDS],
+    [...TUTORIAL_CARD_IDS],
+  ]);
   const [activeDeckIndex, setActiveDeckIndex] = useState<number>(0);
   const [deck, setDeck] = useState<number[]>(TUTORIAL_CARD_IDS);
   const [selectedForDeck, setSelectedForDeck] = useState<CardRow | null>(null);
@@ -179,12 +185,19 @@ export function useGameLogic() {
         if (isAllEmpty && Array.isArray(data.deck) && data.deck.length > 0) {
           loadedDecks[0] = data.deck;
         }
+        // 빈 슬롯은 기본 덱(TUTORIAL_CARD_IDS)으로 초기화
+        for (let i = 0; i < 5; i++) {
+          const filled = (loadedDecks[i] ?? []).filter((id) => id && id !== 0).length;
+          if (filled === 0) {
+            loadedDecks[i] = [...TUTORIAL_CARD_IDS];
+          }
+        }
         const loadedIndex = typeof data.active_deck_index === "number"
           ? Math.max(0, Math.min(4, data.active_deck_index))
           : 0;
         setDecks(loadedDecks);
         setActiveDeckIndex(loadedIndex);
-        setDeck(loadedDecks[loadedIndex] ?? []);
+        setDeck(loadedDecks[loadedIndex] ?? [...TUTORIAL_CARD_IDS]);
         setProfileLoaded(true);
         return;
       }
@@ -521,17 +534,19 @@ export function useGameLogic() {
   // 덱 슬롯 전환 (1~5 버튼)
   const handleSelectDeckSlot = (slotIndex: number) => {
     if (slotIndex < 0 || slotIndex > 4) return;
-    // 현재 편집 내용을 슬롯에 저장 후 전환
     setDecks((prev) => {
       const next = [...prev];
+      // 현재 편집 내용을 현재 슬롯에 저장
       next[activeDeckIndex] = deck;
+      // 대상 슬롯이 비어있으면 기본 덱으로 초기화
+      const target = next[slotIndex] ?? [];
+      const filled = target.filter((id) => id && id !== 0).length;
+      const resolved = filled === 0 ? [...TUTORIAL_CARD_IDS] : target;
+      next[slotIndex] = resolved;
+      setDeck(resolved);
       return next;
     });
     setActiveDeckIndex(slotIndex);
-    setDecks((prev) => {
-      setDeck(prev[slotIndex] ?? []);
-      return prev;
-    });
   };
 
   const handleGoogleLogin = async () => {
@@ -563,13 +578,25 @@ export function useGameLogic() {
           tokens: 0,
           nickname: null,
           deck: TUTORIAL_CARD_IDS,
-          decks: [TUTORIAL_CARD_IDS, [], [], [], []],
+          decks: [
+            TUTORIAL_CARD_IDS,
+            TUTORIAL_CARD_IDS,
+            TUTORIAL_CARD_IDS,
+            TUTORIAL_CARD_IDS,
+            TUTORIAL_CARD_IDS,
+          ],
           active_deck_index: 0,
           updated_at: new Date().toISOString(),
         });
         if (profileError) console.error("[user_profiles] 초기화 실패:", profileError.message);
       }
-      setDecks([TUTORIAL_CARD_IDS, [], [], [], []]);
+      setDecks([
+        [...TUTORIAL_CARD_IDS],
+        [...TUTORIAL_CARD_IDS],
+        [...TUTORIAL_CARD_IDS],
+        [...TUTORIAL_CARD_IDS],
+        [...TUTORIAL_CARD_IDS],
+      ]);
       setActiveDeckIndex(0);
       localStorage.removeItem(`powerprime_settings_${user.id}`);
       alert("계정이 완벽하게 초기화되었습니다.");
