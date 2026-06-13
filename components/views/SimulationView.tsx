@@ -2300,14 +2300,7 @@ export default function SimulationView({
       applySpellUsagePending(save);
       // 스펠 연출 전용 푸시 — 상대에게 즉시 전송 (유닛 VFX와 동일 패턴)
       // 수신측에서 재생 중(isReceivingSpell)일 때는 재전송하지 않아 피드백 루프 방지
-      console.log("[SPELL-SEND] 시도", {
-        multiplayMyRole,
-        isReceivingSpell: controlledSimulation?.isReceivingSpell?.current,
-        hasOnSpellCast: !!controlledSimulation?.onSpellCast,
-        caster: save.casterPlayer,
-      });
       if (multiplayMyRole && !controlledSimulation?.isReceivingSpell?.current) {
-        console.log("[SPELL-SEND] 발사함");
         controlledSimulation?.onSpellCast?.(save);
       }
       setSpellUsageTeslaHideOppCenterCard(false);
@@ -8189,26 +8182,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const resumeSpellUsageSequence = useCallback(
     (save: SpellUsagePendingSave) => {
-      console.log("[RESUME] 진입", { motionActive: spellUsageMotionActiveRef.current });
       if (spellUsageMotionActiveRef.current) {
-        console.log("[RESUME] 중단: motionActive=true");
         return;
       }
       const snap = simulationStateRef.current;
-      console.log("[RESUME] 가드체크", { hasSnap: !!snap, winner, isInitializing });
       if (!snap || winner || isInitializing) {
-        console.log("[RESUME] 중단: snap/winner/init 가드");
         return;
       }
 
       const rebuilt = buildSpellUsageHandlersFromSave(save);
-      console.log("[RESUME] rebuilt 결과", { rebuilt: !!rebuilt, saveMode: save?.mode, savePreviewCard: !!save?.previewCard });
       if (!rebuilt) {
-        console.log("[RESUME] 중단: rebuilt=null");
         applySpellUsagePending(null);
         return;
       }
-      console.log("[RESUME] 통과! 연출 시작");
 
       const tesla = resolveSuperTeslaCounterFromSave(snap, save);
       spellUsagePendingRef.current = { ...rebuilt, superTeslaCounter: tesla };
