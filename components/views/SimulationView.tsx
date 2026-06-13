@@ -8330,39 +8330,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (!state || isInitializing) return;
     if (!state.spellUsagePending) return;
 
-    // 이미 연출 중이고 ref가 true인 상태 → 새 스펠이 도착한 경우 강제 교체
-    if (spellUsageRestoreOnMountDoneRef.current) {
-      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
-        // 현재 연출 강제 종료
-        setSpellUsageReveal(null);
-        setSpellUsageFly(null);
-        spellUsageMotionActiveRef.current = false;
-        multiplayOpponentSpellVisualOnlyRef.current = false;
-        spellUsageRestoreOnMountDoneRef.current = false;
-        // 이 렌더에서 바로 재진입하지 않고 다음 effect에서 처리
-        return;
-      }
-      return;
-    }
-
-    if (spellUsageMotionActiveRef.current) return;
-    if (spellUsageReveal || spellUsageFly) return;
-
-    spellUsageRestoreOnMountDoneRef.current = true;
-
-    // 멀티플레이에서 상대방 스펠: 시각 연출만, 효과 미적용
+    // 멀티플레이에서 상대방 스펠은 이제 전용 푸시(receiveSpellRef)가 재생을 담당.
+    // 이 useEffect는 그 경우 관여하지 않아 전용 경로와의 충돌(무한 루프)을 방지한다.
     if (
       multiplayMyTeam &&
       state.spellUsagePending.casterPlayer !== multiplayMyTeam
     ) {
-      const save = state.spellUsagePending;
-      spellUsageMotionActiveRef.current = true;
-      multiplayOpponentSpellVisualOnlyRef.current = true;
-      resumeSpellUsageSequence(save);
       return;
     }
 
-    // 시뮬레이션 모드 또는 시전자 측
+    // 아래는 시뮬레이션(1인) 또는 시전자 본인의 재접속 복원 경로에서만 동작.
+    if (spellUsageRestoreOnMountDoneRef.current) {
+      return;
+    }
+    if (spellUsageMotionActiveRef.current) return;
+    if (spellUsageReveal || spellUsageFly) return;
+
+    spellUsageRestoreOnMountDoneRef.current = true;
     resumeSpellUsageSequence(state.spellUsagePending);
   }, [
     state?.spellUsagePending,
@@ -8370,6 +8354,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellUsageReveal,
     spellUsageFly,
     resumeSpellUsageSequence,
+    multiplayMyTeam,
   ]);
 
   // 스펠 연출 전용 푸시 수신 핸들러 등록 — 받으면 즉시 상대 스펠 연출 재생
