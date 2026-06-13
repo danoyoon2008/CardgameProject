@@ -64,10 +64,23 @@ export function useGameLogic() {
 
   const [isFlipping, setIsFlipping] = useState(false);
 
+  const [decks, setDecks] = useState<number[][]>([TUTORIAL_CARD_IDS, [], [], [], []]);
+  const [activeDeckIndex, setActiveDeckIndex] = useState<number>(0);
   const [deck, setDeck] = useState<number[]>(TUTORIAL_CARD_IDS);
   const [selectedForDeck, setSelectedForDeck] = useState<CardRow | null>(null);
   const deckContainerRef = useRef<HTMLDivElement>(null);
   const deckLoadedFromDB = useRef(false);
+
+  // decks를 항상 길이 5로 정규화하는 헬퍼
+  const normalizeDecks = (raw: unknown): number[][] => {
+    const arr = Array.isArray(raw) ? raw : [];
+    const result: number[][] = [];
+    for (let i = 0; i < 5; i++) {
+      const slot = arr[i];
+      result.push(Array.isArray(slot) ? slot.filter((n) => typeof n === "number") : []);
+    }
+    return result;
+  };
 
   useEffect(() => {
     const supabase = createClient();
@@ -158,23 +171,20 @@ export function useGameLogic() {
         setCardShards(Number(data.shards ?? 0));
         setPrimeTokens(Number(data.tokens ?? 0));
         setNickname(typeof data.nickname === "string" ? data.nickname : null);
-        // DB에 저장된 덱이 있으면 로드, 없으면 localStorage 마이그레이션 시도
-        if (Array.isArray(data.deck) && data.deck.length === 12) {
-          deckLoadedFromDB.current = true;
-          setDeck(data.deck);
-        } else {
-          // 기존 localStorage에서 마이그레이션 (최초 1회)
-          const storageKey = `powerprime_settings_${user!.id}`;
-          try {
-            const saved = localStorage.getItem(storageKey);
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed.deck) && parsed.deck.length === 12) {
-                setDeck(parsed.deck);
-              }
-            }
-          } catch {}
+        // 멀티 덱 슬롯 로드
+        deckLoadedFromDB.current = true;
+        const loadedDecks = normalizeDecks(data.decks);
+        // decks가 완전히 비어있으면 기존 단일 deck을 슬롯0으로 폴백
+        const isAllEmpty = loadedDecks.every((d) => d.length === 0);
+        if (isAllEmpty && Array.isArray(data.deck) && data.deck.length > 0) {
+          loadedDecks[0] = data.deck;
         }
+        const loadedIndex = typeof data.active_deck_index === "number"
+          ? Math.max(0, Math.min(4, data.active_deck_index))
+          : 0;
+        setDecks(loadedDecks);
+        setActiveDeckIndex(loadedIndex);
+        setDeck(loadedDecks[loadedIndex] ?? []);
         setProfileLoaded(true);
         return;
       }
@@ -353,7 +363,9 @@ export function useGameLogic() {
         shards: cardShards,
         tokens: primeTokens,
         nickname,
-        deck,
+        deck,                          // 호환용: 현재 활성 덱
+        decks,                         // 5개 슬롯 전체
+        active_deck_index: activeDeckIndex,
         updated_at: new Date().toISOString(),
       });
 
@@ -363,7 +375,19 @@ export function useGameLogic() {
     }, 1500);
 
     return () => window.clearTimeout(timeoutId);
-  }, [user, profileLoaded, gold, cardShards, primeTokens, nickname, deck]);
+  }, [user, profileLoaded, gold, cardShards, primeTokens, nickname, deck, decks, activeDeckIndex]);
+
+  // deck(편집 중) 변경 시 활성 슬롯에 반영
+  useEffect(() => {
+    if (!profileLoaded) return;
+    setDecks((prev) => {
+      const next = [...prev];
+      if (next[activeDeckIndex] !== deck) {
+        next[activeDeckIndex] = deck;
+      }
+      return next;
+    });
+  }, [deck, activeDeckIndex, profileLoaded]);
 
   useEffect(() => {
     if (!authReady) return; 
@@ -494,6 +518,22 @@ export function useGameLogic() {
     setDeck(newDeck);
   };
 
+  // 덱 슬롯 전환 (1~5 버튼)
+  const handleSelectDeckSlot = (slotIndex: number) => {
+    if (slotIndex < 0 || slotIndex > 4) return;
+    // 현재 편집 내용을 슬롯에 저장 후 전환
+    setDecks((prev) => {
+      const next = [...prev];
+      next[activeDeckIndex] = deck;
+      return next;
+    });
+    setActiveDeckIndex(slotIndex);
+    setDecks((prev) => {
+      setDeck(prev[slotIndex] ?? []);
+      return prev;
+    });
+  };
+
   const handleGoogleLogin = async () => {
     const supabase = createClient();
     if (!supabase) return;
@@ -523,10 +563,14 @@ export function useGameLogic() {
           tokens: 0,
           nickname: null,
           deck: TUTORIAL_CARD_IDS,
+          decks: [TUTORIAL_CARD_IDS, [], [], [], []],
+          active_deck_index: 0,
           updated_at: new Date().toISOString(),
         });
         if (profileError) console.error("[user_profiles] 초기화 실패:", profileError.message);
       }
+      setDecks([TUTORIAL_CARD_IDS, [], [], [], []]);
+      setActiveDeckIndex(0);
       localStorage.removeItem(`powerprime_settings_${user.id}`);
       alert("계정이 완벽하게 초기화되었습니다.");
       window.location.reload();
@@ -705,7 +749,8 @@ export function useGameLogic() {
     specialFlipped, flashState, isShardShopOpen, setIsShardShopOpen,
     shopFilterUnowned, setShopFilterUnowned, isDealt, isSpecialAnimating,
     unlockQueue, setUnlockQueue, showProbModal, setShowProbModal,
-    deck, selectedForDeck, setSelectedForDeck, deckContainerRef,
+    deck, decks, activeDeckIndex, handleSelectDeckSlot,
+    selectedForDeck, setSelectedForDeck, deckContainerRef,
     deckAvailableCards, shopAvailableCards, userAvatarUrl, currentDisplayName,
     shouldShowLoginRequired, isAllFlipped, isNewUser,
     incomingChallenge, setIncomingChallenge,

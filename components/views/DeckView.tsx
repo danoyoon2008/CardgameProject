@@ -28,6 +28,9 @@ interface DeckViewProps {
   cardsLoading: boolean;
   layoutMobile?: boolean;
   isDarkMode?: boolean;
+  decks?: number[][];
+  activeDeckIndex?: number;
+  handleSelectDeckSlot?: (slotIndex: number) => void;
 }
 
 export default function DeckView({
@@ -37,6 +40,9 @@ export default function DeckView({
   showOutline, setShowOutline, sortOption, setSortOption, cardsLoading,
   layoutMobile = false,
   isDarkMode = true,
+  decks = [[], [], [], [], []],
+  activeDeckIndex = 0,
+  handleSelectDeckSlot,
 }: DeckViewProps) {
   const [selectedDeckSlotIndex, setSelectedDeckSlotIndex] = useState<number | null>(null);
   const [selectedOwnedCardIndex, setSelectedOwnedCardIndex] = useState<number | null>(null);
@@ -68,6 +74,49 @@ export default function DeckView({
     return costs.reduce((a, b) => a + b, 0) / costs.length;
   })();
 
+  // 덱 슬롯 버튼 1~5 렌더링
+  const renderDeckSlotButtons = () => (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      {[0, 1, 2, 3, 4].map((idx) => {
+        const slotDeck = decks[idx] ?? [];
+        const filled = slotDeck.filter((id) => id && id !== 0).length;
+        const isComplete = filled === 12;
+        const isActive = idx === activeDeckIndex;
+        return (
+          <button
+            key={`deck-slot-btn-${idx}`}
+            type="button"
+            onClick={() => handleSelectDeckSlot?.(idx)}
+            title={`덱 ${idx + 1} (${filled}/12)`}
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 8,
+              border: isActive
+                ? "2px solid #fbbf24"
+                : isComplete
+                ? "2px solid rgba(56,189,248,0.5)"
+                : "2px solid rgba(100,116,139,0.4)",
+              background: isActive
+                ? "rgba(245,158,11,0.25)"
+                : "rgba(15,23,42,0.6)",
+              color: isActive ? "#fde68a" : isComplete ? "#7dd3fc" : "#64748b",
+              fontSize: 16,
+              fontWeight: 900,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.15s",
+            }}
+          >
+            {idx + 1}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (layoutMobile) {
     return (
       <MobileViewShell isDarkMode={isDarkMode}>
@@ -80,6 +129,7 @@ export default function DeckView({
               <p style={{ fontSize: 14, margin: "6px 0 0", color: "#94a3b8" }}>전장에 나설 12장의 카드를 선택하세요.</p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {renderDeckSlotButtons()}
               <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.35)", background: "rgba(69,26,3,0.45)" }}>
                 {deck.length} / 12
               </span>
@@ -261,7 +311,8 @@ export default function DeckView({
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">전장에 나설 12장의 카드를 선택하세요.</p>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center" style={{ gap: 6, flexWrap: "wrap" }}>
+              {renderDeckSlotButtons()}
               <span className="text-amber-400 text-sm font-bold bg-amber-950/30 px-3 py-1 rounded-lg border border-amber-900/50">
                  {deck.length} / 12 장
               </span>
