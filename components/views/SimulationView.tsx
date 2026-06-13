@@ -2298,6 +2298,11 @@ export default function SimulationView({
       };
       spellUsageMotionActiveRef.current = true;
       applySpellUsagePending(save);
+      // 스펠 연출 전용 푸시 — 상대에게 즉시 전송 (유닛 VFX와 동일 패턴)
+      // 수신측에서 재생 중(isReceivingSpell)일 때는 재전송하지 않아 피드백 루프 방지
+      if (multiplayMyRole && !controlledSimulation?.isReceivingSpell?.current) {
+        controlledSimulation?.onSpellCast?.(save);
+      }
       setSpellUsageTeslaHideOppCenterCard(false);
       setSpellUsageTeslaFlipPlayer(null);
       setSpellUsageTeslaFieldCard(superTeslaCounter?.teslaCard ?? null);
@@ -2309,7 +2314,7 @@ export default function SimulationView({
       });
       setSpellUsageRevealTick(t => t + 1);
     },
-    [applySpellUsagePending, finishSpellUsageSequence, setState, state?.simpanPeekReveal, spellUsageReveal, spellUsageFly]
+    [applySpellUsagePending, finishSpellUsageSequence, setState, state?.simpanPeekReveal, spellUsageReveal, spellUsageFly, multiplayMyRole, controlledSimulation]
   );
 
   /** 드래그 중 포인터 아래 “놓으면 유효” 슬롯 키 — 유닛 빈 칸 / 언덕!·번개·소멸·하이퍼 빔 적 유닛 / 자기 스펠칸(방어막 등) */
