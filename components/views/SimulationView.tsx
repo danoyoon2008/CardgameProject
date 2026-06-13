@@ -8354,6 +8354,36 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     resumeSpellUsageSequence,
   ]);
 
+  // 스펠 연출 전용 푸시 수신 핸들러 등록 — 받으면 즉시 상대 스펠 연출 재생
+  useEffect(() => {
+    if (!controlledSimulation?.receiveSpellRef) return;
+    controlledSimulation.receiveSpellRef.current = (save: SpellUsagePendingSave) => {
+      if (!save) return;
+      // 이미 연출 중이면 강제 종료 후 새 연출로 교체
+      if (spellUsageMotionActiveRef.current || spellUsageReveal || spellUsageFly) {
+        setSpellUsageReveal(null);
+        setSpellUsageFly(null);
+        spellUsageMotionActiveRef.current = false;
+        spellUsageRestoreOnMountDoneRef.current = false;
+      }
+      // 상대 스펠: 시각 연출만 재생, 효과는 별도 state sync가 담당
+      spellUsageMotionActiveRef.current = true;
+      multiplayOpponentSpellVisualOnlyRef.current = true;
+      spellUsageRestoreOnMountDoneRef.current = true;
+      resumeSpellUsageSequence(save);
+    };
+    return () => {
+      if (controlledSimulation?.receiveSpellRef) {
+        controlledSimulation.receiveSpellRef.current = null;
+      }
+    };
+  }, [
+    controlledSimulation,
+    resumeSpellUsageSequence,
+    spellUsageReveal,
+    spellUsageFly,
+  ]);
+
   // 멀티플레이 상대방 스펠 완료 후 restore ref 리셋 (다음 스펠 대비)
   useEffect(() => {
     if (!multiplayMyTeam) return;
