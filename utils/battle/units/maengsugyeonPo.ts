@@ -1,6 +1,7 @@
 import type { FieldCard } from "../../../types/game";
 import { UNIT } from "../unitIds";
 import { hasConfusionStatus } from "./dinner";
+import { isTaunting } from "../../cardEffects";
 
 export const MAENGSUGYEON_PO_ID = UNIT.MAENGSUGYEON_PO;
 
@@ -45,6 +46,9 @@ export function canEnemyFieldSourceTargetMaengsugyeonPo(
 ): boolean {
   if (!targetCard || targetCard.name !== MAENGSUGYEON_PO_ID) return true;
   if (isMaengsugyeonPoFacingPassiveSuppressed(targetCard, facingOppCard ?? null)) return true;
+  // 맹수견 포가 [도발] 효과를 얻으면 마주 견제 패시브가 일시 해제되어
+  // 모든 적이 포를 공격·지정할 수 있다. (도발이 제거되면 다시 패시브 정상 작동)
+  if (isTaunting(targetCard, facingOppCard ?? null)) return true;
   if (attackerPlayer === targetPlayer) return true;
   return attackerSlot === targetSlot;
 }
