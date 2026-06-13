@@ -1342,20 +1342,25 @@ function refillDeckIfEmpty(s: SimulationState, playerLetter: "A" | "B"): Simulat
   };
 }
 
-function mergeOnePlayerSimpanDraw(s: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
-  const field = playerLetter === "A" ? s.playerA.field : s.playerB.field;
-  const oppField = playerLetter === "A" ? s.playerB.field : s.playerA.field;
-  if (!fieldHasActiveSimpanSpellDrawPassive(field, oppField)) return s;
-  if (s.deckCards.length === 0) return s;
+function mergeOnePlayerSimpanDraw(s0: SimulationState, playerLetter: "A" | "B", nextGlowToken: () => string): SimulationState {
+  const field = playerLetter === "A" ? s0.playerA.field : s0.playerB.field;
+  const oppField = playerLetter === "A" ? s0.playerB.field : s0.playerA.field;
+  if (!fieldHasActiveSimpanSpellDrawPassive(field, oppField)) return s0;
 
-  const deck = [...s.deckCards];
+  // 일반전: 덱이 비었으면 리와인드에서 즉시 복원
+  const s = refillDeckIfEmpty(s0, playerLetter);
+  const curDeck = getDeckByLetter(s, playerLetter);
+  if (curDeck.length === 0) return s;
+
+  const deck = [...curDeck];
   const drawn = deck.pop()!;
   const ps = playerLetter === "A" ? s.playerA : s.playerB;
   const handLen = ps.hand.length;
-  const base: SimulationState = { ...s, deckCards: deck };
+  const maxHand = s.gameMode === "normal" ? 4 : 6;
+  const base: SimulationState = { ...s, ...patchDeckByLetter(s, playerLetter, deck) };
   const key = playerLetter === "A" ? "playerA" : "playerB";
 
-  if (handLen < 6) {
+  if (handLen < maxHand) {
     const peekEntry = { player: playerLetter, pendingCard: drawn };
     return {
       ...base,
