@@ -9,6 +9,7 @@ import MobileViewShell from "../layout/mobile/MobileViewShell";
 import MobileTouchCardCell from "../layout/mobile/MobileTouchCardCell";
 import { MOBILE_LOBBY_CONTENT_W } from "../layout/mobile/mobileLobbyConstants";
 import { useMobileCardSelectionDismiss } from "../../hooks/useMobileCardSelectionDismiss";
+import { isCardBanned } from "@/utils/globalBan";
 
 interface DeckViewProps {
   deck: number[];
@@ -286,9 +287,10 @@ export default function DeckView({
                   }}
                   onClearSelection={() => setSelectedOwnedCardIndex(null)}
                   onOpenDetail={handleOpenCardDetail}
-                  onSelectForDeck={handleSelectForDeck}
+                  onSelectForDeck={isCardBanned(card) ? undefined : handleSelectForDeck}
                   showOutline={showOutline}
                   inDeck={deck.includes(Number(card.id))}
+                  banned={isCardBanned(card)}
                 />
               ))}
             </div>
@@ -432,9 +434,10 @@ export default function DeckView({
                 key={card.id ?? `deck-card-${index}`} 
                 card={card} 
                 onOpenDetail={handleOpenCardDetail}
-                onSelectForDeck={handleSelectForDeck}
+                onSelectForDeck={isCardBanned(card) ? undefined : handleSelectForDeck}
                 showOutline={showOutline} 
                 inDeck={deck.includes(Number(card.id))}
+                banned={isCardBanned(card)}
               />
             ))}
           </div>

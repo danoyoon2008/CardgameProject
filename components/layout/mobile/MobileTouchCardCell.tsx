@@ -27,6 +27,7 @@ type MobileTouchCardCellProps = {
   isNew?: boolean;
   showOutline?: boolean;
   inDeck?: boolean;
+  banned?: boolean;
 };
 
 export default function MobileTouchCardCell({
@@ -41,6 +42,7 @@ export default function MobileTouchCardCell({
   isNew = false,
   showOutline = false,
   inDeck = false,
+  banned = false,
 }: MobileTouchCardCellProps) {
   const isSelected = selectedCardIndex === index;
   const isOwned = card.isOwned !== false;
@@ -58,6 +60,7 @@ export default function MobileTouchCardCell({
 
   const handleSelectForDeck = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
+    if (banned) return;
     onSelectForDeck?.(card);
     onClearSelection();
   };
@@ -78,7 +81,8 @@ export default function MobileTouchCardCell({
         width: "100%",
         aspectRatio: "1 / 1.58",
         minWidth: 0,
-        cursor: "pointer",
+        cursor: banned ? "not-allowed" : "pointer",
+        ...(banned ? { filter: "grayscale(1)", opacity: 0.5 } : {}),
         ...MOBILE_CARD_TOUCH_BLOCK_STYLE,
       }}
     >
@@ -87,7 +91,27 @@ export default function MobileTouchCardCell({
         isNew={isNew}
         showOutline={showOutline}
         inDeck={inDeck}
+        banned={banned}
       />
+      {banned ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 8,
+            backgroundColor: "rgba(0,0,0,0.45)",
+            zIndex: 15,
+            pointerEvents: "none",
+          }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 800, color: "#fca5a5", letterSpacing: "0.05em" }}>
+            🚫 사용 불가
+          </span>
+        </div>
+      ) : null}
       {isSelected ? (
         <div
           role="presentation"
@@ -112,7 +136,7 @@ export default function MobileTouchCardCell({
               제거
             </button>
           ) : null}
-          {onSelectForDeck && isOwned ? (
+          {onSelectForDeck && isOwned && !banned ? (
             <button type="button" className={SELECT_BTN_CLASS} onClick={handleSelectForDeck}>
               선택
             </button>

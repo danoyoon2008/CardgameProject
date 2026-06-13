@@ -53,7 +53,8 @@ export function CardPlaceholder({
   isNew = false, 
   showOutline = false, 
   isShopView = false,
-  inDeck = false
+  inDeck = false,
+  banned = false,
 }: { 
   card: CardRow; 
   onOpenDetail?: (card: CardRow) => void; 
@@ -65,6 +66,7 @@ export function CardPlaceholder({
   showOutline?: boolean; 
   isShopView?: boolean;
   inDeck?: boolean;
+  banned?: boolean;
 }) {
   const { category, isUnit, isMagic } = cardCategoryFlags(card);
   const imageUrl = nonEmptyText(card.image_url);
@@ -157,14 +159,24 @@ export function CardPlaceholder({
         isOwned 
           ? (replaceGlow || showOutline || inDeck ? '' : 'border-white/15 hover:border-sky-400/40') 
           : "border-white/5 opacity-60 grayscale hover:opacity-80"
-      }`}
-      style={{ ...MOBILE_CARD_TOUCH_BLOCK_STYLE, ...finalOutlineStyle }}
+      } ${banned ? "cursor-not-allowed" : ""}`}
+      style={{
+        ...MOBILE_CARD_TOUCH_BLOCK_STYLE,
+        ...finalOutlineStyle,
+        ...(banned ? { filter: "grayscale(1)", opacity: 0.5 } : {}),
+      }}
     >
       <div className="absolute inset-0 overflow-hidden rounded-lg">
         {renderCardContent()}
       </div>
       
       {!isOwned && !isShopView && (<div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/50 backdrop-blur-[1px] rounded-lg overflow-hidden"><IconLock className="h-10 w-10 text-white/50 mb-2 drop-shadow-md" /><span className="text-xs font-bold text-white/70 tracking-widest drop-shadow-md">미보유</span></div>)}
+
+      {banned && isOwned && !isShopView && (
+        <div className="absolute inset-0 z-[15] flex items-center justify-center rounded-lg bg-black/45 pointer-events-none">
+          <span className="text-xs font-black tracking-wider text-rose-300 drop-shadow-md">🚫 사용 불가</span>
+        </div>
+      )}
       
       {isNew && isOwned && !isShopView && (
         <div className="absolute -top-3 -right-3 z-30 rounded-full bg-rose-500 px-3 py-1 text-xs font-black tracking-wider text-white shadow-[0_0_10px_rgba(244,63,94,0.8)] border border-white/20 animate-pulse">
@@ -189,7 +201,7 @@ export function CardPlaceholder({
               제거
             </button>
           ) : null}
-          {onSelectForDeck ? (
+          {onSelectForDeck && !banned ? (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onSelectForDeck(card); }}

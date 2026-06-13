@@ -22,6 +22,7 @@ import {
   isOpponentHeartbeatStale,
   sendDisconnectedOnBeforeUnload,
 } from "@/utils/multiplayConnection";
+import { filterBannedCards } from "@/utils/globalBan";
 import type { SpellUsagePendingSave } from "@/utils/battle/spells/spellUsagePending";
 
 const DISCONNECT_FORFEIT_SECONDS = 60;
@@ -177,7 +178,7 @@ async function resolveDeckCatalog(
   client: SupabaseClient,
 ): Promise<CardRow[]> {
   if (cardsProp.length > 0) {
-    return cardsProp;
+    return filterBannedCards(cardsProp);
   }
 
   const { data, error } = await client.from("cards").select("*");
@@ -186,7 +187,7 @@ async function resolveDeckCatalog(
     return [];
   }
 
-  return (data ?? []) as CardRow[];
+  return filterBannedCards((data ?? []) as CardRow[]);
 }
 
 function createInitialGameState(

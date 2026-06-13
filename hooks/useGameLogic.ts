@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
 import { MainView, CardRow, PullResult } from "../types/game";
 import { displayNameFromUser, profileImageUrl, getRarityWeight, getShardRewardValue, getShardShopPrice } from "../utils/cardUtils";
+import { isCardNameBanned } from "../utils/globalBan";
 
 const TUTORIAL_CARD_IDS = [21, 25, 30, 35, 36, 38, 39, 46, 58, 59, 62, 64];
 
@@ -428,6 +429,40 @@ export function useGameLogic() {
       newCardIds: Array.from(newCardIds), sortOption, filterOwnedFirst, showOutline
     }));
   }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, user, settingsLoaded]);
+
+  // cards 로드 후 글로벌 밴 카드를 모든 덱 슬롯에서 제거
+  useEffect(() => {
+    if (!profileLoaded || cards.length === 0) return;
+    const bannedIds = new Set(
+      cards.filter((c) => isCardNameBanned(c.name)).map((c) => Number(c.id))
+    );
+    if (bannedIds.size === 0) return;
+
+    setDecks((prev) => {
+      let changed = false;
+      const next = prev.map((slot) =>
+        slot.map((id) => {
+          if (bannedIds.has(Number(id))) {
+            changed = true;
+            return 0;
+          }
+          return id;
+        })
+      );
+      return changed ? next : prev;
+    });
+    setDeck((prev) => {
+      let changed = false;
+      const next = prev.map((id) => {
+        if (bannedIds.has(Number(id))) {
+          changed = true;
+          return 0;
+        }
+        return id;
+      });
+      return changed ? next : prev;
+    });
+  }, [profileLoaded, cards]);
 
   useEffect(() => {
     if (!["codex", "shop", "deck", "simulation", "multiplay"].includes(mainView) || !user) return; 
