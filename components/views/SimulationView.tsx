@@ -2003,6 +2003,7 @@ export default function SimulationView({
   const handSlotOuterRefsA = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const handSlotOuterRefsB = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const simpanPeekRevealTimerRef = useRef<number | null>(null);
+  const simpanPeekRevealTimerTickRef = useRef<number | null>(null);
   /** 동일 피크에 대해 타임아웃·클릭 스킵이 중복 실행되지 않도록 */
   const simpanPeekRevealTransitionStartedRef = useRef(false);
   const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
@@ -6563,15 +6564,36 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       };
     }
 
+    // 같은 드로우(simpanPeekTick)에 대해 이미 타이머가 걸려 있으면 다시 걸지 않는다.
+    // 멀티플레이 state sync로 이 useEffect가 반복 재실행돼도 1.75초 타이머가
+    // 리셋되지 않고 정상적으로 만료되어 자동 이동하도록 보장한다.
+    const currentTick = state.simpanPeekTick ?? 0;
+    if (
+      simpanPeekRevealTimerRef.current != null &&
+      simpanPeekRevealTimerTickRef.current === currentTick
+    ) {
+      // 이미 동일 드로우에 대한 타이머가 진행 중 — 스킵 핸들러만 갱신하고 타이머는 유지
+      return () => {
+        simpanPeekSkipToFlyRef.current = null;
+      };
+    }
+
     const id = window.setTimeout(() => {
       simpanPeekRevealTimerRef.current = null;
+      simpanPeekRevealTimerTickRef.current = null;
       run();
     }, previewMs);
     simpanPeekRevealTimerRef.current = id;
+    simpanPeekRevealTimerTickRef.current = currentTick;
 
     return () => {
+      // 드로우 연출이 끝났거나(다른 tick으로 교체) 언마운트될 때만 정리.
+      // 단순 재실행 시에는 위 가드에서 early return되므로 여기 도달하지 않는다.
       window.clearTimeout(id);
-      simpanPeekRevealTimerRef.current = null;
+      if (simpanPeekRevealTimerRef.current === id) {
+        simpanPeekRevealTimerRef.current = null;
+        simpanPeekRevealTimerTickRef.current = null;
+      }
       simpanPeekSkipToFlyRef.current = null;
     };
   }, [state?.simpanPeekReveal, state?.simpanPeekTick, finishSpellUsageSequence]);
