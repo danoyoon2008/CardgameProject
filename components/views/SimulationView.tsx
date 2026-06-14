@@ -6476,16 +6476,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       peekKind === "opening" ? OPENING_PEEK_HAND_FLY_MS : SIMPAN_PEEK_HAND_FLY_MS;
 
     const run = () => {
-      console.log("[DRAW-RUN] 진입", { transitionStarted: simpanPeekRevealTransitionStartedRef.current });
-      if (simpanPeekRevealTransitionStartedRef.current) {
-        console.log("[DRAW-RUN] 중단: transitionStarted=true");
-        return;
-      }
+      if (simpanPeekRevealTransitionStartedRef.current) return;
       const snap = simulationStateRef.current;
-      if (!snap?.simpanPeekReveal) {
-        console.log("[DRAW-RUN] 중단: simpanPeekReveal 없음");
-        return;
-      }
+      if (!snap?.simpanPeekReveal) return;
       simpanPeekRevealTransitionStartedRef.current = true;
 
       const { player, pendingCard } = snap.simpanPeekReveal;
@@ -6499,10 +6492,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           : handSlotOuterRefsB.current[targetIndex];
       const fr = fromEl?.getBoundingClientRect();
       const tr = toEl?.getBoundingClientRect();
-      console.log("[DRAW-RUN] 측정", { hasFrom: !!fr, hasTo: !!tr, frW: fr?.width, trW: tr?.width, targetIndex });
 
       if (!fr || !tr || fr.width < 2 || tr.width < 2) {
-        console.log("[DRAW-RUN] 측정 실패 → 즉시 합류 폴백");
         setState(prev => {
           if (!prev?.simpanPeekReveal) {
             simpanPeekRevealTransitionStartedRef.current = false;
