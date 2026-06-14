@@ -6482,9 +6482,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       peekKind === "opening" ? OPENING_PEEK_HAND_FLY_MS : SIMPAN_PEEK_HAND_FLY_MS;
 
     const run = () => {
-      if (simpanPeekRevealTransitionStartedRef.current) return;
+      console.log("[DRAW-RUN] 진입", { transitionStarted: simpanPeekRevealTransitionStartedRef.current });
+      if (simpanPeekRevealTransitionStartedRef.current) {
+        console.log("[DRAW-RUN] 중단: transitionStarted=true");
+        return;
+      }
       const snap = simulationStateRef.current;
-      if (!snap?.simpanPeekReveal) return;
+      if (!snap?.simpanPeekReveal) {
+        console.log("[DRAW-RUN] 중단: simpanPeekReveal 없음");
+        return;
+      }
       simpanPeekRevealTransitionStartedRef.current = true;
 
       const { player, pendingCard } = snap.simpanPeekReveal;
@@ -6498,8 +6505,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           : handSlotOuterRefsB.current[targetIndex];
       const fr = fromEl?.getBoundingClientRect();
       const tr = toEl?.getBoundingClientRect();
+      console.log("[DRAW-RUN] 측정", { hasFrom: !!fr, hasTo: !!tr, frW: fr?.width, trW: tr?.width, targetIndex });
 
       if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+        console.log("[DRAW-RUN] 측정 실패 → 즉시 합류 폴백");
         setState(prev => {
           if (!prev?.simpanPeekReveal) {
             simpanPeekRevealTransitionStartedRef.current = false;
@@ -6568,17 +6577,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     // 멀티플레이 state sync로 이 useEffect가 반복 재실행돼도 1.75초 타이머가
     // 리셋되지 않고 정상적으로 만료되어 자동 이동하도록 보장한다.
     const currentTick = state.simpanPeekTick ?? 0;
+    console.log("[DRAW-TIMER] useEffect 실행", { peekKind, previewMs, currentTick, hasTimer: simpanPeekRevealTimerRef.current != null, timerTick: simpanPeekRevealTimerTickRef.current });
     if (
       simpanPeekRevealTimerRef.current != null &&
       simpanPeekRevealTimerTickRef.current === currentTick
     ) {
+      console.log("[DRAW-TIMER] 가드 early return (타이머 유지)");
       // 이미 동일 드로우에 대한 타이머가 진행 중 — 스킵 핸들러만 갱신하고 타이머는 유지
       return () => {
         simpanPeekSkipToFlyRef.current = null;
       };
     }
 
+    console.log("[DRAW-TIMER] setTimeout 설정", previewMs);
     const id = window.setTimeout(() => {
+      console.log("[DRAW-TIMER] 타이머 만료! run() 호출");
       simpanPeekRevealTimerRef.current = null;
       simpanPeekRevealTimerTickRef.current = null;
       run();
