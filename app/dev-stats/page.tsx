@@ -94,7 +94,10 @@ interface PlayerAgg {
 function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Record<string, CardMeta> }) {
   const [subTab, setSubTab] = useState<"units" | "players">("units");
   const [expandedName, setExpandedName] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"number" | "rarity" | "cost">("number");
+  const [sortBy, setSortBy] = useState<
+    "number" | "rarity" | "cost" | "pickRate" | "winRate" |
+    "damageDealt" | "kills" | "damageTaken" | "selfHeal" | "allyHealGiven" | "damageMitigated"
+  >("number");
 
   const unitMap = useMemo(() => {
     const map: Record<string, AggregatedUnit> = {};
@@ -118,6 +121,8 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
     return map;
   }, [stats]);
 
+  const totalGames = stats.length;
+
   const unitList = useMemo(() => {
     const list = Object.values(unitMap);
     return list.sort((a, b) => {
@@ -133,9 +138,20 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
         return ra - rb;
       }
       if (sortBy === "cost") return (Number(ma?.cost) || 0) - (Number(mb?.cost) || 0);
+      // 지표 기반 정렬 (높은 순)
+      const pickRate = (u: AggregatedUnit) => (totalGames > 0 ? u.games / totalGames : 0);
+      const winRate = (u: AggregatedUnit) => (u.games > 0 ? u.wins / u.games : 0);
+      if (sortBy === "pickRate") return pickRate(b) - pickRate(a);
+      if (sortBy === "winRate") return winRate(b) - winRate(a);
+      if (sortBy === "damageDealt") return b.damageDealt - a.damageDealt;
+      if (sortBy === "kills") return b.kills - a.kills;
+      if (sortBy === "damageTaken") return b.damageTaken - a.damageTaken;
+      if (sortBy === "selfHeal") return b.selfHeal - a.selfHeal;
+      if (sortBy === "allyHealGiven") return b.allyHealGiven - a.allyHealGiven;
+      if (sortBy === "damageMitigated") return b.damageMitigated - a.damageMitigated;
       return 0;
     });
-  }, [unitMap, cardMeta, sortBy]);
+  }, [unitMap, cardMeta, sortBy, totalGames]);
 
   const playerMap = useMemo(() => {
     const map: Record<string, PlayerAgg> = {};
@@ -199,13 +215,28 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
       </div>
 
       {subTab === "units" && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {(["number", "rarity", "cost"] as const).map(s => (
-            <button key={s} onClick={() => setSortBy(s)}
-              style={{ padding: "4px 14px", borderRadius: 7, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                background: sortBy === s ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.05)",
-                color: sortBy === s ? "#a5b4fc" : "#64748b" }}>
-              {s === "number" ? "번호순" : s === "rarity" ? "등급순" : "코스트순"}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {([
+            { key: "number", label: "번호순" },
+            { key: "rarity", label: "레어도" },
+            { key: "cost", label: "코스트" },
+            { key: "pickRate", label: "픽률" },
+            { key: "winRate", label: "승률" },
+            { key: "damageDealt", label: "입힌 피해" },
+            { key: "kills", label: "처치 수" },
+            { key: "damageTaken", label: "받은 피해" },
+            { key: "selfHeal", label: "자가 회복" },
+            { key: "allyHealGiven", label: "아군 회복" },
+            { key: "damageMitigated", label: "피해 경감" },
+          ] as const).map(({ key, label }) => (
+            <button key={key} onClick={() => setSortBy(key)}
+              style={{
+                padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer",
+                fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                background: sortBy === key ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.05)",
+                color: sortBy === key ? "#a5b4fc" : "#64748b",
+              }}>
+              {label}
             </button>
           ))}
         </div>
@@ -230,6 +261,9 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 800, color: "#e2e8f0" }}>{u.cardName}</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#a5b4fc", fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                    픽률 {totalGames > 0 ? Math.round((u.games / totalGames) * 100) : 0}%
                   </div>
                   <div style={{ fontSize: 13, color: winRate >= 50 ? "#4ade80" : "#f87171", fontWeight: 700, minWidth: 60, textAlign: "right" }}>
                     승률 {winRate}%
