@@ -5,6 +5,12 @@ import { createClient } from "@/utils/supabase/client";
 
 const DEV_PASSWORD = "1234";
 
+const ADMIN_USER_IDS = [
+  "9dce5c0e-7540-480b-b88b-597f40432158",
+  "83954306-319c-4287-bb5c-275d69717f46",
+  "dbc01cba-456e-4c0b-bce8-22df2b7bcf5d",
+];
+
 interface GameStatRow {
   id: string;
   room_id: string | null;
@@ -399,6 +405,9 @@ export default function DevStatsPage() {
   const [tab, setTab] = useState<"records" | "metrics">("records");
   const [modeTab, setModeTab] = useState<"all" | "classic" | "normal">("all");
   const [stats, setStats] = useState<GameStatRow[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [cardMeta, setCardMeta] = useState<Record<string, CardMeta>>({});
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -417,6 +426,9 @@ export default function DevStatsPage() {
     setLoading(true);
     const supabase = createClient();
     if (!supabase) return;
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null);
+    });
     supabase
       .from("game_stats")
       .select("*")
@@ -454,6 +466,30 @@ export default function DevStatsPage() {
       return mode === modeTab;
     });
   }, [stats, modeTab]);
+
+  const isAdmin = currentUserId != null && ADMIN_USER_IDS.includes(currentUserId);
+
+  const handleDeleteGame = async (gameId: string) => {
+    if (!isAdmin) {
+      alert("이 계정은 전적 삭제 권한이 없습니다.");
+      setDeleteTargetId(null);
+      return;
+    }
+    setDeleting(true);
+    const supabase = createClient();
+    if (!supabase) { setDeleting(false); return; }
+
+    const { error } = await supabase.from("game_stats").delete().eq("id", gameId);
+    setDeleting(false);
+
+    if (error) {
+      alert("삭제에 실패했습니다: " + error.message);
+      return;
+    }
+    setStats(prev => prev.filter(g => g.id !== gameId));
+    setDeleteTargetId(null);
+    if (expandedId === gameId) setExpandedId(null);
+  };
 
   if (!unlocked) {
     return (
@@ -661,6 +697,24 @@ export default function DevStatsPage() {
                     >
                       ···
                     </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setDeleteTargetId(row.id)}
+                        title="이 전적 삭제"
+                        style={{
+                          background: "rgba(239,68,68,0.12)",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                          borderRadius: 8,
+                          color: "#f87171",
+                          fontSize: 14,
+                          cursor: "pointer",
+                          padding: "4px 10px",
+                          lineHeight: 1,
+                        }}
+                      >
+                        🗑
+                      </button>
+                    )}
                   </div>
 
                   {expandedId === row.id && (
@@ -713,6 +767,59 @@ export default function DevStatsPage() {
           <MetricsTab stats={filteredStats} cardMeta={cardMeta} />
         )}
       </div>
+
+        {deleteTargetId && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+            onClick={() => !deleting && setDeleteTargetId(null)}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: "#0f172a",
+                border: "1px solid rgba(239,68,68,0.3)",
+                borderRadius: 16,
+                padding: "28px 32px",
+                display: "flex", flexDirection: "column", gap: 18,
+                minWidth: 320, maxWidth: 400,
+              }}
+            >
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#f87171" }}>전적 삭제</div>
+              <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.6 }}>
+                이 게임 기록을 영구적으로 삭제합니다.<br />
+                삭제된 전적은 모든 통계 집계에서 제외되며, 되돌릴 수 없습니다.
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  disabled={deleting}
+                  onClick={() => setDeleteTargetId(null)}
+                  style={{
+                    padding: "8px 18px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)",
+                    background: "transparent", color: "#94a3b8", fontSize: 13, fontWeight: 700,
+                    cursor: deleting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  취소
+                </button>
+                <button
+                  disabled={deleting}
+                  onClick={() => handleDeleteGame(deleteTargetId)}
+                  style={{
+                    padding: "8px 18px", borderRadius: 10, border: "none",
+                    background: "#dc2626", color: "#fff", fontSize: 13, fontWeight: 800,
+                    cursor: deleting ? "not-allowed" : "pointer",
+                    opacity: deleting ? 0.6 : 1,
+                  }}
+                >
+                  {deleting ? "삭제 중..." : "삭제"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
