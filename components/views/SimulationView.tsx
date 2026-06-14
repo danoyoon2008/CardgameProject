@@ -2003,7 +2003,7 @@ export default function SimulationView({
   const handSlotOuterRefsA = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const handSlotOuterRefsB = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const simpanPeekRevealTimerRef = useRef<number | null>(null);
-  const simpanPeekRevealTimerTickRef = useRef<number | null>(null);
+  const simpanPeekRunRef = useRef<(() => void) | null>(null);
   /** 동일 피크에 대해 타임아웃·클릭 스킵이 중복 실행되지 않도록 */
   const simpanPeekRevealTransitionStartedRef = useRef(false);
   const simpanPeekSkipToFlyRef = useRef<(() => void) | null>(null);
@@ -6472,12 +6472,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     simpanPeekRevealTransitionStartedRef.current = false;
 
     const peekKind = state.simpanPeekReveal.peekKind ?? "simpan";
-    const previewMs =
-      peekKind === "opening"
-        ? OPENING_PEEK_PREVIEW_MS
-        : peekKind === "teslaDrawRewind"
-          ? TESLA_DRAW_PEEK_MS
-          : SIMPAN_PEEK_PREVIEW_MS;
     const flyMs =
       peekKind === "opening" ? OPENING_PEEK_HAND_FLY_MS : SIMPAN_PEEK_HAND_FLY_MS;
 
@@ -6561,55 +6555,50 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       run();
     };
 
+    // run/skip 함수를 ref에 보관해 별도 타이머 useEffect에서 호출.
+    // (이 useEffect는 simpanPeekReveal 객체 참조 변화마다 재실행되지만,
+    //  타이머는 여기서 걸지 않으므로 리셋되지 않는다.)
+    simpanPeekRunRef.current = run;
     simpanPeekSkipToFlyRef.current = peekKind === "opening" ? null : skip;
 
-    if (previewMs <= 0) {
-      const rafId = requestAnimationFrame(() => {
-        run();
-      });
-      return () => {
-        cancelAnimationFrame(rafId);
-        simpanPeekSkipToFlyRef.current = null;
-      };
-    }
-
-    // 같은 드로우(simpanPeekTick)에 대해 이미 타이머가 걸려 있으면 다시 걸지 않는다.
-    // 멀티플레이 state sync로 이 useEffect가 반복 재실행돼도 1.75초 타이머가
-    // 리셋되지 않고 정상적으로 만료되어 자동 이동하도록 보장한다.
-    const currentTick = state.simpanPeekTick ?? 0;
-    console.log("[DRAW-TIMER] useEffect 실행", { peekKind, previewMs, currentTick, hasTimer: simpanPeekRevealTimerRef.current != null, timerTick: simpanPeekRevealTimerTickRef.current });
-    if (
-      simpanPeekRevealTimerRef.current != null &&
-      simpanPeekRevealTimerTickRef.current === currentTick
-    ) {
-      console.log("[DRAW-TIMER] 가드 early return (타이머 유지)");
-      // 이미 동일 드로우에 대한 타이머가 진행 중 — 스킵 핸들러만 갱신하고 타이머는 유지
-      return () => {
-        simpanPeekSkipToFlyRef.current = null;
-      };
-    }
-
-    console.log("[DRAW-TIMER] setTimeout 설정", previewMs);
-    const id = window.setTimeout(() => {
-      console.log("[DRAW-TIMER] 타이머 만료! run() 호출");
-      simpanPeekRevealTimerRef.current = null;
-      simpanPeekRevealTimerTickRef.current = null;
-      run();
-    }, previewMs);
-    simpanPeekRevealTimerRef.current = id;
-    simpanPeekRevealTimerTickRef.current = currentTick;
-
     return () => {
-      // 드로우 연출이 끝났거나(다른 tick으로 교체) 언마운트될 때만 정리.
-      // 단순 재실행 시에는 위 가드에서 early return되므로 여기 도달하지 않는다.
-      window.clearTimeout(id);
-      if (simpanPeekRevealTimerRef.current === id) {
-        simpanPeekRevealTimerRef.current = null;
-        simpanPeekRevealTimerTickRef.current = null;
-      }
       simpanPeekSkipToFlyRef.current = null;
     };
   }, [state?.simpanPeekReveal, state?.simpanPeekTick, finishSpellUsageSequence]);
+
+  // 드로우 중앙 연출 자동 이동 타이머 — simpanPeekTick(숫자)에만 의존하여
+  // 멀티플레이 state sync로 인한 객체 참조 변화에 영향받지 않는다.
+  // 새 드로우(tick 변화)에만 타이머를 새로 걸고, 단순 재렌더에는 재설정하지 않는다.
+  useEffect(() => {
+    if (!state?.simpanPeekReveal) return;
+    const peekKind = state.simpanPeekReveal.peekKind ?? "simpan";
+    const previewMs =
+      peekKind === "opening"
+        ? OPENING_PEEK_PREVIEW_MS
+        : peekKind === "teslaDrawRewind"
+          ? TESLA_DRAW_PEEK_MS
+          : SIMPAN_PEEK_PREVIEW_MS;
+
+    if (previewMs <= 0) {
+      const rafId = requestAnimationFrame(() => {
+        simpanPeekRunRef.current?.();
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+
+    const id = window.setTimeout(() => {
+      simpanPeekRevealTimerRef.current = null;
+      simpanPeekRunRef.current?.();
+    }, previewMs);
+    simpanPeekRevealTimerRef.current = id;
+
+    return () => {
+      window.clearTimeout(id);
+      if (simpanPeekRevealTimerRef.current === id) {
+        simpanPeekRevealTimerRef.current = null;
+      }
+    };
+  }, [state?.simpanPeekTick]);
 
   useLayoutEffect(() => {
     if (!simpanPeekFly || simpanPeekFly.phase !== 0) return;
