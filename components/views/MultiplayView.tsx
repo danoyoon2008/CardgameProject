@@ -82,6 +82,21 @@ async function finishGameRoom(
       .unitCombatStats ?? {},
   ).map(([id, row]) => ({ id, ...row }));
 
+  // 일반전이면 game_rooms에 저장된 덱 스냅샷을 가져와 전적에 함께 보존
+  let deckASnapshot: number[] | null = null;
+  let deckBSnapshot: number[] | null = null;
+  if (gameState.gameMode === "normal") {
+    const { data: roomDeckData } = await client
+      .from("game_rooms")
+      .select("deck_a, deck_b")
+      .eq("id", roomId)
+      .single();
+    if (roomDeckData) {
+      deckASnapshot = Array.isArray(roomDeckData.deck_a) ? roomDeckData.deck_a : null;
+      deckBSnapshot = Array.isArray(roomDeckData.deck_b) ? roomDeckData.deck_b : null;
+    }
+  }
+
   const { error: statsError } = await client.from("game_stats").insert({
     room_id: roomId,
     room_type: roomType,
@@ -97,6 +112,8 @@ async function finishGameRoom(
     game_mode: gameState.gameMode === "normal" ? "normal" : "classic",
     played_at: new Date().toISOString(),
     unit_stats: unitStatsArray,
+    deck_a: deckASnapshot,
+    deck_b: deckBSnapshot,
   });
 
   if (statsError) {
@@ -1408,11 +1425,29 @@ export default function MultiplayView({
         // 각 플레이어의 user_profiles.deck (카드 ID 12개) 조회
         const { data: profilesData } = await client
           .from("user_profiles")
-          .select("id, deck")
+          .select("id, deck, decks, active_deck_index")
           .in("id", [roomInfo.player_a_id, roomInfo.player_b_id]);
 
+        // 현재 활성 슬롯의 덱을 우선 사용, 없으면 단일 deck으로 폴백
+        const resolveActiveDeck = (p: {
+          deck: number[] | null;
+          decks: number[][] | null;
+          active_deck_index: number | null;
+        }): number[] => {
+          const idx = typeof p.active_deck_index === "number" ? p.active_deck_index : 0;
+          if (Array.isArray(p.decks) && Array.isArray(p.decks[idx])) {
+            return p.decks[idx];
+          }
+          return Array.isArray(p.deck) ? p.deck : [];
+        };
+
         const deckMap = new Map<string, number[]>(
-          (profilesData ?? []).map((p: { id: string; deck: number[] | null }) => [p.id, Array.isArray(p.deck) ? p.deck : []])
+          (profilesData ?? []).map((p: {
+            id: string;
+            deck: number[] | null;
+            decks: number[][] | null;
+            active_deck_index: number | null;
+          }) => [p.id, resolveActiveDeck(p)])
         );
         const cardById = new Map<number, CardRow>(
           deckCards.map((c) => [Number(c.id), c])
@@ -1426,6 +1461,13 @@ export default function MultiplayView({
         const deckBIds = (deckMap.get(roomInfo.player_b_id) ?? []).filter((id) => id && id !== 0);
 
         if (deckAIds.length === 12 && deckBIds.length === 12) {
+          // 원본 덱 배치(빈슬롯 제외 12장, 순서 보존)를 game_rooms에 스냅샷 저장.
+          // 게임 종료 시 game_stats로 복사되어 전적에서 덱을 재현하는 데 사용.
+          void client
+            .from("game_rooms")
+            .update({ deck_a: deckAIds, deck_b: deckBIds })
+            .eq("id", roomId);
+
           initialState = createInitialGameState(deckCards, {
             gameMode: "normal",
             deckA: buildDeck(deckAIds),
