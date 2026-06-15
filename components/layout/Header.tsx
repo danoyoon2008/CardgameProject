@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { User } from "@supabase/supabase-js";
 import { MainView } from "../../types/game";
-import { IconUser, IconGold, IconToken, IconShard } from "../ui/Icons";
+import { IconUser, IconGold, IconToken, IconShard, IconPencil } from "../ui/Icons";
 import MobileLobbyDrawer from "./mobile/MobileLobbyDrawer";
 import { createClient } from "../../utils/supabase/client";
 import {
@@ -1082,7 +1082,9 @@ export default function Header({
       >
         <button type="button" onClick={() => setShowProfileEdit(true)}
           title="프로필 수정"
-          style={{ position: "absolute", top: 16, right: 56, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+          style={{ position: "absolute", top: 16, right: 56, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <IconPencil className="h-4 w-4" />
+        </button>
         <button type="button" onClick={() => setShowMyProfile(false)}
           style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 16 }}>✕</button>
         <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid rgba(56,189,248,0.3)" }}>
@@ -1136,7 +1138,9 @@ export default function Header({
           <button type="button"
             title="프로필 사진 변경 (준비 중)"
             onClick={() => alert("프로필 사진 변경은 준비 중입니다.")}
-            style={{ position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: "50%", background: "#1e293b", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+            style={{ position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: "50%", background: "#1e293b", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <IconPencil className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1144,7 +1148,9 @@ export default function Header({
           <button type="button"
             title="닉네임 변경"
             onClick={() => handleEditNickname?.()}
-            style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+            style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <IconPencil className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
     </div>
