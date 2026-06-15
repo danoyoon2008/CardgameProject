@@ -477,17 +477,22 @@ export default function DevStatsPage() {
 
   const isAdmin = currentUserId != null && ADMIN_USER_IDS.includes(currentUserId);
 
-  const renderDeck = (deck: number[] | null, label: string, color: string) => {
+  const renderDeck = (deck: number[] | null, color: string) => {
     if (!deck || deck.length === 0) return null;
     return (
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6 }}>{label}</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      <div style={{ flex: "0 0 auto" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color, marginBottom: 8, letterSpacing: 1 }}>DECK</div>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(6, 40px)",
+          gridAutoRows: "55px",
+          gap: 4,
+        }}>
           {deck.map((cardId, i) => {
             const meta = cardMetaById[Number(cardId)];
             return (
               <div key={`${cardId}-${i}`} style={{
-                width: 44, height: 60, borderRadius: 4, overflow: "hidden",
+                width: 40, height: 55, borderRadius: 4, overflow: "hidden",
                 border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}
@@ -765,9 +770,16 @@ export default function DevStatsPage() {
                       overflowX: "auto",
                     }}>
                       {row.game_mode === "normal" && (row.deck_a || row.deck_b) && (
-                        <div style={{ marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                          {renderDeck(row.deck_a, `${row.player_a_nickname ?? "Player A"}의 덱`, "#7dd3fc")}
-                          {renderDeck(row.deck_b, `${row.player_b_nickname ?? "Player B"}의 덱`, "#fca5a5")}
+                        <div style={{
+                          display: "flex",
+                          gap: 32,
+                          flexWrap: "wrap",
+                          marginBottom: 18,
+                          paddingBottom: 16,
+                          borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        }}>
+                          {renderDeck(row.deck_a, "#7dd3fc")}
+                          {renderDeck(row.deck_b, "#fca5a5")}
                         </div>
                       )}
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
