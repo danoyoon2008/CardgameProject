@@ -128,6 +128,7 @@ export default function Header({
   const [selectedFriend, setSelectedFriend] = useState<Friendship | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
   const [showMyProfile, setShowMyProfile] = useState(false);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [profileDeck, setProfileDeck] = useState<number[] | null>(null);
   const [profileDeckLoading, setProfileDeckLoading] = useState(false);
   const [profileRecord, setProfileRecord] = useState<{
@@ -653,29 +654,30 @@ export default function Header({
       return <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, padding: 8 }}>전적 불러오는 중...</div>;
     }
     if (!profileRecord) return null;
-    const rows: Array<{ label: string; data: { games: number; wins: number }; color: string }> = [
-      { label: "전체", data: profileRecord.all, color: "#e2e8f0" },
+    const modes: Array<{ label: string; data: { games: number; wins: number }; color: string }> = [
       { label: "클래식", data: profileRecord.classic, color: "#94a3b8" },
       { label: "일반전", data: profileRecord.normal, color: "#fbbf24" },
     ];
-    return (
-      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", letterSpacing: 1 }}>RECORD</div>
-        {rows.map((r) => {
-          const winRate = r.data.games > 0 ? Math.round((r.data.wins / r.data.games) * 100) : 0;
-          return (
-            <div key={r.label} style={{
+    const block = (title: string, pick: (m: { games: number; wins: number }) => number) => (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", letterSpacing: 1, marginBottom: 8 }}>{title}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {modes.map((m) => (
+            <div key={m.label} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 14px",
+              background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "7px 12px",
             }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: r.color, minWidth: 56 }}>{r.label}</span>
-              <span style={{ fontSize: 13, color: "#cbd5e1" }}>
-                {r.data.games}전 <span style={{ color: "#4ade80", fontWeight: 700 }}>{r.data.wins}승</span>
-                <span style={{ color: "#64748b", marginLeft: 8 }}>({winRate}%)</span>
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: m.color }}>{m.label}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: "#e2e8f0" }}>{pick(m.data)}</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
+      </div>
+    );
+    return (
+      <div style={{ width: "100%", display: "flex", gap: 16 }}>
+        {block("게임 수", (m) => m.games)}
+        {block("승리한 게임 수", (m) => m.wins)}
       </div>
     );
   };
@@ -1076,6 +1078,9 @@ export default function Header({
       }}
         onClick={(e) => e.stopPropagation()}
       >
+        <button type="button" onClick={() => setShowProfileEdit(true)}
+          title="프로필 수정"
+          style={{ position: "absolute", top: 16, right: 56, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
         <button type="button" onClick={() => setShowMyProfile(false)}
           style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 16 }}>✕</button>
         <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid rgba(56,189,248,0.3)" }}>
