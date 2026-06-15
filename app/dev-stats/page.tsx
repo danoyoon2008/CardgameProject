@@ -259,10 +259,10 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
             return (
               <div key={u.cardName}>
                 <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: expanded ? "12px 12px 0 0" : 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ width: 40, height: 56, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)" }}>
+                  <div style={{ width: 40, aspectRatio: "53.98 / 85.6", borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)" }}>
                     {cardMeta[u.cardName]?.image_url ? (
                       <img src={cardMeta[u.cardName].image_url!} alt={u.cardName}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                     ) : (
                       <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🃏</div>
                     )}
@@ -354,10 +354,10 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
                         const wr = data.count > 0 ? Math.round((data.wins / data.count) * 100) : 0;
                         return (
                           <div key={name} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 14px", minWidth: 110, textAlign: "center" }}>
-                            <div style={{ width: 52, height: 72, borderRadius: 7, overflow: "hidden", margin: "0 auto 6px", background: "rgba(255,255,255,0.05)" }}>
+                            <div style={{ width: 52, aspectRatio: "53.98 / 85.6", borderRadius: 7, overflow: "hidden", margin: "0 auto 6px", background: "rgba(255,255,255,0.05)" }}>
                               {cardMeta[name]?.image_url ? (
                                 <img src={cardMeta[name].image_url!} alt={name}
-                                  style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                               ) : (
                                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🃏</div>
                               )}
@@ -491,7 +491,7 @@ export default function DevStatsPage() {
             const meta = cardMetaById[Number(cardId)];
             return (
               <div key={`${cardId}-${i}`} style={{
-                aspectRatio: "5 / 7",
+                aspectRatio: "53.98 / 85.6",
                 borderRadius: 4, overflow: "hidden",
                 border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)",
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -500,7 +500,7 @@ export default function DevStatsPage() {
               >
                 {meta?.image_url ? (
                   <img src={meta.image_url} alt={meta.name}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                 ) : (
                   <span style={{ fontSize: 8, color: "#64748b" }}>{cardId}</span>
                 )}
