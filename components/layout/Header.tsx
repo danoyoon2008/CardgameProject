@@ -729,7 +729,7 @@ export default function Header({
     return (
       <div ref={profileRecordsRef} style={{ width: "100%" }}>
         <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", letterSpacing: 1, marginBottom: 8 }}>대전 기록</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto", paddingRight: 4 }}>
+        <div className="pp-thin-scroll" style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto", paddingRight: 4 }}>
           {profileGames.map((g) => {
             const isA = g.player_a_id === viewerUserId;
             const won = (isA && g.winner === "A") || (!isA && g.winner === "B");
@@ -1078,6 +1078,7 @@ export default function Header({
 
   const friendProfileModalContent = showFriendProfile && selectedFriend ? (
     <div
+      className="pp-thin-scroll"
       style={{
         position: "fixed",
         top: 0,
@@ -1088,9 +1089,10 @@ export default function Header({
         background: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(6px)",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
-        padding: 16,
+        overflowY: "auto",
+        padding: "5vh 16px",
       }}
       onClick={() => setShowFriendProfile(false)}
     >
@@ -1098,8 +1100,7 @@ export default function Header({
         style={{
           width: layoutMobile ? "92%" : "min(90vw, 720px)",
           maxWidth: layoutMobile ? 460 : 720,
-          maxHeight: "90vh",
-          overflowY: "auto",
+          margin: "auto",
           background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 24,
@@ -1156,13 +1157,13 @@ export default function Header({
     : null;
 
   const myProfileModalContent = showMyProfile && user ? (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    <div className="pp-thin-scroll" style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "5vh 16px" }}
       onClick={() => setShowMyProfile(false)}
     >
       <div style={{
         width: layoutMobile ? "92%" : "min(90vw, 720px)",
         maxWidth: layoutMobile ? 460 : 720,
-        maxHeight: "90vh", overflowY: "auto",
+        margin: "auto",
         background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
         border: "1px solid rgba(255,255,255,0.12)", borderRadius: 24, padding: 32,
         display: "flex", flexDirection: "column", alignItems: "center", gap: 16, position: "relative",
