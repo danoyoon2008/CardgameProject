@@ -1419,6 +1419,7 @@ export default function MultiplayView({
       // 방의 game_mode 및 플레이어 ID 조회
       const roomInfo = await fetchGameRoomPlayerIds(client, roomId);
       const roomGameMode = roomInfo?.game_mode === "normal" ? "normal" : "classic";
+      console.log("[DECK-SNAP] bootstrapRoom 진입", { roomGameMode, hasPlayerA: !!roomInfo?.player_a_id, hasPlayerB: !!roomInfo?.player_b_id });
 
       let initialState: SimulationState;
       if (roomGameMode === "normal" && roomInfo?.player_a_id && roomInfo?.player_b_id) {
@@ -1459,14 +1460,20 @@ export default function MultiplayView({
         // 빈 슬롯(0) 제거 후 실제 카드 ID만
         const deckAIds = (deckMap.get(roomInfo.player_a_id) ?? []).filter((id) => id && id !== 0);
         const deckBIds = (deckMap.get(roomInfo.player_b_id) ?? []).filter((id) => id && id !== 0);
+        console.log("[DECK-SNAP] 덱 길이 확인", { aLen: deckAIds.length, bLen: deckBIds.length, deckAIds, deckBIds });
 
         if (deckAIds.length === 12 && deckBIds.length === 12) {
           // 원본 덱 배치(빈슬롯 제외 12장, 순서 보존)를 game_rooms에 스냅샷 저장.
           // 게임 종료 시 game_stats로 복사되어 전적에서 덱을 재현하는 데 사용.
-          void client
+          console.log("[DECK-SNAP] 저장 시도", { roomId });
+          client
             .from("game_rooms")
             .update({ deck_a: deckAIds, deck_b: deckBIds })
-            .eq("id", roomId);
+            .eq("id", roomId)
+            .then(({ error }) => {
+              if (error) console.error("[DECK-SNAP] 저장 실패:", error.message);
+              else console.log("[DECK-SNAP] 저장 성공");
+            });
 
           initialState = createInitialGameState(deckCards, {
             gameMode: "normal",
