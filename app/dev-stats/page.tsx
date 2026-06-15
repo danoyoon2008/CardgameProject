@@ -480,19 +480,19 @@ export default function DevStatsPage() {
   const renderDeck = (deck: number[] | null, color: string) => {
     if (!deck || deck.length === 0) return null;
     return (
-      <div style={{ flex: "0 0 auto" }}>
+      <div style={{ flex: "1 1 0", minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 800, color, marginBottom: 8, letterSpacing: 1 }}>DECK</div>
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(6, 40px)",
-          gridAutoRows: "55px",
+          gridTemplateColumns: "repeat(6, 1fr)",
           gap: 4,
         }}>
           {deck.map((cardId, i) => {
             const meta = cardMetaById[Number(cardId)];
             return (
               <div key={`${cardId}-${i}`} style={{
-                width: 40, height: 55, borderRadius: 4, overflow: "hidden",
+                aspectRatio: "5 / 7",
+                borderRadius: 4, overflow: "hidden",
                 border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}
@@ -697,6 +697,19 @@ export default function DevStatsPage() {
                       {row.room_type === "friend" ? "친선전" : "글로벌"}
                     </div>
 
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      background: row.game_mode === "normal" ? "rgba(245,158,11,0.2)" : "rgba(148,163,184,0.18)",
+                      color: row.game_mode === "normal" ? "#fbbf24" : "#94a3b8",
+                      minWidth: 48,
+                      textAlign: "center",
+                    }}>
+                      {row.game_mode === "normal" ? "일반전" : "클래식"}
+                    </div>
+
                     <div style={{ flex: 1, fontSize: 14, fontWeight: 700 }}>
                       <span style={{ color: "#7dd3fc" }}>{row.player_a_nickname ?? "Player A"}</span>
                       <span style={{ color: "#475569", margin: "0 8px" }}>vs</span>
@@ -772,8 +785,7 @@ export default function DevStatsPage() {
                       {row.game_mode === "normal" && (row.deck_a || row.deck_b) && (
                         <div style={{
                           display: "flex",
-                          gap: 32,
-                          flexWrap: "wrap",
+                          gap: 24,
                           marginBottom: 18,
                           paddingBottom: 16,
                           borderBottom: "1px solid rgba(255,255,255,0.08)",
