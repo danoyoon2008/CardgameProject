@@ -13,7 +13,6 @@ interface SettingsViewProps {
   volume: number;
   setVolume: (val: number) => void;
   user: User | null;
-  handleEditNickname: () => void;
   handleLogout: () => void;
   handleResetData: () => void;
   layoutMobile?: boolean;
@@ -21,7 +20,7 @@ interface SettingsViewProps {
 
 export default function SettingsView({
   isDarkMode, setIsDarkMode, volume, setVolume,
-  user, handleEditNickname, handleLogout, handleResetData,
+  user, handleLogout, handleResetData,
   layoutMobile = false,
 }: SettingsViewProps) {
   if (layoutMobile) {
@@ -60,7 +59,6 @@ export default function SettingsView({
         <section style={sectionStyle}>
           <h2 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 16px", color: isDarkMode ? "#fff" : "#0f172a" }}>계정 관리</h2>
           {[
-            { title: "닉네임 변경", desc: "게임 내 표시 이름", action: handleEditNickname, label: user ? "변경하기" : "비로그인", disabled: !user },
             { title: "로그아웃", desc: "계정 세션 종료", action: handleLogout, label: user ? "로그아웃" : "비로그인", disabled: !user },
             { title: "계정 정보 초기화", desc: "덱·재화 삭제", action: handleResetData, label: "데이터 초기화", danger: true },
           ].map(row => (
@@ -119,10 +117,6 @@ export default function SettingsView({
         <section className={`p-5 sm:p-6 rounded-2xl border transition-colors ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-white border-slate-300 shadow-sm'}`}>
           <h2 className="text-lg sm:text-xl font-semibold mb-5 flex items-center gap-2"><IconUser className="w-5 h-5 text-indigo-500" />계정 관리</h2>
           <div className="space-y-4">
-            <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border gap-4 ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-              <div><div className="font-medium">닉네임 변경</div><div className="text-sm text-slate-500">게임 내에서 표시될 이름을 설정합니다</div></div>
-              <button onClick={handleEditNickname} disabled={!user} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition">{user ? '변경하기' : '비로그인 상태'}</button>
-            </div>
             <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border gap-4 ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
               <div><div className="font-medium">로그아웃</div><div className="text-sm text-slate-500">계정 세션을 종료합니다</div></div>
               <button onClick={handleLogout} disabled={!user} className="px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition">{user ? '로그아웃 실행' : '비로그인 상태'}</button>

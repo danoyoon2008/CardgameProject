@@ -89,6 +89,7 @@ interface HeaderProps {
   handleEditGold: () => void;
   handleEditTokens: () => void;
   handleEditShards: () => void;
+  handleEditNickname?: () => void;
   layoutMobile?: boolean;
   mainView?: MainView;
   setMainView?: (view: MainView) => void;
@@ -100,6 +101,7 @@ export default function Header({
   authReady, user, userAvatarUrl, currentDisplayName, isDarkMode,
   gold, primeTokens, cardShards,
   handleGoogleLogin, handleEditGold, handleEditTokens, handleEditShards,
+  handleEditNickname,
   layoutMobile = false,
   mainView = "battle",
   setMainView,
@@ -1109,6 +1111,49 @@ export default function Header({
     ? createPortal(myProfileModalContent, document.body)
     : null;
 
+  const profileEditModalContent = showProfileEdit && user ? (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={() => setShowProfileEdit(false)}
+    >
+      <div style={{
+        width: layoutMobile ? "92%" : "min(90vw, 480px)",
+        maxWidth: layoutMobile ? 420 : 480,
+        background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
+        border: "1px solid rgba(255,255,255,0.12)", borderRadius: 24, padding: 32,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 20, position: "relative",
+      }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" onClick={() => setShowProfileEdit(false)}
+          style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 16 }}>✕</button>
+
+        <div style={{ fontSize: 18, fontWeight: 900, color: "#7dd3fc", letterSpacing: 1 }}>프로필 수정</div>
+
+        <div style={{ position: "relative" }}>
+          <div style={{ width: 90, height: 90, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid rgba(56,189,248,0.3)" }}>
+            {userAvatarUrl ? <img src={userAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-12 w-12 text-sky-200" />}
+          </div>
+          <button type="button"
+            title="프로필 사진 변경 (준비 중)"
+            onClick={() => alert("프로필 사진 변경은 준비 중입니다.")}
+            style={{ position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: "50%", background: "#1e293b", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>{currentDisplayName}</span>
+          <button type="button"
+            title="닉네임 변경"
+            onClick={() => handleEditNickname?.()}
+            style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const profileEditModal = profileEditModalContent && typeof document !== "undefined"
+    ? createPortal(profileEditModalContent, document.body)
+    : null;
+
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
     const bg = isDarkMode ? "rgba(10,22,40,0.95)" : "#ffffff";
@@ -1302,6 +1347,7 @@ export default function Header({
               {friendPanelOpen && friendPanel}
               {friendProfileModal}
               {myProfileModal}
+              {profileEditModal}
             </div>
           ) : null}
         </header>
@@ -1387,6 +1433,7 @@ export default function Header({
             {friendPanelOpen && friendPanel}
             {friendProfileModal}
             {myProfileModal}
+            {profileEditModal}
           </div>
         )}
       </div>
