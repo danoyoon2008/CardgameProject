@@ -130,6 +130,12 @@ export default function Header({
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [profileDeck, setProfileDeck] = useState<number[] | null>(null);
   const [profileDeckLoading, setProfileDeckLoading] = useState(false);
+  const [profileRecord, setProfileRecord] = useState<{
+    all: { games: number; wins: number };
+    classic: { games: number; wins: number };
+    normal: { games: number; wins: number };
+  } | null>(null);
+  const [profileRecordLoading, setProfileRecordLoading] = useState(false);
   const [cardMetaById, setCardMetaById] = useState<Record<number, { name: string; image_url: string | null; cost: number }>>({});
 
   const formatLastSeen = (lastSeenAt: string | null): string => {
@@ -511,10 +517,44 @@ export default function Header({
       });
   }, []);
 
+  const loadProfileRecord = (userId: string) => {
+    const supabase = createClient();
+    if (!supabase) return;
+    setProfileRecordLoading(true);
+    setProfileRecord(null);
+
+    supabase
+      .from("game_stats")
+      .select("player_a_id, player_b_id, winner, game_mode")
+      .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
+      .then(({ data }) => {
+        setProfileRecordLoading(false);
+        const rows = data ?? [];
+        const acc = {
+          all: { games: 0, wins: 0 },
+          classic: { games: 0, wins: 0 },
+          normal: { games: 0, wins: 0 },
+        };
+        for (const r of rows as Array<{ player_a_id: string | null; player_b_id: string | null; winner: string | null; game_mode: string }>) {
+          const isA = r.player_a_id === userId;
+          const won = (isA && r.winner === "A") || (!isA && r.winner === "B");
+          const mode = r.game_mode === "normal" ? "normal" : "classic";
+          acc.all.games += 1;
+          acc[mode].games += 1;
+          if (won) {
+            acc.all.wins += 1;
+            acc[mode].wins += 1;
+          }
+        }
+        setProfileRecord(acc);
+      });
+  };
+
   // 프로필 모달 열릴 때 해당 유저의 가장 최근 일반전 덱 로드
   useEffect(() => {
     if (!showFriendProfile || !selectedFriend?.other?.id) {
-      if (!showMyProfile) setProfileDeck(null);
+      setProfileDeck(null);
+      setProfileRecord(null);
       return;
     }
     const userId = selectedFriend.other.id;
@@ -523,6 +563,7 @@ export default function Header({
 
     setProfileDeckLoading(true);
     setProfileDeck(null);
+    loadProfileRecord(userId);
 
     supabase
       .from("game_stats")
@@ -543,7 +584,10 @@ export default function Header({
   // 본인 프로필용 덱/기록 로드 (showMyProfile 기준)
   useEffect(() => {
     if (!showMyProfile || !user?.id) {
-      if (!showFriendProfile) setProfileDeck(null);
+      if (!showFriendProfile) {
+        setProfileDeck(null);
+        setProfileRecord(null);
+      }
       return;
     }
     const userId = user.id;
@@ -551,6 +595,7 @@ export default function Header({
     if (!supabase) return;
     setProfileDeckLoading(true);
     setProfileDeck(null);
+    loadProfileRecord(userId);
     supabase
       .from("game_stats")
       .select("player_a_id, player_b_id, deck_a, deck_b, played_at")
@@ -599,6 +644,38 @@ export default function Header({
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8, textAlign: "right" }}>
           평균 코스트 {avgCost.toFixed(1)}
         </div>
+      </div>
+    );
+  };
+
+  const renderProfileRecord = () => {
+    if (profileRecordLoading) {
+      return <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, padding: 8 }}>전적 불러오는 중...</div>;
+    }
+    if (!profileRecord) return null;
+    const rows: Array<{ label: string; data: { games: number; wins: number }; color: string }> = [
+      { label: "전체", data: profileRecord.all, color: "#e2e8f0" },
+      { label: "클래식", data: profileRecord.classic, color: "#94a3b8" },
+      { label: "일반전", data: profileRecord.normal, color: "#fbbf24" },
+    ];
+    return (
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", letterSpacing: 1 }}>RECORD</div>
+        {rows.map((r) => {
+          const winRate = r.data.games > 0 ? Math.round((r.data.wins / r.data.games) * 100) : 0;
+          return (
+            <div key={r.label} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 14px",
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: r.color, minWidth: 56 }}>{r.label}</span>
+              <span style={{ fontSize: 13, color: "#cbd5e1" }}>
+                {r.data.games}전 <span style={{ color: "#4ade80", fontWeight: 700 }}>{r.data.wins}승</span>
+                <span style={{ color: "#64748b", marginLeft: 8 }}>({winRate}%)</span>
+              </span>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -974,6 +1051,9 @@ export default function Header({
             <div style={{ textAlign: "center", color: "#475569", fontSize: 13 }}>최근 일반전 기록이 없습니다.</div>
           )}
         </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {renderProfileRecord()}
+        </div>
       </div>
     </div>
   ) : null;
@@ -1012,6 +1092,9 @@ export default function Header({
           ) : (
             <div style={{ textAlign: "center", color: "#475569", fontSize: 13 }}>최근 일반전 기록이 없습니다.</div>
           )}
+        </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {renderProfileRecord()}
         </div>
       </div>
     </div>
