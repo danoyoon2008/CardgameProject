@@ -24,6 +24,8 @@ interface GameStatRow {
   turn_count: number | null;
   elapsed_seconds: number | null;
   played_at: string;
+  deck_a: number[] | null;
+  deck_b: number[] | null;
   unit_stats: Array<{
     id: string;
     cardName: string;
@@ -409,6 +411,7 @@ export default function DevStatsPage() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [cardMeta, setCardMeta] = useState<Record<string, CardMeta>>({});
+  const [cardMetaById, setCardMetaById] = useState<Record<number, CardMeta>>({});
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -441,21 +444,26 @@ export default function DevStatsPage() {
 
     supabase
       .from("cards")
-      .select("name, number, rarity, cost, image_url")
-      .eq("category", "unit")
+      .select("id, name, number, rarity, cost, image_url, category")
       .then(({ data }) => {
         const rows = [...(data ?? [])].sort(
           (a, b) => parseCardNumber(a.number) - parseCardNumber(b.number),
         );
         const map: Record<string, CardMeta> = {};
-        for (const c of rows as CardMeta[]) {
-          map[c.name] = {
+        const byId: Record<number, CardMeta> = {};
+        for (const c of rows as (CardMeta & { id: number | string; category?: string })[]) {
+          const meta: CardMeta = {
             ...c,
             number: parseCardNumber(c.number),
             cost: Number(c.cost) || 0,
           };
+          if (c.category === "unit") {
+            map[c.name] = meta;
+          }
+          byId[Number(c.id)] = meta;
         }
         setCardMeta(map);
+        setCardMetaById(byId);
       });
   }, [unlocked]);
 
@@ -468,6 +476,36 @@ export default function DevStatsPage() {
   }, [stats, modeTab]);
 
   const isAdmin = currentUserId != null && ADMIN_USER_IDS.includes(currentUserId);
+
+  const renderDeck = (deck: number[] | null, label: string, color: string) => {
+    if (!deck || deck.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6 }}>{label}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {deck.map((cardId, i) => {
+            const meta = cardMetaById[Number(cardId)];
+            return (
+              <div key={`${cardId}-${i}`} style={{
+                width: 44, height: 60, borderRadius: 4, overflow: "hidden",
+                border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+                title={meta?.name ?? String(cardId)}
+              >
+                {meta?.image_url ? (
+                  <img src={meta.image_url} alt={meta.name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <span style={{ fontSize: 8, color: "#64748b" }}>{cardId}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const handleDeleteGame = async (gameId: string) => {
     if (!isAdmin) {
@@ -726,6 +764,12 @@ export default function DevStatsPage() {
                       padding: "16px 20px",
                       overflowX: "auto",
                     }}>
+                      {row.game_mode === "normal" && (row.deck_a || row.deck_b) && (
+                        <div style={{ marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          {renderDeck(row.deck_a, `${row.player_a_nickname ?? "Player A"}의 덱`, "#7dd3fc")}
+                          {renderDeck(row.deck_b, `${row.player_b_nickname ?? "Player B"}의 덱`, "#fca5a5")}
+                        </div>
+                      )}
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                         <thead>
                           <tr style={{ color: "#475569" }}>
