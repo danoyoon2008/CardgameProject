@@ -139,6 +139,19 @@ export default function Header({
     normal: { games: number; wins: number };
   } | null>(null);
   const [profileRecordLoading, setProfileRecordLoading] = useState(false);
+  const [profileGames, setProfileGames] = useState<Array<{
+    id: string;
+    game_mode: string;
+    room_type: string;
+    player_a_id: string | null;
+    player_b_id: string | null;
+    player_a_nickname: string | null;
+    player_b_nickname: string | null;
+    winner: string | null;
+    played_at: string;
+  }> | null>(null);
+  const profileRecordsRef = useRef<HTMLDivElement>(null);
+  const [scrollToRecords, setScrollToRecords] = useState(false);
   const [cardMetaById, setCardMetaById] = useState<Record<number, { name: string; image_url: string | null; cost: number }>>({});
 
   const formatLastSeen = (lastSeenAt: string | null): string => {
@@ -525,10 +538,11 @@ export default function Header({
     if (!supabase) return;
     setProfileRecordLoading(true);
     setProfileRecord(null);
+    setProfileGames(null);
 
     supabase
       .from("game_stats")
-      .select("player_a_id, player_b_id, winner, game_mode")
+      .select("id, player_a_id, player_b_id, player_a_nickname, player_b_nickname, winner, game_mode, room_type, played_at")
       .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
       .then(({ data }) => {
         setProfileRecordLoading(false);
@@ -550,6 +564,13 @@ export default function Header({
           }
         }
         setProfileRecord(acc);
+        const sorted = [...(rows as Array<{
+          id: string; game_mode: string; room_type: string;
+          player_a_id: string | null; player_b_id: string | null;
+          player_a_nickname: string | null; player_b_nickname: string | null;
+          winner: string | null; played_at: string;
+        }>)].sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+        setProfileGames(sorted.slice(0, 15));
       });
   };
 
@@ -558,6 +579,7 @@ export default function Header({
     if (!showFriendProfile || !selectedFriend?.other?.id) {
       setProfileDeck(null);
       setProfileRecord(null);
+      setProfileGames(null);
       return;
     }
     const userId = selectedFriend.other.id;
@@ -590,6 +612,7 @@ export default function Header({
       if (!showFriendProfile) {
         setProfileDeck(null);
         setProfileRecord(null);
+        setProfileGames(null);
       }
       return;
     }
@@ -614,6 +637,16 @@ export default function Header({
         setProfileDeck(Array.isArray(deck) ? deck : null);
       });
   }, [showMyProfile, user?.id, showFriendProfile]);
+
+  useEffect(() => {
+    if (scrollToRecords && profileGames && profileRecordsRef.current) {
+      const t = setTimeout(() => {
+        profileRecordsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        setScrollToRecords(false);
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [scrollToRecords, profileGames]);
 
   const renderProfileDeck = (deck: number[]) => {
     const avgCost = deck.length > 0
@@ -680,6 +713,52 @@ export default function Header({
       <div style={{ width: "100%", display: "flex", gap: 16 }}>
         {block("게임 수", (m) => m.games)}
         {block("승리한 게임 수", (m) => m.wins)}
+      </div>
+    );
+  };
+
+  const renderProfileGames = (viewerUserId: string) => {
+    if (!profileGames) return null;
+    if (profileGames.length === 0) {
+      return <div style={{ textAlign: "center", color: "#475569", fontSize: 13, padding: 12 }}>대전 기록이 없습니다.</div>;
+    }
+    const fmtDate = (iso: string) => {
+      const d = new Date(iso);
+      return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    };
+    return (
+      <div ref={profileRecordsRef} style={{ width: "100%" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", letterSpacing: 1, marginBottom: 8 }}>대전 기록</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto", paddingRight: 4 }}>
+          {profileGames.map((g) => {
+            const isA = g.player_a_id === viewerUserId;
+            const won = (isA && g.winner === "A") || (!isA && g.winner === "B");
+            const draw = g.winner !== "A" && g.winner !== "B";
+            const oppName = isA ? (g.player_b_nickname ?? "상대") : (g.player_a_nickname ?? "상대");
+            const resultColor = draw ? "#94a3b8" : won ? "#4ade80" : "#f87171";
+            const resultText = draw ? "무" : won ? "승" : "패";
+            return (
+              <div key={g.id} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 12px",
+              }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 900, color: resultColor,
+                  width: 20, textAlign: "center",
+                }}>{resultText}</span>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
+                  background: g.game_mode === "normal" ? "rgba(245,158,11,0.2)" : "rgba(148,163,184,0.18)",
+                  color: g.game_mode === "normal" ? "#fbbf24" : "#94a3b8",
+                }}>{g.game_mode === "normal" ? "일반전" : "클래식"}</span>
+                <span style={{ flex: 1, fontSize: 12, color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  vs {oppName}
+                </span>
+                <span style={{ fontSize: 11, color: "#64748b" }}>{fmtDate(g.played_at)}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -794,6 +873,13 @@ export default function Header({
                       style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                     >
                       프로필 보기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setScrollToRecords(true); setShowFriendProfile(true); }}
+                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      대전 기록
                     </button>
                     <button
                       type="button"
@@ -1058,6 +1144,9 @@ export default function Header({
         <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
           {renderProfileRecord()}
         </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {renderProfileGames(selectedFriend.other.id)}
+        </div>
       </div>
     </div>
   ) : null;
@@ -1104,6 +1193,9 @@ export default function Header({
         </div>
         <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
           {renderProfileRecord()}
+        </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {renderProfileGames(user.id)}
         </div>
       </div>
     </div>
