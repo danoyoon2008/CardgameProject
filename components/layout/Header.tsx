@@ -127,6 +127,9 @@ export default function Header({
   const [sendRequestStatus, setSendRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [selectedFriend, setSelectedFriend] = useState<Friendship | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
+  const [profileDeck, setProfileDeck] = useState<number[] | null>(null);
+  const [profileDeckLoading, setProfileDeckLoading] = useState(false);
+  const [cardMetaById, setCardMetaById] = useState<Record<number, { name: string; image_url: string | null; cost: number }>>({});
 
   const formatLastSeen = (lastSeenAt: string | null): string => {
     if (!lastSeenAt) return "접속 기록 없음";
@@ -490,6 +493,88 @@ export default function Header({
     return () => clearInterval(interval);
   }, [user]);
 
+  // 카드 메타(ID→이미지/코스트) 1회 로드 — 프로필 덱 표시에 사용
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+    supabase
+      .from("cards")
+      .select("id, name, image_url, cost")
+      .then(({ data }) => {
+        if (!data) return;
+        const byId: Record<number, { name: string; image_url: string | null; cost: number }> = {};
+        for (const c of data as Array<{ id: number | string; name: string; image_url: string | null; cost: number | string }>) {
+          byId[Number(c.id)] = { name: c.name, image_url: c.image_url, cost: Number(c.cost) || 0 };
+        }
+        setCardMetaById(byId);
+      });
+  }, []);
+
+  // 프로필 모달 열릴 때 해당 유저의 가장 최근 일반전 덱 로드
+  useEffect(() => {
+    if (!showFriendProfile || !selectedFriend?.other?.id) {
+      setProfileDeck(null);
+      return;
+    }
+    const userId = selectedFriend.other.id;
+    const supabase = createClient();
+    if (!supabase) return;
+
+    setProfileDeckLoading(true);
+    setProfileDeck(null);
+
+    supabase
+      .from("game_stats")
+      .select("player_a_id, player_b_id, deck_a, deck_b, played_at")
+      .eq("game_mode", "normal")
+      .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
+      .order("played_at", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        setProfileDeckLoading(false);
+        const row = data?.[0];
+        if (!row) { setProfileDeck(null); return; }
+        const deck = row.player_a_id === userId ? row.deck_a : row.deck_b;
+        setProfileDeck(Array.isArray(deck) ? deck : null);
+      });
+  }, [showFriendProfile, selectedFriend?.other?.id]);
+
+  const renderProfileDeck = (deck: number[]) => {
+    const avgCost = deck.length > 0
+      ? deck.reduce((sum, id) => sum + (cardMetaById[Number(id)]?.cost ?? 0), 0) / deck.length
+      : 0;
+    return (
+      <div style={{ width: "100%" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#7dd3fc", marginBottom: 8, letterSpacing: 1 }}>DECK</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4 }}>
+          {deck.map((cardId, i) => {
+            const meta = cardMetaById[Number(cardId)];
+            return (
+              <div key={`${cardId}-${i}`} style={{
+                aspectRatio: "53.98 / 85.6",
+                borderRadius: 4, overflow: "hidden",
+                border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+                title={meta?.name ?? String(cardId)}
+              >
+                {meta?.image_url ? (
+                  <img src={meta.image_url} alt={meta.name}
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                ) : (
+                  <span style={{ fontSize: 8, color: "#64748b" }}>{cardId}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8, textAlign: "right" }}>
+          평균 코스트 {avgCost.toFixed(1)}
+        </div>
+      </div>
+    );
+  };
+
   const friendPanel = (
     <div
       ref={friendPanelRef}
@@ -817,7 +902,7 @@ export default function Header({
       <div
         style={{
           width: "100%",
-          maxWidth: 360,
+          maxWidth: 460,
           background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 24,
@@ -850,8 +935,14 @@ export default function Header({
             {isOnline(selectedFriend.other.last_seen_at) ? "● 접속 중" : `마지막 접속: ${formatLastSeen(selectedFriend.other.last_seen_at)}`}
           </div>
         </div>
-        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16, textAlign: "center", color: "#475569", fontSize: 13 }}>
-          프로필 기능은 준비 중입니다.
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {profileDeckLoading ? (
+            <div style={{ textAlign: "center", color: "#64748b", fontSize: 13 }}>덱 불러오는 중...</div>
+          ) : profileDeck && profileDeck.length > 0 ? (
+            renderProfileDeck(profileDeck)
+          ) : (
+            <div style={{ textAlign: "center", color: "#475569", fontSize: 13 }}>최근 일반전 기록이 없습니다.</div>
+          )}
         </div>
       </div>
     </div>
