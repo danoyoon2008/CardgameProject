@@ -127,6 +127,7 @@ export default function Header({
   const [sendRequestStatus, setSendRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [selectedFriend, setSelectedFriend] = useState<Friendship | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
+  const [showMyProfile, setShowMyProfile] = useState(false);
   const [profileDeck, setProfileDeck] = useState<number[] | null>(null);
   const [profileDeckLoading, setProfileDeckLoading] = useState(false);
   const [cardMetaById, setCardMetaById] = useState<Record<number, { name: string; image_url: string | null; cost: number }>>({});
@@ -513,7 +514,7 @@ export default function Header({
   // 프로필 모달 열릴 때 해당 유저의 가장 최근 일반전 덱 로드
   useEffect(() => {
     if (!showFriendProfile || !selectedFriend?.other?.id) {
-      setProfileDeck(null);
+      if (!showMyProfile) setProfileDeck(null);
       return;
     }
     const userId = selectedFriend.other.id;
@@ -537,7 +538,34 @@ export default function Header({
         const deck = row.player_a_id === userId ? row.deck_a : row.deck_b;
         setProfileDeck(Array.isArray(deck) ? deck : null);
       });
-  }, [showFriendProfile, selectedFriend?.other?.id]);
+  }, [showFriendProfile, selectedFriend?.other?.id, showMyProfile]);
+
+  // 본인 프로필용 덱/기록 로드 (showMyProfile 기준)
+  useEffect(() => {
+    if (!showMyProfile || !user?.id) {
+      if (!showFriendProfile) setProfileDeck(null);
+      return;
+    }
+    const userId = user.id;
+    const supabase = createClient();
+    if (!supabase) return;
+    setProfileDeckLoading(true);
+    setProfileDeck(null);
+    supabase
+      .from("game_stats")
+      .select("player_a_id, player_b_id, deck_a, deck_b, played_at")
+      .eq("game_mode", "normal")
+      .or(`player_a_id.eq.${userId},player_b_id.eq.${userId}`)
+      .order("played_at", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        setProfileDeckLoading(false);
+        const row = data?.[0];
+        if (!row) { setProfileDeck(null); return; }
+        const deck = row.player_a_id === userId ? row.deck_a : row.deck_b;
+        setProfileDeck(Array.isArray(deck) ? deck : null);
+      });
+  }, [showMyProfile, user?.id, showFriendProfile]);
 
   const renderProfileDeck = (deck: number[]) => {
     const avgCost = deck.length > 0
@@ -901,8 +929,10 @@ export default function Header({
     >
       <div
         style={{
-          width: "100%",
-          maxWidth: 460,
+          width: layoutMobile ? "92%" : "min(90vw, 720px)",
+          maxWidth: layoutMobile ? 460 : 720,
+          maxHeight: "90vh",
+          overflowY: "auto",
           background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 24,
@@ -950,6 +980,45 @@ export default function Header({
 
   const friendProfileModal = friendProfileModalContent && typeof document !== "undefined"
     ? createPortal(friendProfileModalContent, document.body)
+    : null;
+
+  const myProfileModalContent = showMyProfile && user ? (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={() => setShowMyProfile(false)}
+    >
+      <div style={{
+        width: layoutMobile ? "92%" : "min(90vw, 720px)",
+        maxWidth: layoutMobile ? 460 : 720,
+        maxHeight: "90vh", overflowY: "auto",
+        background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
+        border: "1px solid rgba(255,255,255,0.12)", borderRadius: 24, padding: 32,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 16, position: "relative",
+      }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" onClick={() => setShowMyProfile(false)}
+          style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 32, height: 32, color: "#94a3b8", cursor: "pointer", fontSize: 16 }}>✕</button>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "2px solid rgba(56,189,248,0.3)" }}>
+          {userAvatarUrl ? <img src={userAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-10 w-10 text-sky-200" />}
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 4 }}>{currentDisplayName}</div>
+        </div>
+        <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
+          {profileDeckLoading ? (
+            <div style={{ textAlign: "center", color: "#64748b", fontSize: 13 }}>덱 불러오는 중...</div>
+          ) : profileDeck && profileDeck.length > 0 ? (
+            renderProfileDeck(profileDeck)
+          ) : (
+            <div style={{ textAlign: "center", color: "#475569", fontSize: 13 }}>최근 일반전 기록이 없습니다.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const myProfileModal = myProfileModalContent && typeof document !== "undefined"
+    ? createPortal(myProfileModalContent, document.body)
     : null;
 
   if (layoutMobile) {
@@ -1012,7 +1081,11 @@ export default function Header({
             {!authReady ? (
               <span style={{ fontSize: 14, color: "#94a3b8" }}>로딩 중…</span>
             ) : user ? (
-              <>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, cursor: "pointer" }}
+                onClick={() => setShowMyProfile(true)}
+                title="내 프로필 보기"
+              >
                 <div
                   style={{
                     width: MOBILE_HEADER_AVATAR,
@@ -1045,7 +1118,7 @@ export default function Header({
                 >
                   {currentDisplayName}
                 </span>
-              </>
+              </div>
             ) : (
               <button
                 type="button"
@@ -1140,6 +1213,7 @@ export default function Header({
 
               {friendPanelOpen && friendPanel}
               {friendProfileModal}
+              {myProfileModal}
             </div>
           ) : null}
         </header>
@@ -1163,7 +1237,11 @@ export default function Header({
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div className="flex min-h-[44px] items-center gap-3">
           {!authReady ? (<span className="text-sm text-slate-400">로딩 중…</span>) : user ? (
-            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
+            <div
+              className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3 cursor-pointer"
+              onClick={() => setShowMyProfile(true)}
+              title="내 프로필 보기"
+            >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-500/30 to-indigo-600/40 ring-2 ring-white/15 sm:h-11 sm:w-11">
                 {userAvatarUrl ? <img src={userAvatarUrl} alt="" className="h-full w-full object-cover" /> : <IconUser className="h-5 w-5 text-sky-200" />}
               </div>
@@ -1220,6 +1298,7 @@ export default function Header({
 
             {friendPanelOpen && friendPanel}
             {friendProfileModal}
+            {myProfileModal}
           </div>
         )}
       </div>
