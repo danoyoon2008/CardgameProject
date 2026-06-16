@@ -17562,7 +17562,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_SIM_SHELL_HEADER_H = 40;
   const MOBILE_SCALE_BASE_W = MOBILE_BOARD_W;
   const MOBILE_SCALE_BASE_H = MOBILE_BOARD_H + MOBILE_SIM_SHELL_HEADER_H + 40;
-  const MOBILE_HP_BAR_H = 8;
+  const MOBILE_HP_BAR_H = 18;
   const MOBILE_HAND_CARD_ASPECT = 1.58;
   const MOBILE_HAND_OUTER_W_RATIO = 0.78;
   const MOBILE_HAND_PAD_X = 6;
@@ -18101,6 +18101,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             transition: "width 500ms",
           }}
         />
+        <span
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            fontSize: 11,
+            fontWeight: 800,
+            color: "#fff",
+            textShadow: "0 1px 2px rgba(0,0,0,0.9)",
+            fontFamily: "monospace",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {ps.hp}/2000
+        </span>
       </div>
     );
   };
@@ -18450,7 +18467,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const ps = isPlayerA ? state.playerA : state.playerB;
     const canAttack = isPlayerA ? canAttackPlayerA : canAttackPlayerB;
     const turnActive = state.currentTurn === player;
-    const panelH = 90;
+    const panelH = 96;
 
     const isMyPanel = multiplayMyTeam != null && player === multiplayMyTeam;
     const isOppPanel = multiplayMyTeam != null && player !== multiplayMyTeam;
@@ -18465,9 +18482,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           position: "relative",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: 3,
+          paddingTop: 4,
+          paddingBottom: 4,
           borderRadius: 8,
           border: canAttack
             ? "2px solid #ffffff"
@@ -18500,9 +18518,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               }
             }}
             style={{
-              fontSize: 8,
+              fontSize: 10,
               fontWeight: 800,
-              color: isPlayerA ? "#7dd3fc" : "#fda4af",
+              color: "#fff",
               maxWidth: MOBILE_TIMER_INNER_W,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -18511,6 +18529,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               cursor: onPanelProfileClick ? "pointer" : "default",
               textAlign: "center",
               lineHeight: 1.2,
+              padding: "2px 6px",
+              borderRadius: 5,
+              border: `1px solid ${isPlayerA ? "rgba(56,189,248,0.5)" : "rgba(251,113,133,0.5)"}`,
+              background: isPlayerA ? "rgba(56,189,248,0.12)" : "rgba(251,113,133,0.12)",
+              flexShrink: 0,
             }}
             title={panelNickname}
           >
@@ -18526,6 +18549,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             overflow: "hidden",
             pointerEvents: "none",
             justifyContent: "center",
+            marginTop: "auto",
           }}
         >
           {Array.from({ length: 10 }).map((_, i) => (

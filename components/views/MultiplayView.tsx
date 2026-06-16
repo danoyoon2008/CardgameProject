@@ -137,8 +137,6 @@ interface MultiplayViewProps {
   onOpponentNicknameResolved?: (nickname: string | null) => void;
 }
 
-const ANONYMOUS_OPPONENT_LABEL = "익명의 플레이어";
-
 function normalizeNickname(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1083,7 +1081,6 @@ function MultiplayGameSession({
     void markGameFinished(myRole, myWinnerTeam);
   }, [opponentDisconnected, disconnectSecondsLeft, myRole, markGameFinished]);
 
-  const opponentLabel = opponentNickname ?? ANONYMOUS_OPPONENT_LABEL;
   const myTeamLabel = myRole === "player_a" ? "Player A" : "Player B";
 
   return (
@@ -1112,13 +1109,6 @@ function MultiplayGameSession({
               {myTeamLabel}
             </span>
           </div>
-
-          <p
-            className={`text-center text-sm font-bold sm:text-base ${isDarkMode ? "text-white" : "text-slate-800"}`}
-          >
-            <span className={isDarkMode ? "text-slate-500" : "text-slate-400"}>vs </span>
-            <span className={isDarkMode ? "text-amber-300" : "text-amber-600"}>{opponentLabel}</span>
-          </p>
         </div>
       </div>
 
