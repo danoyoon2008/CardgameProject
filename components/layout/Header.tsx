@@ -137,6 +137,7 @@ export default function Header({
   const [chatLoading, setChatLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const [chatNotice, setChatNotice] = useState<{ senderId: string; senderNickname: string; senderAvatarUrl: string | null } | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const lastSeenMessageRef = useRef<string | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
   const [showMyProfile, setShowMyProfile] = useState(false);
@@ -728,7 +729,18 @@ export default function Header({
         .is("read_at", null)
         .order("created_at", { ascending: true });
 
-      if (cancelled || !unread || unread.length === 0) return;
+      if (cancelled) return;
+      if (!unread || unread.length === 0) {
+        setUnreadCounts({});
+        return;
+      }
+
+      const counts: Record<string, number> = {};
+      for (const m of unread) {
+        if (showChat && chatFriend && m.sender_id === chatFriend.id) continue;
+        counts[m.sender_id] = (counts[m.sender_id] ?? 0) + 1;
+      }
+      setUnreadCounts(counts);
 
       if (showChat && chatFriend) {
         const fromCurrentChat = unread.filter((m) => m.sender_id === chatFriend.id);
@@ -942,7 +954,7 @@ export default function Header({
 
       {/* 친구 목록 탭 */}
       {friendTab === "list" && (
-        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+        <div className="pp-thin-scroll" style={{ flex: 1, overflowY: "auto", padding: 8 }}>
           {friendsLoading ? (
             <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>불러오는 중...</div>
           ) : friends.length === 0 ? (
@@ -962,10 +974,10 @@ export default function Header({
                     gap: 10,
                     padding: "8px 6px",
                     borderRadius: 10,
-                    border: "none",
+                    border: (unreadCounts[f.other.id] ?? 0) > 0 ? "1px solid #3b82f6" : "1px solid transparent",
                     background: selectedFriend?.id === f.id
                       ? (isDarkMode ? "rgba(56,189,248,0.1)" : "#eff6ff")
-                      : "transparent",
+                      : (unreadCounts[f.other.id] ?? 0) > 0 ? "rgba(59,130,246,0.08)" : "transparent",
                     cursor: "pointer",
                     textAlign: "left",
                   }}
@@ -979,8 +991,15 @@ export default function Header({
                     <div style={{ position: "absolute", top: 0, left: 0, width: 10, height: 10, borderRadius: "50%", background: isOnline(f.other.last_seen_at) ? "#22c55e" : "#475569", border: "2px solid " + (isDarkMode ? "#0d1f3c" : "#fff") }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.other.nickname || "닉네임 없음"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {f.other.nickname || "닉네임 없음"}
+                      </span>
+                      {(unreadCounts[f.other.id] ?? 0) > 0 && (
+                        <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#3b82f6" }}>
+                          {unreadCounts[f.other.id]}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11 }}>
                       {f.other.inGame ? (
@@ -1038,17 +1057,6 @@ export default function Header({
                     >
                       {f.other.inGame ? "게임 중" : "친선전"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm(`${f.other.nickname || "이 친구"}와 친구를 끊겠습니까?`)) {
-                          void removeFriend(f.id);
-                        }
-                      }}
-                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid rgba(239,68,68,0.3)`, background: "transparent", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-                    >
-                      친구 삭제
-                    </button>
                   </div>
                 )}
               </div>
@@ -1079,7 +1087,7 @@ export default function Header({
               }}
             />
           </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+          <div className="pp-thin-scroll" style={{ flex: 1, overflowY: "auto", padding: 8 }}>
             {userSearchLoading ? (
               <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>검색 중...</div>
             ) : userSearchResults.length === 0 ? (
@@ -1171,7 +1179,7 @@ export default function Header({
 
       {/* 친구 요청 탭 */}
       {friendTab === "requests" && (
-        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+        <div className="pp-thin-scroll" style={{ flex: 1, overflowY: "auto", padding: 8 }}>
           {friendsLoading ? (
             <div style={{ textAlign: "center", padding: 24, color: "#64748b", fontSize: 13 }}>불러오는 중...</div>
           ) : friendRequests.length === 0 ? (
@@ -1287,6 +1295,18 @@ export default function Header({
         <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
           {renderProfileGames(selectedFriend.other.id)}
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm(`${selectedFriend.other.nickname || "이 친구"}와 친구를 끊겠습니까?`)) {
+              void removeFriend(selectedFriend.id);
+              setShowFriendProfile(false);
+            }
+          }}
+          style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 4 }}
+        >
+          친구 삭제
+        </button>
       </div>
     </div>
   ) : null;
