@@ -19,9 +19,13 @@ export default function MobileWrapper({ children }: MobileWrapperProps) {
 
   useEffect(() => {
     const updateScale = () => {
-      // 세로/가로 관계없이 항상 짧은 쪽(portrait width)을 기준으로 scale 계산
+      // 세로/가로 관계없이 항상 짧은 쪽(portrait width)을 기준으로 scale 계산.
+      // 단, scale 상한을 1로 제한해 태블릿처럼 짧은 변이 BASE_W(768)보다 큰 기기에서
+      // 콘텐츠가 과도하게 확대되어 화면 밖으로 잘리는 것을 방지한다.
+      // (휴대폰: 짧은변 < 768 → scale < 1로 화면에 꽉 맞춤 / 태블릿: scale 1 고정, 기존 반응형 유지)
       const portraitWidth = Math.min(window.innerWidth, window.innerHeight);
-      setMobileScale(portraitWidth / MOBILE_LOBBY_BASE_W);
+      const rawScale = portraitWidth / MOBILE_LOBBY_BASE_W;
+      setMobileScale(Math.min(rawScale, 1));
     };
     updateScale();
     window.addEventListener("resize", updateScale);
