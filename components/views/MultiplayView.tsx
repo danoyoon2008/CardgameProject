@@ -1137,6 +1137,9 @@ function MultiplayGameSession({
             onBackToLobby={onBackToLobby}
             controlledSimulation={controlledSimulation as never}
             multiplayMyRole={myRole}
+            multiplayOpponentNickname={opponentNickname ?? null}
+            multiplayMyNickname={myNickname ?? null}
+            multiplayOpponentUserId={opponentUserId ?? null}
             multiplayOpponentDisconnected={opponentDisconnected && !sessionWinner}
             multiplayDisconnectSecondsLeft={disconnectSecondsLeft}
             multiplaySessionWinner={sessionWinner}

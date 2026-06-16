@@ -489,6 +489,10 @@ interface SimulationViewProps {
   controlledSimulation?: ControlledSimulationBinding;
   /** 멀티플레이 시 자신의 진영 — player_b면 화면을 뒤집어 항상 자신이 아래 */
   multiplayMyRole?: PlayerRole;
+  multiplayOpponentNickname?: string | null;
+  multiplayMyNickname?: string | null;
+  multiplayOpponentUserId?: string | null;
+  onOpponentNameClick?: () => void;
   /** 멀티플레이 — 상대 연결 끊김 오버레이 */
   multiplayOpponentDisconnected?: boolean;
   multiplayDisconnectSecondsLeft?: number | null;
@@ -1407,6 +1411,10 @@ export default function SimulationView({
   initialGameState,
   controlledSimulation,
   multiplayMyRole,
+  multiplayOpponentNickname,
+  multiplayMyNickname,
+  multiplayOpponentUserId,
+  onOpponentNameClick,
   multiplayOpponentDisconnected = false,
   multiplayDisconnectSecondsLeft = null,
   multiplaySessionWinner = null,
@@ -20795,6 +20803,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     gap: 2,
                   }}
                 >
+                  {multiplayMyTeam && multiplayOpponentNickname && (
+                    <span style={{ fontSize: 8, color: "#fbbf24", fontWeight: 700, maxWidth: 84, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      vs {multiplayOpponentNickname}
+                    </span>
+                  )}
                   <span style={{ fontSize: 8, color: "#94a3b8", fontWeight: 900 }}>T{state.turnCount}</span>
                   <span
                     style={{
