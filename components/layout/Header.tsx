@@ -131,7 +131,7 @@ export default function Header({
   const [showChat, setShowChat] = useState(false);
   const [chatFriend, setChatFriend] = useState<UserProfile | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{
-    id: string; sender_id: string; receiver_id: string; content: string; created_at: string;
+    id: string; sender_id: string; receiver_id: string; content: string; created_at: string; read_at: string | null;
   }>>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -461,7 +461,7 @@ export default function Header({
 
     const { data } = await supabase
       .from("direct_messages")
-      .select("id, sender_id, receiver_id, content, created_at")
+      .select("id, sender_id, receiver_id, content, created_at, read_at")
       .or(`and(sender_id.eq.${user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${user.id})`)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -487,7 +487,7 @@ export default function Header({
     const { data, error } = await supabase
       .from("direct_messages")
       .insert({ sender_id: user.id, receiver_id: chatFriend.id, content: text })
-      .select("id, sender_id, receiver_id, content, created_at")
+      .select("id, sender_id, receiver_id, content, created_at, read_at")
       .single();
 
     if (error) {
@@ -736,28 +736,17 @@ export default function Header({
         .order("created_at", { ascending: true });
 
       if (cancelled) return;
-      if (!unread || unread.length === 0) {
-        setUnreadCounts({});
-        return;
-      }
 
       const counts: Record<string, number> = {};
-      for (const m of unread) {
+      for (const m of unread ?? []) {
         if (showChat && chatFriend && m.sender_id === chatFriend.id) continue;
         counts[m.sender_id] = (counts[m.sender_id] ?? 0) + 1;
       }
       setUnreadCounts(counts);
 
       if (showChat && chatFriend) {
-        const fromCurrentChat = unread.filter((m) => m.sender_id === chatFriend.id);
+        const fromCurrentChat = (unread ?? []).filter((m) => m.sender_id === chatFriend.id);
         if (fromCurrentChat.length > 0) {
-          setChatMessages((prev) => {
-            const existingIds = new Set(prev.map((p) => p.id));
-            const newOnes = fromCurrentChat
-              .filter((m) => !existingIds.has(m.id))
-              .map((m) => ({ id: m.id, sender_id: m.sender_id, receiver_id: user.id, content: m.content, created_at: m.created_at }));
-            return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
-          });
           await supabase
             .from("direct_messages")
             .update({ read_at: new Date().toISOString() })
@@ -765,7 +754,19 @@ export default function Header({
             .eq("sender_id", chatFriend.id)
             .is("read_at", null);
         }
+
+        const { data: refreshed } = await supabase
+          .from("direct_messages")
+          .select("id, sender_id, receiver_id, content, created_at, read_at")
+          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${chatFriend.id}),and(sender_id.eq.${chatFriend.id},receiver_id.eq.${user.id})`)
+          .order("created_at", { ascending: true })
+          .limit(200);
+        if (!cancelled && refreshed) {
+          setChatMessages(refreshed);
+        }
       }
+
+      if (!unread || unread.length === 0) return;
 
       const latest = unread[unread.length - 1];
       const isFromOpenChat = showChat && chatFriend && latest.sender_id === chatFriend.id;
@@ -1443,17 +1444,36 @@ export default function Header({
           ) : chatMessages.length === 0 ? (
             <div style={{ textAlign: "center", color: "#475569", fontSize: 13, marginTop: 20 }}>아직 대화가 없습니다.</div>
           ) : (
-            chatMessages.map((m) => {
+            chatMessages.map((m, idx) => {
               const mine = m.sender_id === user.id;
+              const toMinute = (iso: string) => {
+                const d = new Date(iso);
+                return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${d.getMinutes()}`;
+              };
+              const next = chatMessages[idx + 1];
+              const showTime = !next || toMinute(next.created_at) !== toMinute(m.created_at) || next.sender_id !== m.sender_id;
+              const timeStr = (() => {
+                const d = new Date(m.created_at);
+                return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+              })();
+              const isUnreadByPeer = mine && !m.read_at;
               return (
-                <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
-                  <div style={{
-                    maxWidth: "75%", padding: "8px 12px", borderRadius: 12,
-                    background: mine ? "linear-gradient(135deg, #3b82f6, #8b5cf6)" : "rgba(255,255,255,0.08)",
-                    color: mine ? "#fff" : "#e2e8f0", fontSize: 13, lineHeight: 1.4, wordBreak: "break-word",
-                  }}>
-                    {m.content}
+                <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: mine ? "row-reverse" : "row", maxWidth: "85%" }}>
+                    <div style={{
+                      padding: "8px 12px", borderRadius: 12,
+                      background: mine ? "linear-gradient(135deg, #3b82f6, #8b5cf6)" : "rgba(255,255,255,0.08)",
+                      color: mine ? "#fff" : "#e2e8f0", fontSize: 13, lineHeight: 1.4, wordBreak: "break-word",
+                    }}>
+                      {m.content}
+                    </div>
+                    {isUnreadByPeer && (
+                      <span style={{ fontSize: 11, fontWeight: 800, color: "#fbbf24", marginBottom: 2 }}>1</span>
+                    )}
                   </div>
+                  {showTime && (
+                    <span style={{ fontSize: 10, color: "#64748b", marginTop: 2, padding: "0 2px" }}>{timeStr}</span>
+                  )}
                 </div>
               );
             })
