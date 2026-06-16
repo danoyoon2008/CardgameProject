@@ -819,7 +819,17 @@ export default function Home() {
           {game.pullState === "revealing" && (
             <div className="flex flex-col items-center w-full max-w-6xl transition-opacity duration-500 pt-2 sm:pt-8">
               <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-600 mb-8 tracking-widest drop-shadow-lg z-20">소환 결과</h2>
-              <div className={`${game.pulledCards.length === 1 ? 'flex justify-center items-center w-full' : 'grid grid-cols-5 gap-1 sm:gap-3 w-full px-1 sm:px-4'} mt-4 sm:mt-6`}>
+              <div
+                className={`${game.pulledCards.length === 1 ? 'flex justify-center items-center w-full' : 'grid grid-cols-5 gap-1 sm:gap-3 px-1 sm:px-4'} mt-4 sm:mt-6`}
+                style={
+                  game.pulledCards.length === 1
+                    ? undefined
+                    : {
+                        width: "100%",
+                        maxWidth: "min(1152px, 92vh)",
+                      }
+                }
+              >
                 {game.pulledCards.map((res, i) => {
                   const isFlipped = game.flippedCards[i];
                   const isSpecialSpin = game.specialFlipped.has(i);
