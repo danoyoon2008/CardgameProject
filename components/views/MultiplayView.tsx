@@ -134,6 +134,7 @@ interface MultiplayViewProps {
   opponentUserId?: string;
   opponentNickname?: string | null;
   roomType?: string;
+  onOpponentNicknameResolved?: (nickname: string | null) => void;
 }
 
 const ANONYMOUS_OPPONENT_LABEL = "익명의 플레이어";
@@ -1214,6 +1215,7 @@ export default function MultiplayView({
   opponentUserId: opponentUserIdProp,
   opponentNickname: opponentNicknameProp,
   roomType: roomTypeProp,
+  onOpponentNicknameResolved,
 }: MultiplayViewProps) {
   const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
@@ -1239,6 +1241,10 @@ export default function MultiplayView({
   useEffect(() => {
     if (opponentNicknameProp !== undefined) setOpponentNickname(opponentNicknameProp);
   }, [opponentNicknameProp]);
+
+  useEffect(() => {
+    onOpponentNicknameResolved?.(opponentNickname ?? null);
+  }, [opponentNickname, onOpponentNicknameResolved]);
 
   useEffect(() => {
     if (roomTypeProp) setResolvedRoomType(roomTypeProp);

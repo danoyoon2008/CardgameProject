@@ -252,6 +252,7 @@ export default function Home() {
   const isMobile = useIsMobile();
   const [multiplayRoomId, setMultiplayRoomId] = useState<string | null>(null);
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
+  const [multiplayOpponentNickname, setMultiplayOpponentNickname] = useState<string | null>(null);
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
   const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
@@ -404,6 +405,7 @@ export default function Home() {
   const handleBackFromMultiplay = () => {
     setMultiplayRoomId(null);
     setMultiplayRole(null);
+    setMultiplayOpponentNickname(null);
     game.setIsInFriendBattle(false);
     game.setMainView("battle");
     void refreshActiveMultiplayRoom();
@@ -434,6 +436,8 @@ export default function Home() {
         handleEditGold={game.handleEditGold} handleEditTokens={game.handleEditTokens} handleEditShards={game.handleEditShards}
         handleEditNickname={game.handleEditNickname}
         onSendFriendChallenge={handleSendFriendChallenge}
+        mainView={game.mainView}
+        multiplayOpponentNickname={multiplayOpponentNickname}
       />
 
       <div className="flex w-full min-h-0 flex-1 flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8">
@@ -594,6 +598,7 @@ export default function Home() {
       <Header
         layoutMobile
         mainView={game.mainView}
+        multiplayOpponentNickname={multiplayOpponentNickname}
         setMainView={game.setMainView}
         newCardIdsSize={game.newCardIds.size}
         authReady={game.authReady}
@@ -712,6 +717,7 @@ export default function Home() {
                 myUserId={game.user?.id ?? ""}
                 myNickname={game.nickname ?? null}
                 roomType={game.isInFriendBattle ? "friend" : "global"}
+                onOpponentNicknameResolved={setMultiplayOpponentNickname}
               />
             ) : null
           ) : (
