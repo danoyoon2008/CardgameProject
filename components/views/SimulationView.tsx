@@ -493,6 +493,8 @@ interface SimulationViewProps {
   multiplayMyNickname?: string | null;
   multiplayOpponentUserId?: string | null;
   onOpponentNameClick?: () => void;
+  onOpponentProfileClick?: () => void;
+  onMyProfileClick?: () => void;
   /** 멀티플레이 — 상대 연결 끊김 오버레이 */
   multiplayOpponentDisconnected?: boolean;
   multiplayDisconnectSecondsLeft?: number | null;
@@ -1415,6 +1417,8 @@ export default function SimulationView({
   multiplayMyNickname,
   multiplayOpponentUserId,
   onOpponentNameClick,
+  onOpponentProfileClick,
+  onMyProfileClick,
   multiplayOpponentDisconnected = false,
   multiplayDisconnectSecondsLeft = null,
   multiplaySessionWinner = null,
@@ -18074,9 +18078,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderMobilePlayerHpBar = (player: "A" | "B") => {
     const ps = player === "A" ? state.playerA : state.playerB;
     const fillPx = Math.max(0, Math.min(MOBILE_BOARD_W, Math.round((ps.hp / 2000) * MOBILE_BOARD_W)));
-    const isMyBar = multiplayMyTeam != null && player === multiplayMyTeam;
-    const isOppBar = multiplayMyTeam != null && player !== multiplayMyTeam;
-    const barNickname = isMyBar ? multiplayMyNickname : isOppBar ? multiplayOpponentNickname : null;
     return (
       <div
         data-mobile-player-hp={player}
@@ -18100,29 +18101,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             transition: "width 500ms",
           }}
         />
-        {barNickname && (
-          <span
-            onClick={isOppBar ? onOpponentNameClick : undefined}
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: 8,
-              transform: "translateY(-50%)",
-              fontSize: 10,
-              fontWeight: 800,
-              color: "#fff",
-              textShadow: "0 1px 3px rgba(0,0,0,0.9)",
-              maxWidth: MOBILE_BOARD_W - 16,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              cursor: isOppBar && onOpponentNameClick ? "pointer" : "default",
-              pointerEvents: "auto",
-            }}
-          >
-            {barNickname}
-          </span>
-        )}
       </div>
     );
   };
@@ -18472,7 +18450,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const ps = isPlayerA ? state.playerA : state.playerB;
     const canAttack = isPlayerA ? canAttackPlayerA : canAttackPlayerB;
     const turnActive = state.currentTurn === player;
-    const panelH = 72;
+    const panelH = 90;
+
+    const isMyPanel = multiplayMyTeam != null && player === multiplayMyTeam;
+    const isOppPanel = multiplayMyTeam != null && player !== multiplayMyTeam;
+    const panelNickname = isMyPanel ? multiplayMyNickname : isOppPanel ? multiplayOpponentNickname : null;
+    const onPanelProfileClick = isMyPanel ? onMyProfileClick : isOppPanel ? onOpponentProfileClick : undefined;
 
     return (
       <div
@@ -18484,6 +18467,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           flexDirection: "column",
           justifyContent: "center",
           alignItems: "center",
+          gap: 3,
           borderRadius: 8,
           border: canAttack
             ? "2px solid #ffffff"
@@ -18507,6 +18491,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         {renderFlashOverlay(`player-${player}`, "rounded-lg")}
+        {panelNickname && (
+          <div
+            onClick={(e) => {
+              if (onPanelProfileClick) {
+                e.stopPropagation();
+                onPanelProfileClick();
+              }
+            }}
+            style={{
+              fontSize: 8,
+              fontWeight: 800,
+              color: isPlayerA ? "#7dd3fc" : "#fda4af",
+              maxWidth: MOBILE_TIMER_INNER_W,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              pointerEvents: onPanelProfileClick ? "auto" : "none",
+              cursor: onPanelProfileClick ? "pointer" : "default",
+              textAlign: "center",
+              lineHeight: 1.2,
+            }}
+            title={panelNickname}
+          >
+            {panelNickname}
+          </div>
+        )}
         <div
           style={{
             display: "flex",
