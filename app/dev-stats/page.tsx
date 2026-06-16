@@ -151,12 +151,13 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
       const winRate = (u: AggregatedUnit) => (u.games > 0 ? u.wins / u.games : 0);
       if (sortBy === "pickRate") return pickRate(b) - pickRate(a);
       if (sortBy === "winRate") return winRate(b) - winRate(a);
-      if (sortBy === "damageDealt") return b.damageDealt - a.damageDealt;
-      if (sortBy === "kills") return b.kills - a.kills;
-      if (sortBy === "damageTaken") return b.damageTaken - a.damageTaken;
-      if (sortBy === "selfHeal") return b.selfHeal - a.selfHeal;
-      if (sortBy === "allyHealGiven") return b.allyHealGiven - a.allyHealGiven;
-      if (sortBy === "damageMitigated") return b.damageMitigated - a.damageMitigated;
+      const avg = (val: number, games: number) => (games > 0 ? val / games : 0);
+      if (sortBy === "damageDealt") return avg(b.damageDealt, b.games) - avg(a.damageDealt, a.games);
+      if (sortBy === "kills") return avg(b.kills, b.games) - avg(a.kills, a.games);
+      if (sortBy === "damageTaken") return avg(b.damageTaken, b.games) - avg(a.damageTaken, a.games);
+      if (sortBy === "selfHeal") return avg(b.selfHeal, b.games) - avg(a.selfHeal, a.games);
+      if (sortBy === "allyHealGiven") return avg(b.allyHealGiven, b.games) - avg(a.allyHealGiven, a.games);
+      if (sortBy === "damageMitigated") return avg(b.damageMitigated, b.games) - avg(a.damageMitigated, a.games);
       return 0;
     });
   }, [unitMap, cardMeta, sortBy, totalGames]);
@@ -329,9 +330,8 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
           {playerList.map(p => {
             const winRate = p.games > 0 ? Math.round((p.wins / p.games) * 100) : 0;
             const expanded = expandedName === p.id;
-            const top5Units = Object.entries(p.unitCount)
-              .sort((a, b) => b[1].count - a[1].count)
-              .slice(0, 5);
+            const usedUnits = Object.entries(p.unitCount)
+              .sort((a, b) => b[1].count - a[1].count);
             return (
               <div key={p.id}>
                 <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: expanded ? "12px 12px 0 0" : 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
@@ -348,12 +348,12 @@ function MetricsTab({ stats, cardMeta }: { stats: GameStatRow[]; cardMeta: Recor
                 </div>
                 {expanded && (
                   <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderTop: "none", borderRadius: "0 0 12px 12px", padding: 16 }}>
-                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, marginBottom: 10 }}>자주 사용한 유닛 TOP 5</div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-                      {top5Units.map(([name, data]) => {
+                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, marginBottom: 10 }}>유닛 사용 통계</div>
+                    <div className="pp-thin-scroll" style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, marginBottom: 20 }}>
+                      {usedUnits.map(([name, data]) => {
                         const wr = data.count > 0 ? Math.round((data.wins / data.count) * 100) : 0;
                         return (
-                          <div key={name} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 14px", minWidth: 110, textAlign: "center" }}>
+                          <div key={name} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 14px", minWidth: 110, flexShrink: 0, textAlign: "center" }}>
                             <div style={{ width: 52, aspectRatio: "53.98 / 85.6", borderRadius: 7, overflow: "hidden", margin: "0 auto 6px", background: "rgba(255,255,255,0.05)" }}>
                               {cardMeta[name]?.image_url ? (
                                 <img src={cardMeta[name].image_url!} alt={name}

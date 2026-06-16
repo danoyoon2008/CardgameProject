@@ -568,6 +568,11 @@ export function useGameLogic() {
     setDeck(newDeck);
   };
 
+  const handleClearAllDeck = () => {
+    setDeck(Array(12).fill(0));
+    setSelectedForDeck(null);
+  };
+
   // 덱 슬롯 전환 (1~5 버튼)
   const handleSelectDeckSlot = (slotIndex: number) => {
     if (slotIndex < 0 || slotIndex > 4) return;
@@ -829,7 +834,7 @@ export function useGameLogic() {
       setNickname(newNickname);
       setIsNewUser(false);
     },
-    handleOpenCardDetail, handleSelectForDeck, handleSlotReplace, handleSlotClear,
+    handleOpenCardDetail, handleSelectForDeck, handleSlotReplace, handleSlotClear, handleClearAllDeck,
     handleGoogleLogin, handleLogout, handleResetData,
     handleEditGold, handleEditTokens, handleEditShards, handleEditNickname,
     handleBuyCardFromShop, handleGacha, handleFlipCard, handleFlipAll, handleCloseSummon

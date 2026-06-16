@@ -20,6 +20,7 @@ interface DeckViewProps {
   setSelectedForDeck: (card: CardRow | null) => void;
   handleSlotReplace: (slotIndex: number) => void;
   handleSlotClear: (slotIndex: number) => void;
+  handleClearAllDeck: () => void;
   handleOpenCardDetail: (card: CardRow) => void;
   handleSelectForDeck: (card: CardRow) => void;
   showOutline: boolean;
@@ -36,7 +37,7 @@ interface DeckViewProps {
 
 export default function DeckView({
   deck, cards, deckAvailableCards, deckContainerRef,
-  selectedForDeck, setSelectedForDeck, handleSlotReplace, handleSlotClear,
+  selectedForDeck, setSelectedForDeck, handleSlotReplace, handleSlotClear, handleClearAllDeck,
   handleOpenCardDetail, handleSelectForDeck,
   showOutline, setShowOutline, sortOption, setSortOption, cardsLoading,
   layoutMobile = false,
@@ -137,6 +138,21 @@ export default function DeckView({
               <span style={{ fontSize: 14, fontWeight: 700, color: "#7dd3fc", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(56,189,248,0.35)", background: "rgba(3,42,69,0.45)" }}>
                 평균 {avgCost.toFixed(1)}
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("덱의 카드 12장을 모두 제거하시겠습니까?")) {
+                    handleClearAllDeck();
+                  }
+                }}
+                style={{
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
+                  background: "rgba(239,68,68,0.1)", color: "#f87171",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                일괄 제거
+              </button>
             </div>
           </div>
 
@@ -321,6 +337,21 @@ export default function DeckView({
               <span style={{ marginLeft: 8, fontSize: 14, fontWeight: 700, color: "#7dd3fc", padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(56,189,248,0.35)", background: "rgba(3,42,69,0.45)" }}>
                 평균 코스트 {avgCost.toFixed(1)}
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("덱의 카드 12장을 모두 제거하시겠습니까?")) {
+                    handleClearAllDeck();
+                  }
+                }}
+                style={{
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
+                  background: "rgba(239,68,68,0.1)", color: "#f87171",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                일괄 제거
+              </button>
             </div>
           </div>
           
