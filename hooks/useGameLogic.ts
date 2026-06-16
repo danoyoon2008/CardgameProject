@@ -31,6 +31,7 @@ export function useGameLogic() {
     id: string;
     challengerId: string;
     challengerNickname: string;
+    challengerAvatarUrl: string | null;
     mode: string;
   } | null>(null);
   const [isInFriendBattle, setIsInFriendBattle] = useState(false);
@@ -289,13 +290,14 @@ export function useGameLogic() {
         if (incoming) {
           const { data: profile } = await supabase
             .from("user_profiles")
-            .select("nickname")
+            .select("nickname, avatar_url")
             .eq("id", incoming.challenger_id)
             .maybeSingle();
           setIncomingChallenge({
             id: incoming.id,
             challengerId: incoming.challenger_id,
             challengerNickname: profile?.nickname ?? "상대방",
+            challengerAvatarUrl: profile?.avatar_url ?? null,
             mode: incoming.mode,
           });
         } else {

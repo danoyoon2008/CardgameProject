@@ -254,6 +254,7 @@ export default function Home() {
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
+  const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
   const [friends, setFriends] = useState<{ id: string; nickname: string | null; last_seen_at: string | null }[]>([]);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
@@ -305,6 +306,17 @@ export default function Home() {
     const interval = setInterval(() => { void loadFriends(); }, 30000);
     return () => clearInterval(interval);
   }, [game.user]);
+
+  // 친선전 알림 배너: 새 요청이 오면 표시, 1분 후 자동 종료
+  useEffect(() => {
+    if (!game.incomingChallenge) {
+      setChallengeBannerDismissed(false);
+      return;
+    }
+    setChallengeBannerDismissed(false);
+    const t = setTimeout(() => setChallengeBannerDismissed(true), 60000);
+    return () => clearTimeout(t);
+  }, [game.incomingChallenge?.id]);
 
   const handleStartMultiplay = (roomId: string, myRole: PlayerRole) => {
     setMultiplayRoomId(roomId);
@@ -612,6 +624,47 @@ export default function Home() {
           onConfirm={game.handleSetInitialNickname}
           isMobile={isMobile}
         />
+      )}
+
+      {game.incomingChallenge && game.mainView !== "multiplay" && !challengeBannerDismissed && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9998,
+          display: "flex", justifyContent: "center", padding: "12px 16px",
+          pointerEvents: "none",
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12,
+            background: "linear-gradient(135deg, rgba(30,41,59,0.97), rgba(15,23,42,0.97))",
+            border: "1px solid rgba(99,102,241,0.4)",
+            borderRadius: 14, padding: "10px 16px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            maxWidth: 520, width: "100%",
+            pointerEvents: "auto",
+          }}>
+            <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {game.incomingChallenge.challengerAvatarUrl ? (
+                <img src={game.incomingChallenge.challengerAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ fontSize: 16 }}>👤</span>
+              )}
+            </div>
+            <div style={{ flex: 1, fontSize: 13, color: "#e2e8f0", lineHeight: 1.4 }}>
+              <span style={{ fontWeight: 800, color: "#a5b4fc" }}>{game.incomingChallenge.challengerNickname}</span>
+              님이 <span style={{ fontWeight: 700, color: "#fbbf24" }}>{game.incomingChallenge.mode === "normal" ? "일반전" : "클래식"}</span> 모드 친선전을 요청했습니다.
+            </div>
+            <button
+              type="button"
+              onClick={() => game.setMainView("battle")}
+              style={{
+                flexShrink: 0, padding: "7px 16px", borderRadius: 10, border: "none",
+                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff",
+                fontSize: 13, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap",
+              }}
+            >
+              바로 가기
+            </button>
+          </div>
+        </div>
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
