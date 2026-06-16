@@ -913,6 +913,8 @@ export default function Header({
     );
   };
 
+  const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+
   const friendPanel = (
     <div
       ref={friendPanelRef}
@@ -940,6 +942,7 @@ export default function Header({
             type="button"
             onClick={() => setFriendTab(tab)}
             style={{
+              position: "relative",
               flex: 1,
               padding: "10px 4px",
               fontSize: 12,
@@ -953,7 +956,18 @@ export default function Header({
               cursor: "pointer",
             }}
           >
-            {tab === "list" ? "친구 목록" : tab === "add" ? "친구 추가" : `요청${friendRequests.length > 0 ? ` (${friendRequests.length})` : ""}`}
+            {tab === "list" ? "친구 목록" : tab === "add" ? "친구 추가" : "요청"}
+            {tab === "requests" && friendRequests.length > 0 && (
+              <span style={{
+                position: "absolute", top: 4, right: "50%", marginRight: -28,
+                minWidth: 16, height: 16, padding: "0 4px",
+                borderRadius: 8, background: "#ef4444", color: "#fff",
+                fontSize: 10, fontWeight: 800,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {friendRequests.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1002,7 +1016,12 @@ export default function Header({
                         {f.other.nickname || "닉네임 없음"}
                       </span>
                       {(unreadCounts[f.other.id] ?? 0) > 0 && (
-                        <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#3b82f6" }}>
+                        <span style={{
+                          flexShrink: 0, minWidth: 18, height: 18, padding: "0 5px",
+                          borderRadius: 9, background: "#3b82f6", color: "#fff",
+                          fontSize: 11, fontWeight: 800,
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        }}>
                           {unreadCounts[f.other.id]}
                         </span>
                       )}
@@ -1040,13 +1059,23 @@ export default function Header({
                         대전 기록
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => { setFriendPanelOpen(false); setSelectedFriend(null); void openChat(f.other); }}
-                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-                    >
-                      메시지
-                    </button>
+                    <div style={{ position: "relative", width: "100%" }}>
+                      <button
+                        type="button"
+                        onClick={() => { setFriendPanelOpen(false); setSelectedFriend(null); void openChat(f.other); }}
+                        style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                      >
+                        메시지
+                      </button>
+                      {(unreadCounts[f.other.id] ?? 0) > 0 && (
+                        <div style={{
+                          position: "absolute", top: -4, right: -4,
+                          width: 10, height: 10, borderRadius: "50%",
+                          background: "#3b82f6",
+                          border: "1.5px solid " + (isDarkMode ? "#0d1f3c" : "#fff"),
+                        }} />
+                      )}
+                    </div>
                     <button
                       type="button"
                       disabled={f.other.inGame}
@@ -1728,6 +1757,18 @@ export default function Header({
                     border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
                   }} />
                 )}
+                {totalUnread > 0 && (
+                  <div style={{
+                    position: "absolute",
+                    top: 2,
+                    left: 2,
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: "#3b82f6",
+                    border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
+                  }} />
+                )}
               </button>
 
               {friendPanelOpen && friendPanel}
@@ -1813,6 +1854,18 @@ export default function Header({
                   height: 9,
                   borderRadius: "50%",
                   background: "#f97316",
+                  border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
+                }} />
+              )}
+              {totalUnread > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: 4,
+                  left: 4,
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: "#3b82f6",
                   border: "1.5px solid " + (isDarkMode ? "#0a1628" : "#fff"),
                 }} />
               )}
