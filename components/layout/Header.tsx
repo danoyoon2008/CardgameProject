@@ -510,6 +510,12 @@ export default function Header({
   }, [friendPanelOpen]);
 
   useEffect(() => {
+    if (!friendPanelOpen) {
+      setSelectedFriend(null);
+    }
+  }, [friendPanelOpen]);
+
+  useEffect(() => {
     if (friendPanelOpen) {
       loadFriends();
       if (friendTab === "add") loadAllUsers();
@@ -1018,20 +1024,22 @@ export default function Header({
                 {/* 선택된 친구 팝업 버튼 */}
                 {selectedFriend?.id === f.id && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "4px 6px 8px" }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowFriendProfile(true)}
-                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-                    >
-                      프로필 보기
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setScrollToRecords(true); setShowFriendProfile(true); }}
-                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-                    >
-                      대전 기록
-                    </button>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowFriendProfile(true)}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                      >
+                        프로필 보기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setScrollToRecords(true); setShowFriendProfile(true); }}
+                        style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                      >
+                        대전 기록
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => { setFriendPanelOpen(false); setSelectedFriend(null); void openChat(f.other); }}
@@ -1380,10 +1388,22 @@ export default function Header({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            {chatFriend.avatar_url ? <img src={chatFriend.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-5 w-5 text-sky-200" />}
+          <div
+            onClick={() => {
+              const friendship = friends.find((f) => f.other.id === chatFriend.id);
+              if (friendship) {
+                setSelectedFriend(friendship);
+                setShowFriendProfile(true);
+              }
+            }}
+            style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, cursor: "pointer", minWidth: 0 }}
+            title="프로필 보기"
+          >
+            <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {chatFriend.avatar_url ? <img src={chatFriend.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-5 w-5 text-sky-200" />}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chatFriend.nickname ?? "친구"}</div>
           </div>
-          <div style={{ flex: 1, fontSize: 15, fontWeight: 800, color: "#fff" }}>{chatFriend.nickname ?? "친구"}</div>
           <button type="button" onClick={() => setShowChat(false)}
             style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, color: "#94a3b8", cursor: "pointer", fontSize: 15 }}>✕</button>
         </div>
