@@ -18074,6 +18074,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderMobilePlayerHpBar = (player: "A" | "B") => {
     const ps = player === "A" ? state.playerA : state.playerB;
     const fillPx = Math.max(0, Math.min(MOBILE_BOARD_W, Math.round((ps.hp / 2000) * MOBILE_BOARD_W)));
+    const isMyBar = multiplayMyTeam != null && player === multiplayMyTeam;
+    const isOppBar = multiplayMyTeam != null && player !== multiplayMyTeam;
+    const barNickname = isMyBar ? multiplayMyNickname : isOppBar ? multiplayOpponentNickname : null;
     return (
       <div
         data-mobile-player-hp={player}
@@ -18097,6 +18100,29 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             transition: "width 500ms",
           }}
         />
+        {barNickname && (
+          <span
+            onClick={isOppBar ? onOpponentNameClick : undefined}
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: 8,
+              transform: "translateY(-50%)",
+              fontSize: 10,
+              fontWeight: 800,
+              color: "#fff",
+              textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+              maxWidth: MOBILE_BOARD_W - 16,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              cursor: isOppBar && onOpponentNameClick ? "pointer" : "default",
+              pointerEvents: "auto",
+            }}
+          >
+            {barNickname}
+          </span>
+        )}
       </div>
     );
   };
