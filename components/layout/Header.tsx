@@ -128,6 +128,14 @@ export default function Header({
   const [requestActionLoading, setRequestActionLoading] = useState<string | null>(null);
   const [sendRequestStatus, setSendRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [selectedFriend, setSelectedFriend] = useState<Friendship | null>(null);
+  const [showChat, setShowChat] = useState(false);
+  const [chatFriend, setChatFriend] = useState<UserProfile | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{
+    id: string; sender_id: string; receiver_id: string; content: string; created_at: string;
+  }>>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
@@ -439,6 +447,54 @@ export default function Header({
     await loadFriends();
   };
 
+  const openChat = async (friend: UserProfile) => {
+    if (!user) return;
+    setChatFriend(friend);
+    setShowChat(true);
+    setChatLoading(true);
+    setChatMessages([]);
+    const supabase = createClient();
+    if (!supabase) { setChatLoading(false); return; }
+
+    const { data } = await supabase
+      .from("direct_messages")
+      .select("id, sender_id, receiver_id, content, created_at")
+      .or(`and(sender_id.eq.${user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${user.id})`)
+      .order("created_at", { ascending: true })
+      .limit(200);
+
+    setChatMessages(data ?? []);
+    setChatLoading(false);
+
+    await supabase
+      .from("direct_messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("receiver_id", user.id)
+      .eq("sender_id", friend.id)
+      .is("read_at", null);
+  };
+
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || !user || !chatFriend) return;
+    const supabase = createClient();
+    if (!supabase) return;
+
+    setChatInput("");
+    const { data, error } = await supabase
+      .from("direct_messages")
+      .insert({ sender_id: user.id, receiver_id: chatFriend.id, content: text })
+      .select("id, sender_id, receiver_id, content, created_at")
+      .single();
+
+    if (error) {
+      alert("메시지 전송 실패: " + error.message);
+      setChatInput(text);
+      return;
+    }
+    if (data) setChatMessages((prev) => [...prev, data]);
+  };
+
   useEffect(() => {
     if (!friendPanelOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -647,6 +703,12 @@ export default function Header({
       return () => clearTimeout(t);
     }
   }, [scrollToRecords, profileGames]);
+
+  useEffect(() => {
+    if (showChat && chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, showChat]);
 
   const renderProfileDeck = (deck: number[]) => {
     const avgCost = deck.length > 0
@@ -880,6 +942,13 @@ export default function Header({
                       style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                     >
                       대전 기록
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setFriendPanelOpen(false); setSelectedFriend(null); void openChat(f.other); }}
+                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${isDarkMode ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`, background: "transparent", color: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      메시지
                     </button>
                     <button
                       type="button"
@@ -1206,6 +1275,74 @@ export default function Header({
     ? createPortal(myProfileModalContent, document.body)
     : null;
 
+  const chatModalContent = showChat && chatFriend && user ? (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1002, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={() => setShowChat(false)}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: layoutMobile ? "94%" : "min(92vw, 440px)",
+          height: layoutMobile ? "80vh" : "min(85vh, 600px)",
+          background: "linear-gradient(180deg, #0d1f3c 0%, #050a14 100%)",
+          border: "1px solid rgba(255,255,255,0.12)", borderRadius: 20,
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+          <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {chatFriend.avatar_url ? <img src={chatFriend.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-5 w-5 text-sky-200" />}
+          </div>
+          <div style={{ flex: 1, fontSize: 15, fontWeight: 800, color: "#fff" }}>{chatFriend.nickname ?? "친구"}</div>
+          <button type="button" onClick={() => setShowChat(false)}
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, width: 30, height: 30, color: "#94a3b8", cursor: "pointer", fontSize: 15 }}>✕</button>
+        </div>
+
+        <div ref={chatScrollRef} className="pp-thin-scroll" style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+          {chatLoading ? (
+            <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, marginTop: 20 }}>불러오는 중...</div>
+          ) : chatMessages.length === 0 ? (
+            <div style={{ textAlign: "center", color: "#475569", fontSize: 13, marginTop: 20 }}>아직 대화가 없습니다.</div>
+          ) : (
+            chatMessages.map((m) => {
+              const mine = m.sender_id === user.id;
+              return (
+                <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
+                  <div style={{
+                    maxWidth: "75%", padding: "8px 12px", borderRadius: 12,
+                    background: mine ? "linear-gradient(135deg, #3b82f6, #8b5cf6)" : "rgba(255,255,255,0.08)",
+                    color: mine ? "#fff" : "#e2e8f0", fontSize: 13, lineHeight: 1.4, wordBreak: "break-word",
+                  }}>
+                    {m.content}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, padding: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void sendChatMessage(); }}
+            placeholder="메시지 입력..."
+            maxLength={500}
+            style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 13, outline: "none" }}
+          />
+          <button type="button" onClick={() => void sendChatMessage()}
+            style={{ padding: "0 18px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", flexShrink: 0 }}>
+            전송
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const chatModal = chatModalContent && typeof document !== "undefined"
+    ? createPortal(chatModalContent, document.body)
+    : null;
+
   const profileEditModalContent = showProfileEdit && user ? (
     <div style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
       onClick={() => setShowProfileEdit(false)}
@@ -1447,6 +1584,7 @@ export default function Header({
               {friendProfileModal}
               {myProfileModal}
               {profileEditModal}
+              {chatModal}
             </div>
           ) : null}
         </header>
@@ -1533,6 +1671,7 @@ export default function Header({
             {friendProfileModal}
             {myProfileModal}
             {profileEditModal}
+            {chatModal}
           </div>
         )}
       </div>
