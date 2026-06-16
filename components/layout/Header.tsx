@@ -136,6 +136,8 @@ export default function Header({
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [chatNotice, setChatNotice] = useState<{ senderId: string; senderNickname: string; senderAvatarUrl: string | null } | null>(null);
+  const lastSeenMessageRef = useRef<string | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
@@ -709,6 +711,74 @@ export default function Header({
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMessages, showChat]);
+
+  // DM 수신 폴링 — 3초마다 새 메시지 확인
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const supabase = createClient();
+      if (!supabase || cancelled) return;
+
+      const { data: unread } = await supabase
+        .from("direct_messages")
+        .select("id, sender_id, content, created_at")
+        .eq("receiver_id", user.id)
+        .is("read_at", null)
+        .order("created_at", { ascending: true });
+
+      if (cancelled || !unread || unread.length === 0) return;
+
+      if (showChat && chatFriend) {
+        const fromCurrentChat = unread.filter((m) => m.sender_id === chatFriend.id);
+        if (fromCurrentChat.length > 0) {
+          setChatMessages((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const newOnes = fromCurrentChat
+              .filter((m) => !existingIds.has(m.id))
+              .map((m) => ({ id: m.id, sender_id: m.sender_id, receiver_id: user.id, content: m.content, created_at: m.created_at }));
+            return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+          });
+          await supabase
+            .from("direct_messages")
+            .update({ read_at: new Date().toISOString() })
+            .eq("receiver_id", user.id)
+            .eq("sender_id", chatFriend.id)
+            .is("read_at", null);
+        }
+      }
+
+      const latest = unread[unread.length - 1];
+      const isFromOpenChat = showChat && chatFriend && latest.sender_id === chatFriend.id;
+      if (!isFromOpenChat && latest.id !== lastSeenMessageRef.current) {
+        lastSeenMessageRef.current = latest.id;
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("nickname, avatar_url")
+          .eq("id", latest.sender_id)
+          .maybeSingle();
+        if (!cancelled) {
+          setChatNotice({
+            senderId: latest.sender_id,
+            senderNickname: profile?.nickname ?? "친구",
+            senderAvatarUrl: profile?.avatar_url ?? null,
+          });
+        }
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user, showChat, chatFriend]);
+
+  // 알림 배너 3초 자동 종료
+  useEffect(() => {
+    if (!chatNotice) return;
+    const t = setTimeout(() => setChatNotice(null), 3000);
+    return () => clearTimeout(t);
+  }, [chatNotice]);
 
   const renderProfileDeck = (deck: number[]) => {
     const avgCost = deck.length > 0
@@ -1343,6 +1413,46 @@ export default function Header({
     ? createPortal(chatModalContent, document.body)
     : null;
 
+  const chatNoticeContent = chatNotice ? (
+    <div style={{
+      position: "fixed", top: 70, left: 0, right: 0, zIndex: 9997,
+      display: "flex", justifyContent: "center", padding: "0 16px",
+      pointerEvents: "none",
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 12,
+        background: "linear-gradient(135deg, rgba(30,41,59,0.97), rgba(15,23,42,0.97))",
+        border: "1px solid rgba(56,189,248,0.4)",
+        borderRadius: 14, padding: "10px 16px",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+        maxWidth: 460, width: "100%",
+        pointerEvents: "auto",
+      }}>
+        <div style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: "linear-gradient(135deg, rgba(14,165,233,0.35), rgba(79,70,229,0.45))", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {chatNotice.senderAvatarUrl ? <img src={chatNotice.senderAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-4 w-4 text-sky-200" />}
+        </div>
+        <div style={{ flex: 1, fontSize: 13, color: "#e2e8f0" }}>
+          <span style={{ fontWeight: 800, color: "#7dd3fc" }}>{chatNotice.senderNickname}</span>님이 메시지를 보냈습니다.
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const friend = friends.find((f) => f.other.id === chatNotice.senderId)?.other;
+            setChatNotice(null);
+            if (friend) void openChat(friend);
+          }}
+          style={{ flexShrink: 0, padding: "6px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}
+        >
+          바로 가기
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  const chatNoticeBanner = chatNoticeContent && typeof document !== "undefined"
+    ? createPortal(chatNoticeContent, document.body)
+    : null;
+
   const profileEditModalContent = showProfileEdit && user ? (
     <div style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
       onClick={() => setShowProfileEdit(false)}
@@ -1585,6 +1695,7 @@ export default function Header({
               {myProfileModal}
               {profileEditModal}
               {chatModal}
+              {chatNoticeBanner}
             </div>
           ) : null}
         </header>
@@ -1672,6 +1783,7 @@ export default function Header({
             {myProfileModal}
             {profileEditModal}
             {chatModal}
+            {chatNoticeBanner}
           </div>
         )}
       </div>
