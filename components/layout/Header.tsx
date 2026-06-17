@@ -1662,14 +1662,7 @@ export default function Header({
               <HamburgerIcon />
             </button>
 
-            {mainView === "multiplay" && multiplayOpponentNickname ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
-                <span style={{ fontSize: 13, color: "#64748b", fontWeight: 700 }}>vs</span>
-                <span style={{ fontSize: 15, color: "#fbbf24", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {multiplayOpponentNickname}
-                </span>
-              </div>
-            ) : !authReady ? (
+            {!authReady ? (
               <span style={{ fontSize: 14, color: "#94a3b8" }}>로딩 중…</span>
             ) : user ? (
               <div

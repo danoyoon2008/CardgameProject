@@ -18510,32 +18510,28 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           paddingLeft: MOBILE_TIMER_BOX_PAD_X,
           paddingRight: MOBILE_TIMER_BOX_PAD_X,
           overflow: "hidden",
-          cursor: canAttack ? "crosshair" : "default",
+          cursor: canAttack ? "crosshair" : onPanelProfileClick ? "pointer" : "default",
         }}
         onClick={e => {
           if (canAttack) {
             e.stopPropagation();
             handlePlayerAttack(player);
+          } else if (onPanelProfileClick) {
+            e.stopPropagation();
+            onPanelProfileClick();
           }
         }}
       >
         {renderFlashOverlay(`player-${player}`, "rounded-lg")}
         {panelNickname && (
           <div
-            onClick={(e) => {
-              if (onPanelProfileClick) {
-                e.stopPropagation();
-                onPanelProfileClick();
-              }
-            }}
             style={{
               fontSize: nicknameFontSize,
               fontWeight: 800,
               color: "#fff",
               maxWidth: MOBILE_TIMER_INNER_W,
               whiteSpace: "nowrap",
-              pointerEvents: onPanelProfileClick ? "auto" : "none",
-              cursor: onPanelProfileClick ? "pointer" : "default",
+              pointerEvents: "none",
               textAlign: "center",
               lineHeight: 1.2,
               padding: "2px 5px",
@@ -21928,12 +21924,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (canAttackPlayerB) {
                     e.stopPropagation();
                     handlePlayerAttack("B");
+                  } else {
+                    const cb = multiplayMyTeam === "B" ? onMyProfileClick : multiplayMyTeam === "A" ? onOpponentProfileClick : undefined;
+                    if (cb) { e.stopPropagation(); cb(); }
                   }
                 }}
               >
                 {renderFlashOverlay("player-B", "rounded-xl")}
                 <div className="flex justify-between items-center mb-1 px-4 pointer-events-none">
-                  <span className="text-sm font-bold text-slate-400">Player B</span>
+                  <span className="text-sm font-bold text-slate-400" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(multiplayMyTeam === "B" ? multiplayMyNickname : multiplayMyTeam === "A" ? multiplayOpponentNickname : null) ?? "Player B"}
+                  </span>
                   <span className="text-rose-500 font-black text-base transition-all">{state.playerB.hp}</span>
                 </div>
                 
@@ -21961,12 +21962,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   if (canAttackPlayerA) {
                     e.stopPropagation();
                     handlePlayerAttack("A");
+                  } else {
+                    const cb = multiplayMyTeam === "A" ? onMyProfileClick : multiplayMyTeam === "B" ? onOpponentProfileClick : undefined;
+                    if (cb) { e.stopPropagation(); cb(); }
                   }
                 }}
               >
                 {renderFlashOverlay("player-A", "rounded-xl")}
                 <div className="flex justify-between items-center mb-1 px-4 pointer-events-none">
-                  <span className="text-sm font-bold text-slate-400">Player A</span>
+                  <span className="text-sm font-bold text-slate-400" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(multiplayMyTeam === "A" ? multiplayMyNickname : multiplayMyTeam === "B" ? multiplayOpponentNickname : null) ?? "Player A"}
+                  </span>
                   <span className="text-sky-500 font-black text-base transition-all">{state.playerA.hp}</span>
                 </div>
 
