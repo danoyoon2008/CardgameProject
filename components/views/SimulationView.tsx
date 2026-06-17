@@ -18269,7 +18269,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             width: isNormal ? "52%" : "78%",
             marginLeft: "auto",
             marginRight: "auto",
-            ...(isPlayerA
+            ...((multiplayMyTeam != null ? player === multiplayMyTeam : isPlayerA)
               ? { marginTop: MOBILE_BOARD_EDGE_GAP }
               : { marginBottom: MOBILE_BOARD_EDGE_GAP }),
             height: MOBILE_HAND_H,
