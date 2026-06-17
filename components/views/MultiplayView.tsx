@@ -135,6 +135,9 @@ interface MultiplayViewProps {
   opponentNickname?: string | null;
   roomType?: string;
   onOpponentNicknameResolved?: (nickname: string | null) => void;
+  onOpponentInfoResolved?: (info: { userId: string | null; avatarUrl: string | null }) => void;
+  onMyProfileClick?: () => void;
+  onOpponentProfileClick?: () => void;
 }
 
 function normalizeNickname(value: unknown): string | null {
@@ -146,19 +149,22 @@ function normalizeNickname(value: unknown): string | null {
 async function fetchOpponentNickname(
   client: SupabaseClient,
   opponentId: string,
-): Promise<string | null> {
+): Promise<{ nickname: string | null; avatar_url: string | null }> {
   const { data, error } = await client
     .from("user_profiles")
-    .select("nickname")
+    .select("nickname, avatar_url")
     .eq("id", opponentId)
     .maybeSingle();
 
   if (error) {
     console.warn("[MultiplayView] 상대 닉네임 조회 실패:", error.message);
-    return null;
+    return { nickname: null, avatar_url: null };
   }
 
-  return normalizeNickname(data?.nickname);
+  return {
+    nickname: normalizeNickname(data?.nickname),
+    avatar_url: typeof data?.avatar_url === "string" ? data.avatar_url : null,
+  };
 }
 
 async function fetchGameRoomPlayerIds(
@@ -321,6 +327,8 @@ type MultiplayGameSessionProps = {
   opponentUserId?: string | null;
   opponentNickname?: string | null;
   roomType?: string;
+  onMyProfileClick?: () => void;
+  onOpponentProfileClick?: () => void;
 };
 
 function MultiplayGameSession({
@@ -337,6 +345,8 @@ function MultiplayGameSession({
   opponentUserId,
   opponentNickname,
   roomType,
+  onMyProfileClick,
+  onOpponentProfileClick,
 }: MultiplayGameSessionProps) {
   const hasHydrated = useRef(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -1131,6 +1141,8 @@ function MultiplayGameSession({
             multiplayOpponentNickname={opponentNickname ?? null}
             multiplayMyNickname={myNickname ?? null}
             multiplayOpponentUserId={opponentUserId ?? null}
+            onMyProfileClick={onMyProfileClick}
+            onOpponentProfileClick={onOpponentProfileClick}
             multiplayOpponentDisconnected={opponentDisconnected && !sessionWinner}
             multiplayDisconnectSecondsLeft={disconnectSecondsLeft}
             multiplaySessionWinner={sessionWinner}
@@ -1206,10 +1218,14 @@ export default function MultiplayView({
   opponentNickname: opponentNicknameProp,
   roomType: roomTypeProp,
   onOpponentNicknameResolved,
+  onOpponentInfoResolved,
+  onMyProfileClick,
+  onOpponentProfileClick,
 }: MultiplayViewProps) {
   const [bootstrapSnapshot, setBootstrapSnapshot] = useState<SimulationState | null>(null);
   const [deckCatalog, setDeckCatalog] = useState<CardRow[]>(cards);
   const [opponentNickname, setOpponentNickname] = useState<string | null>(opponentNicknameProp ?? null);
+  const [opponentAvatarUrl, setOpponentAvatarUrl] = useState<string | null>(null);
   const [roomRejected, setRoomRejected] = useState(false);
   const [resolvedMyUserId, setResolvedMyUserId] = useState(myUserIdProp ?? "");
   const [resolvedMyNickname, setResolvedMyNickname] = useState<string | null>(myNicknameProp ?? null);
@@ -1237,6 +1253,10 @@ export default function MultiplayView({
   }, [opponentNickname, onOpponentNicknameResolved]);
 
   useEffect(() => {
+    onOpponentInfoResolved?.({ userId: resolvedOpponentUserId ?? null, avatarUrl: opponentAvatarUrl ?? null });
+  }, [resolvedOpponentUserId, opponentAvatarUrl, onOpponentInfoResolved]);
+
+  useEffect(() => {
     if (roomTypeProp) setResolvedRoomType(roomTypeProp);
   }, [roomTypeProp]);
 
@@ -1258,8 +1278,8 @@ export default function MultiplayView({
       if (myNicknameProp === undefined) {
         const userId = myUserIdProp ?? (await supabase.auth.getUser()).data.user?.id;
         if (cancelled || !userId) return;
-        const nickname = await fetchOpponentNickname(supabase, userId);
-        if (!cancelled) setResolvedMyNickname(nickname);
+        const profile = await fetchOpponentNickname(supabase, userId);
+        if (!cancelled) setResolvedMyNickname(profile.nickname);
       }
 
       const room = await fetchGameRoomPlayerIds(supabase, roomId);
@@ -1323,10 +1343,14 @@ export default function MultiplayView({
         const opponentId = room?.player_a_id;
         if (!opponentId) {
           setOpponentNickname(null);
+          setOpponentAvatarUrl(null);
           return;
         }
-        const nickname = await fetchOpponentNickname(client, opponentId);
-        if (!cancelled) setOpponentNickname(nickname);
+        const profile = await fetchOpponentNickname(client, opponentId);
+        if (!cancelled) {
+          setOpponentNickname(profile.nickname);
+          setOpponentAvatarUrl(profile.avatar_url);
+        }
         return;
       }
 
@@ -1335,15 +1359,21 @@ export default function MultiplayView({
         const room = await fetchGameRoomPlayerIds(client, roomId);
         const opponentId = room?.player_b_id;
         if (typeof opponentId === "string" && opponentId.length > 0) {
-          const nickname = await fetchOpponentNickname(client, opponentId);
-          if (!cancelled) setOpponentNickname(nickname);
+          const profile = await fetchOpponentNickname(client, opponentId);
+          if (!cancelled) {
+            setOpponentNickname(profile.nickname);
+            setOpponentAvatarUrl(profile.avatar_url);
+          }
           return;
         }
         if (attempt < 15) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
-      if (!cancelled) setOpponentNickname(null);
+      if (!cancelled) {
+        setOpponentNickname(null);
+        setOpponentAvatarUrl(null);
+      }
     }
 
     void resolveOpponentNickname();
@@ -1550,6 +1580,8 @@ export default function MultiplayView({
           opponentUserId={resolvedOpponentUserId}
           opponentNickname={opponentNickname}
           roomType={resolvedRoomType}
+          onMyProfileClick={onMyProfileClick}
+          onOpponentProfileClick={onOpponentProfileClick}
         />
       ) : (
         <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-4">

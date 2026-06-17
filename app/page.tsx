@@ -253,6 +253,9 @@ export default function Home() {
   const [multiplayRoomId, setMultiplayRoomId] = useState<string | null>(null);
   const [multiplayRole, setMultiplayRole] = useState<PlayerRole | null>(null);
   const [multiplayOpponentNickname, setMultiplayOpponentNickname] = useState<string | null>(null);
+  const [profileViewTarget, setProfileViewTarget] = useState<{ userId: string; nickname: string | null; avatarUrl: string | null } | null>(null);
+  const [multiplayOpponentUserId, setMultiplayOpponentUserId] = useState<string | null>(null);
+  const [multiplayOpponentAvatarUrl, setMultiplayOpponentAvatarUrl] = useState<string | null>(null);
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
   const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
@@ -406,6 +409,8 @@ export default function Home() {
     setMultiplayRoomId(null);
     setMultiplayRole(null);
     setMultiplayOpponentNickname(null);
+    setMultiplayOpponentUserId(null);
+    setMultiplayOpponentAvatarUrl(null);
     game.setIsInFriendBattle(false);
     game.setMainView("battle");
     void refreshActiveMultiplayRoom();
@@ -438,6 +443,8 @@ export default function Home() {
         onSendFriendChallenge={handleSendFriendChallenge}
         mainView={game.mainView}
         multiplayOpponentNickname={multiplayOpponentNickname}
+        externalProfileTarget={profileViewTarget}
+        onExternalProfileHandled={() => setProfileViewTarget(null)}
       />
 
       <div className="flex w-full min-h-0 flex-1 flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8">
@@ -599,6 +606,8 @@ export default function Home() {
         layoutMobile
         mainView={game.mainView}
         multiplayOpponentNickname={multiplayOpponentNickname}
+        externalProfileTarget={profileViewTarget}
+        onExternalProfileHandled={() => setProfileViewTarget(null)}
         setMainView={game.setMainView}
         newCardIdsSize={game.newCardIds.size}
         authReady={game.authReady}
@@ -696,6 +705,30 @@ export default function Home() {
       `}} />
 
       {isFullScreenGame ? (
+        <>
+          {isMultiplay && game.user ? (
+            <Header
+              layoutMobile={isMobile}
+              mainView={game.mainView}
+              multiplayOpponentNickname={multiplayOpponentNickname}
+              externalProfileTarget={profileViewTarget}
+              onExternalProfileHandled={() => setProfileViewTarget(null)}
+              authReady={game.authReady}
+              user={game.user}
+              userAvatarUrl={game.userAvatarUrl}
+              currentDisplayName={game.currentDisplayName}
+              isDarkMode={game.isDarkMode}
+              gold={game.gold}
+              primeTokens={game.primeTokens}
+              cardShards={game.cardShards}
+              handleGoogleLogin={game.handleGoogleLogin}
+              handleEditGold={game.handleEditGold}
+              handleEditTokens={game.handleEditTokens}
+              handleEditShards={game.handleEditShards}
+              handleEditNickname={game.handleEditNickname}
+              onSendFriendChallenge={handleSendFriendChallenge}
+            />
+          ) : null}
         <main className={`order-1 flex min-h-full flex-1 flex-col lg:order-2 justify-center`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
@@ -718,6 +751,20 @@ export default function Home() {
                 myNickname={game.nickname ?? null}
                 roomType={game.isInFriendBattle ? "friend" : "global"}
                 onOpponentNicknameResolved={setMultiplayOpponentNickname}
+                onOpponentInfoResolved={(info) => {
+                  setMultiplayOpponentUserId(info.userId);
+                  setMultiplayOpponentAvatarUrl(info.avatarUrl);
+                }}
+                onMyProfileClick={() => {
+                  if (game.user) {
+                    setProfileViewTarget({ userId: game.user.id, nickname: game.nickname ?? null, avatarUrl: game.userAvatarUrl ?? null });
+                  }
+                }}
+                onOpponentProfileClick={() => {
+                  if (multiplayOpponentUserId) {
+                    setProfileViewTarget({ userId: multiplayOpponentUserId, nickname: multiplayOpponentNickname, avatarUrl: multiplayOpponentAvatarUrl });
+                  }
+                }}
               />
             ) : null
           ) : (
@@ -729,6 +776,7 @@ export default function Home() {
             />
           )}
         </main>
+        </>
       ) : useMobileLobbyWrapper ? (
         <MobileWrapper>{mobileLobbyChrome}</MobileWrapper>
       ) : (

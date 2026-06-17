@@ -96,6 +96,8 @@ interface HeaderProps {
   setMainView?: (view: MainView) => void;
   newCardIdsSize?: number;
   onSendFriendChallenge?: (friendId: string, friendNickname: string) => void;
+  externalProfileTarget?: { userId: string; nickname: string | null; avatarUrl: string | null } | null;
+  onExternalProfileHandled?: () => void;
 }
 
 export default function Header({
@@ -109,6 +111,8 @@ export default function Header({
   setMainView,
   newCardIdsSize = 0,
   onSendFriendChallenge,
+  externalProfileTarget = null,
+  onExternalProfileHandled,
 }: HeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [friendPanelOpen, setFriendPanelOpen] = useState(false);
@@ -142,6 +146,7 @@ export default function Header({
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const lastSeenMessageRef = useRef<string | null>(null);
   const [showFriendProfile, setShowFriendProfile] = useState(false);
+  const [externalProfile, setExternalProfile] = useState<{ id: string; nickname: string | null; avatar_url: string | null } | null>(null);
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [profileDeck, setProfileDeck] = useState<number[] | null>(null);
@@ -516,6 +521,15 @@ export default function Header({
       setSelectedFriend(null);
     }
   }, [friendPanelOpen]);
+
+  useEffect(() => {
+    if (!externalProfileTarget) return;
+    const target = { id: externalProfileTarget.userId, nickname: externalProfileTarget.nickname, avatar_url: externalProfileTarget.avatarUrl };
+    setExternalProfile(target);
+    setSelectedFriend({ id: `external-${target.id}`, other: target } as never);
+    setShowFriendProfile(true);
+    onExternalProfileHandled?.();
+  }, [externalProfileTarget, onExternalProfileHandled]);
 
   useEffect(() => {
     if (friendPanelOpen) {
