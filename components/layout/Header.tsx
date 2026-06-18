@@ -35,7 +35,10 @@ interface Friendship {
   requester_id: string;
   addressee_id: string;
   status: string;
+  requester_favorite?: boolean;
+  addressee_favorite?: boolean;
   other: UserProfile;
+  myFavorite?: boolean;
 }
 
 function HamburgerIcon() {
@@ -191,6 +194,17 @@ export default function Header({
     return Date.now() - new Date(lastSeenAt).getTime() < 120000; // 2분
   };
 
+  const sortFriendsList = (list: Friendship[]) =>
+    [...list].sort((a, b) => {
+      if (!!a.myFavorite !== !!b.myFavorite) return a.myFavorite ? -1 : 1;
+      const aOnline = isOnline(a.other.last_seen_at);
+      const bOnline = isOnline(b.other.last_seen_at);
+      if (aOnline !== bOnline) return aOnline ? -1 : 1;
+      const aTime = a.other.last_seen_at ? new Date(a.other.last_seen_at).getTime() : 0;
+      const bTime = b.other.last_seen_at ? new Date(b.other.last_seen_at).getTime() : 0;
+      return bTime - aTime;
+    });
+
   const loadFriends = async () => {
     if (!user) return;
     setFriendsLoading(true);
@@ -200,7 +214,7 @@ export default function Header({
     // 수락된 친구 목록
     const { data: accepted } = await supabase
       .from("friendships")
-      .select("id, requester_id, addressee_id, status")
+      .select("id, requester_id, addressee_id, status, requester_favorite, addressee_favorite")
       .eq("status", "accepted")
       .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
 
@@ -213,7 +227,9 @@ export default function Header({
             .select("id, nickname, avatar_url, last_seen_at")
             .eq("id", otherId)
             .single();
-          return { ...f, other: profile as UserProfile };
+          const myFavorite =
+            f.requester_id === user.id ? !!f.requester_favorite : !!f.addressee_favorite;
+          return { ...f, other: profile as UserProfile, myFavorite };
         })
       );
       const validFriends = withProfiles.filter(f => f.other);
@@ -264,7 +280,7 @@ export default function Header({
         }
       }
 
-      setFriends(validFriends);
+      setFriends(sortFriendsList(validFriends));
     }
 
     // 받은 친구 요청 목록
@@ -289,6 +305,27 @@ export default function Header({
     }
 
     setFriendsLoading(false);
+  };
+
+  const toggleFavorite = async (friendship: Friendship) => {
+    if (!user) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    const newVal = !friendship.myFavorite;
+    const col = friendship.requester_id === user.id ? "requester_favorite" : "addressee_favorite";
+    const { error } = await supabase
+      .from("friendships")
+      .update({ [col]: newVal })
+      .eq("id", friendship.id);
+    if (error) {
+      alert("즐겨찾기 변경 실패: " + error.message);
+      return;
+    }
+    setFriends(prev =>
+      sortFriendsList(
+        prev.map(f => (f.id === friendship.id ? { ...f, myFavorite: newVal } : f))
+      )
+    );
   };
 
   const searchUsers = async (query: string) => {
@@ -1056,6 +1093,26 @@ export default function Header({
                         <span style={{ color: "#64748b" }}>마지막 접속: {formatLastSeen(f.other.last_seen_at)}</span>
                       )}
                     </div>
+                  </div>
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void toggleFavorite(f);
+                    }}
+                    title={f.myFavorite ? "즐겨찾기 해제" : "즐겨찾기"}
+                    style={{
+                      flexShrink: 0,
+                      width: 26,
+                      height: 26,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      fontSize: 15,
+                      color: f.myFavorite ? "#fbbf24" : (isDarkMode ? "#475569" : "#cbd5e1"),
+                    }}
+                  >
+                    {f.myFavorite ? "★" : "☆"}
                   </div>
                 </button>
 

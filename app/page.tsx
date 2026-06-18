@@ -279,7 +279,27 @@ export default function Home() {
   const [autoStartMatchmaking, setAutoStartMatchmaking] = useState(false);
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
   const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
-  const [friends, setFriends] = useState<{ id: string; nickname: string | null; last_seen_at: string | null }[]>([]);
+  const [friends, setFriends] = useState<
+    { id: string; nickname: string | null; last_seen_at: string | null; myFavorite?: boolean }[]
+  >([]);
+
+  const sortBattleFriends = (
+    list: { id: string; nickname: string | null; last_seen_at: string | null; myFavorite?: boolean }[]
+  ) =>
+    [...list].sort((a, b) => {
+      if (!!a.myFavorite !== !!b.myFavorite) return a.myFavorite ? -1 : 1;
+      const onlineThreshold = 120000;
+      const aOnline = a.last_seen_at
+        ? Date.now() - new Date(a.last_seen_at).getTime() < onlineThreshold
+        : false;
+      const bOnline = b.last_seen_at
+        ? Date.now() - new Date(b.last_seen_at).getTime() < onlineThreshold
+        : false;
+      if (aOnline !== bOnline) return aOnline ? -1 : 1;
+      const aTime = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const bTime = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return bTime - aTime;
+    });
   const [showNicknameEdit, setShowNicknameEdit] = useState(false);
   const [battleLobbyResetSignal, setBattleLobbyResetSignal] = useState(0);
   const isSimulation = game.mainView === "simulation";
@@ -311,7 +331,7 @@ export default function Home() {
       if (!supabase) return;
       const { data } = await supabase
         .from("friendships")
-        .select("id, requester_id, addressee_id")
+        .select("id, requester_id, addressee_id, requester_favorite, addressee_favorite")
         .eq("status", "accepted")
         .or(`requester_id.eq.${game.user!.id},addressee_id.eq.${game.user!.id}`);
       if (!data) return;
@@ -323,10 +343,13 @@ export default function Home() {
             .select("id, nickname, last_seen_at")
             .eq("id", otherId)
             .maybeSingle();
-          return p;
+          if (!p) return null;
+          const myFavorite =
+            f.requester_id === game.user!.id ? !!f.requester_favorite : !!f.addressee_favorite;
+          return { ...p, myFavorite };
         })
       );
-      setFriends(profiles.filter(Boolean) as { id: string; nickname: string | null; last_seen_at: string | null }[]);
+      setFriends(sortBattleFriends(profiles.filter(Boolean) as NonNullable<(typeof profiles)[number]>[]));
     };
     void loadFriends();
     const interval = setInterval(() => { void loadFriends(); }, 30000);
