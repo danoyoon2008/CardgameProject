@@ -17637,7 +17637,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const MOBILE_FIELD_BADGE_GAP = 2;
   const MOBILE_FIELD_BADGE_H = 16;
   const MOBILE_FIELD_BADGE_W = (MOBILE_UNIT_W - MOBILE_FIELD_BADGE_GAP * 3) / 4;
-  const MOBILE_FIELD_BADGE_HP_GAP = 4;
+  const MOBILE_FIELD_BADGE_HP_GAP = 2;
   const mobileFieldUnitHpDims = { width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H };
   const mobileFieldSpellFaceOpts = {
     mobileFieldLayout: true as const,
@@ -17814,11 +17814,18 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div style={mobileHpColumnStyle}>
-        <div style={{ ...gaugeReserveStyle, justifyContent: "flex-end" }}>
-          {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
-          {renderElWingSinseokGaugeAboveHpAbsolute(card, fieldSlotKey)}
-          {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
-          {renderIversonWaitGaugeAboveHpAbsolute(card)}
+        <div style={gaugeReserveStyle}>
+          {card?.name === DARK_KNIGHT_ID ? (
+            renderDarkKnightSoulGaugeBelowHpFlow(card, fieldSlotKey)
+          ) : card?.name === EL_WING_ID ? (
+            renderElWingSinseokGaugeBelowHpFlow(card)
+          ) : card?.name === MAXELLAND_ID ? (
+            renderMaxellandTenacityGaugeBelowHpFlow(card, fieldSlotKey)
+          ) : card?.name === IVERSON_ID ? (
+            renderIversonWaitGaugeRowPlayerA(card)
+          ) : (
+            <div className="h-[10px] w-full shrink-0 rounded-[3px]" aria-hidden />
+          )}
         </div>
         {hpBarAnchor}
       </div>
