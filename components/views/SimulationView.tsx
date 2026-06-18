@@ -1444,8 +1444,15 @@ export default function SimulationView({
   useEffect(() => {
     const checkMobile = () => {
       const isTouch = navigator.maxTouchPoints > 0 || "ontouchstart" in window;
-      const isNarrow = window.innerWidth < 1280;
-      setIsMobile(isTouch && isNarrow);
+      let coarseOrNoHover = false;
+      if (typeof window.matchMedia === "function") {
+        const coarse = window.matchMedia("(pointer: coarse)").matches;
+        const noHover = window.matchMedia("(hover: none)").matches;
+        coarseOrNoHover = coarse || noHover;
+      } else {
+        coarseOrNoHover = isTouch;
+      }
+      setIsMobile(isTouch && coarseOrNoHover);
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
