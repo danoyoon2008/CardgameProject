@@ -15868,7 +15868,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
     return (
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        className="pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center w-full"
         aria-label={`다크나이트 소울 ${filled}/${DARK_KNIGHT_GAUGE_CAP}`}
       >
         <div
@@ -15942,7 +15942,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
     return (
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        className="pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center w-full"
         aria-label={`엘 윙 ${EL_WING_SINSEOK_SKILL_LABEL} ${filled}/${EL_WING_SINSEOK_GAUGE_CAP}`}
       >
         <div className="w-full rounded-[4px]">{row}</div>
@@ -15999,7 +15999,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
     return (
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        className="pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center w-full"
         aria-label={`맥셀렌드 투지 ${filled}/${MAXELLAND_TENACITY_GAUGE_CAP}`}
       >
         <div
@@ -16052,7 +16052,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const flicker = iversonWaitGaugeOutlineClass(fill);
     return (
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center ${fieldUnitWidthClass}`}
+        className="pointer-events-none absolute inset-x-0 bottom-full z-[22] mb-0.5 flex flex-col items-center w-full"
         aria-label={iversonLiberationLabel(card) ?? "아이버슨 대기"}
       >
         <div
