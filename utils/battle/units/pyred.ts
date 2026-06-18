@@ -34,13 +34,22 @@ export function isPyredAuraPassiveSuppressed(
 /** 살아 있고 [혼란]이 아닌 파이레드가 필드에 있는지 */
 export function fieldHasActivePyredAuraSource(ctx: PyredAuraFieldContext): boolean {
   const allyField = ctx.allyPlayer === "A" ? ctx.playerAField : ctx.playerBField;
+  const oppField = ctx.allyPlayer === "A" ? ctx.playerBField : ctx.playerAField;
+  let foundPyred = false;
+  for (const slot of ["is", "m", "os"] as const) {
+    const c = allyField[slot];
+    if (c?.name === PYRED_ID && (c.currentHp ?? 0) > 0) foundPyred = true;
+  }
   if (typeof window !== "undefined") {
-    console.log("[PYRED-AURA]", {
+    console.log("[PYRED-AURA-V2]", {
       allyPlayer: ctx.allyPlayer,
-      allyFieldSlots: allyField ? [allyField.is?.name, allyField.m?.name, allyField.os?.name] : null,
+      allyFieldNames: [allyField?.is?.name, allyField?.m?.name, allyField?.os?.name],
+      oppFieldNames: [oppField?.is?.name, oppField?.m?.name, oppField?.os?.name],
+      pAFieldNames: [ctx.playerAField?.is?.name, ctx.playerAField?.m?.name, ctx.playerAField?.os?.name],
+      pBFieldNames: [ctx.playerBField?.is?.name, ctx.playerBField?.m?.name, ctx.playerBField?.os?.name],
+      foundPyredInAllyField: foundPyred,
     });
   }
-  const oppField = ctx.allyPlayer === "A" ? ctx.playerBField : ctx.playerAField;
   for (const slot of ["is", "m", "os"] as const) {
     const c = allyField[slot];
     if (!c || c.name !== PYRED_ID || (c.currentHp ?? 0) <= 0) continue;

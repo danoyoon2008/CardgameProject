@@ -16309,6 +16309,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const oppCard = oppField[slot as "is"|"m"|"os"];
     const myField = player === "A" ? state.playerA.field : state.playerB.field;
 
+    if (typeof window !== "undefined" && card?.name && (card.name.includes("그린킹") || card.name.includes("맥셀") || card.name.includes("파이레드"))) {
+      console.log("[BADGE-CTX]", {
+        renderPlayer: player,
+        cardName: card.name,
+        mySlotKey: `${player}-${slot}`,
+        stateA: [state.playerA.field.is?.name, state.playerA.field.m?.name, state.playerA.field.os?.name],
+        stateB: [state.playerB.field.is?.name, state.playerB.field.m?.name, state.playerB.field.os?.name],
+      });
+    }
+
     const statuses = sortStatusesForBadgeDisplay(
       getActiveStatuses(card, oppCard, myField, {
         playerAField: state.playerA.field,
