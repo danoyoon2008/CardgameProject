@@ -209,7 +209,7 @@ export function sortCodexCards(
 
 export function getShardRewardValue(rarity?: string | null) {
   const r = (rarity || "").trim().toUpperCase();
-  if (r === "A" || r === "ANCIENT") return 50; 
+  if (r === "A" || r === "ANCIENT") return 20; 
   if (r === "L" || r === "LEGENDARY") return 20;
   if (r === "E" || r === "EPIC") return 8;
   if (r === "R" || r === "RARE") return 4;

@@ -49,6 +49,7 @@ interface BattleViewProps {
   friends?: { id: string; nickname: string | null; last_seen_at: string | null }[];
   onSetFriendChallengeTarget?: (target: { id: string; nickname: string }) => void;
   deckIsValid?: boolean;
+  lobbyResetSignal?: number;
 }
 
 function IconClassic({ className }: { className?: string }) {
@@ -165,11 +166,18 @@ export default function BattleView({
   friends = [],
   onSetFriendChallengeTarget,
   deckIsValid = false,
+  lobbyResetSignal = 0,
 }: BattleViewProps) {
   const [battlePhase, setBattlePhase] = useState<BattlePhase>("lobby");
   const [onlineCount, setOnlineCount] = useState(0);
   const [countdownValue, setCountdownValue] = useState<number | null>(null);
   const [deckIncompleteToast, setDeckIncompleteToast] = useState(false);
+
+  useEffect(() => {
+    if (lobbyResetSignal && lobbyResetSignal > 0) {
+      setBattlePhase("lobby");
+    }
+  }, [lobbyResetSignal]);
 
   const { matchStatus, roomId, myRole, opponentNickname, startMatchmaking, cancelMatchmaking } =
     useMatchmaking();

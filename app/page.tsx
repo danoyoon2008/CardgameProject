@@ -103,11 +103,17 @@ function LoginRequiredView({
 function NicknameSetupModal({
   onConfirm,
   isMobile,
+  mode = "setup",
+  initialValue = "",
+  onCancel,
 }: {
   onConfirm: (nickname: string) => Promise<void>;
   isMobile: boolean;
+  mode?: "setup" | "edit";
+  initialValue?: string;
+  onCancel?: () => void;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
   const [checkStatus, setCheckStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
   const [submitting, setSubmitting] = useState(false);
 
@@ -165,11 +171,16 @@ function NicknameSetupModal({
       <div style={boxStyle}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: isMobile ? 28 : 36, fontWeight: 900, color: "#fff", marginBottom: 8 }}>
-            ⚡ PowerPrime
+            {mode === "edit" ? "닉네임 변경" : "⚡ PowerPrime"}
           </div>
           <div style={{ fontSize: isMobile ? 15 : 17, color: "#94a3b8", lineHeight: 1.6 }}>
-            닉네임을 설정해주세요.<br />
-            <span style={{ fontSize: isMobile ? 12 : 13, color: "#64748b" }}>2~12자, 나중에 변경 가능합니다.</span>
+            {mode === "edit" ? (
+              <>새 닉네임을 입력해주세요.<br />
+              <span style={{ fontSize: isMobile ? 12 : 13, color: "#64748b" }}>2~12자, 공백 불가</span></>
+            ) : (
+              <>닉네임을 설정해주세요.<br />
+              <span style={{ fontSize: isMobile ? 12 : 13, color: "#64748b" }}>2~12자, 나중에 변경 가능합니다.</span></>
+            )}
           </div>
         </div>
 
@@ -240,8 +251,17 @@ function NicknameSetupModal({
             transition: "all 0.2s",
           }}
         >
-          {submitting ? "설정 중..." : "확인"}
+          {submitting ? (mode === "edit" ? "변경 중..." : "설정 중...") : "확인"}
         </button>
+        {mode === "edit" && onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{ width: "100%", padding: "10px 0", borderRadius: 12, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#94a3b8", fontSize: 14, fontWeight: 700, cursor: "pointer", marginTop: 4 }}
+          >
+            취소
+          </button>
+        )}
       </div>
     </div>
   );
@@ -260,6 +280,8 @@ export default function Home() {
   const [friendChallengeTarget, setFriendChallengeTarget] = useState<{ id: string; nickname: string } | null>(null);
   const [challengeBannerDismissed, setChallengeBannerDismissed] = useState(false);
   const [friends, setFriends] = useState<{ id: string; nickname: string | null; last_seen_at: string | null }[]>([]);
+  const [showNicknameEdit, setShowNicknameEdit] = useState(false);
+  const [battleLobbyResetSignal, setBattleLobbyResetSignal] = useState(0);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
   const isFullScreenGame = isSimulation || isMultiplay;
@@ -439,7 +461,7 @@ export default function Home() {
         authReady={game.authReady} user={game.user} userAvatarUrl={game.userAvatarUrl} currentDisplayName={game.currentDisplayName} isDarkMode={game.isDarkMode}
         gold={game.gold} primeTokens={game.primeTokens} cardShards={game.cardShards} handleGoogleLogin={game.handleGoogleLogin}
         handleEditGold={game.handleEditGold} handleEditTokens={game.handleEditTokens} handleEditShards={game.handleEditShards}
-        handleEditNickname={game.handleEditNickname}
+        handleEditNickname={() => setShowNicknameEdit(true)}
         onSendFriendChallenge={handleSendFriendChallenge}
         mainView={game.mainView}
         multiplayOpponentNickname={multiplayOpponentNickname}
@@ -484,6 +506,7 @@ export default function Home() {
                   friends={friends}
                   onSetFriendChallengeTarget={setFriendChallengeTarget}
                   deckIsValid={deckIsValid}
+                  lobbyResetSignal={battleLobbyResetSignal}
                 />
               )}
               
@@ -531,6 +554,7 @@ export default function Home() {
           friends={friends}
           onSetFriendChallengeTarget={setFriendChallengeTarget}
           deckIsValid={deckIsValid}
+          lobbyResetSignal={battleLobbyResetSignal}
         />
       )}
       {game.mainView === "shop" && (
@@ -622,7 +646,7 @@ export default function Home() {
         handleEditGold={game.handleEditGold}
         handleEditTokens={game.handleEditTokens}
         handleEditShards={game.handleEditShards}
-        handleEditNickname={game.handleEditNickname}
+        handleEditNickname={() => setShowNicknameEdit(true)}
         onSendFriendChallenge={handleSendFriendChallenge}
       />
       {mobileLobbyMain}
@@ -638,6 +662,19 @@ export default function Home() {
         <NicknameSetupModal
           onConfirm={game.handleSetInitialNickname}
           isMobile={isMobile}
+        />
+      )}
+
+      {showNicknameEdit && game.user && (
+        <NicknameSetupModal
+          mode="edit"
+          initialValue={game.nickname ?? ""}
+          isMobile={isMobile}
+          onConfirm={async (nn) => {
+            await game.handleSetInitialNickname(nn);
+            setShowNicknameEdit(false);
+          }}
+          onCancel={() => setShowNicknameEdit(false)}
         />
       )}
 
@@ -669,7 +706,10 @@ export default function Home() {
             </div>
             <button
               type="button"
-              onClick={() => game.setMainView("battle")}
+              onClick={() => {
+                game.setMainView("battle");
+                setBattleLobbyResetSignal((n) => n + 1);
+              }}
               style={{
                 flexShrink: 0, padding: "7px 16px", borderRadius: 10, border: "none",
                 background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#fff",
@@ -725,7 +765,7 @@ export default function Home() {
             handleEditGold={game.handleEditGold}
             handleEditTokens={game.handleEditTokens}
             handleEditShards={game.handleEditShards}
-            handleEditNickname={game.handleEditNickname}
+            handleEditNickname={() => setShowNicknameEdit(true)}
             onSendFriendChallenge={handleSendFriendChallenge}
           />
         ) : null}
