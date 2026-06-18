@@ -16337,34 +16337,39 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       : getActiveCheolbyeokInvulnTicksFromField(myField);
 
     const statusTooltip = (status: string) => {
-      if (status === BANG_EOMAK_DEFENSE_BADGE) {
-        return "[방어력 +200]";
-      }
-      if (status === BAEKSEU_INVULN_BADGE) {
-        return "[무적]";
-      }
-      if (status === BUFF_BAN_BADGE) {
-        return "[버프 금지]";
-      }
-      if (status === SUPPRESSION_DEBUFF_BADGE) {
-        return "[제압]";
-      }
-      if (status === EL_WING_MAGIC_IMMUNITY_BADGE) {
-        return "[마법 면역]";
-      }
-      if (status === "침묵" && isEondeokSilenceActive(card)) {
-        return "[침묵]";
-      }
-      if (status === "혼란") {
-        return "[혼란]";
-      }
-      if (status === YORIN_STATUS_BADGE && card.name === DARK_KNIGHT_ID) {
-        return `역린: 공격력 +${getDarkKnightYorinAtkBonus(card, oppCard)}`;
-      }
-      if (isMaxellandTenacityStatusBadge(status) && card.name === MAXELLAND_ID) {
-        return `투지: 공격력 +${getMaxellandTenacityAtkBonus(card, oppCard)}`;
-      }
-      return status;
+      const raw = (() => {
+        if (status === BANG_EOMAK_DEFENSE_BADGE) {
+          return "방어력 +200";
+        }
+        if (status === BAEKSEU_INVULN_BADGE) {
+          return "무적";
+        }
+        if (status === BUFF_BAN_BADGE) {
+          return "버프 금지";
+        }
+        if (status === SUPPRESSION_DEBUFF_BADGE) {
+          return "제압";
+        }
+        if (status === EL_WING_MAGIC_IMMUNITY_BADGE) {
+          return "마법 면역";
+        }
+        if (status === "침묵" && isEondeokSilenceActive(card)) {
+          return "침묵";
+        }
+        if (status === "혼란") {
+          return "혼란";
+        }
+        if (status === YORIN_STATUS_BADGE && card.name === DARK_KNIGHT_ID) {
+          return `역린: 공격력 +${getDarkKnightYorinAtkBonus(card, oppCard)}`;
+        }
+        if (isMaxellandTenacityStatusBadge(status) && card.name === MAXELLAND_ID) {
+          return `투지: 공격력 +${getMaxellandTenacityAtkBonus(card, oppCard)}`;
+        }
+        return status;
+      })();
+      const trimmed = raw.trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) return trimmed;
+      return `[${trimmed}]`;
     };
 
     const mobileBadgeGap = opts?.badgeGap ?? 2;
@@ -20983,6 +20988,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 const vw = typeof window !== "undefined" ? window.innerWidth : selectedBadge.x;
                 const left = Math.max(margin, Math.min(selectedBadge.x, vw - margin));
                 const top = Math.max(margin, selectedBadge.y - gapAbove - estTooltipH);
+                const pickTextColor = (bg: string): string => {
+                  const m = bg.match(/rgba?\(([^)]+)\)/);
+                  if (!m) return "#fff";
+                  const parts = m[1].split(",").map((s) => parseFloat(s.trim()));
+                  const [r, g, b] = parts;
+                  if (r == null || g == null || b == null) return "#fff";
+                  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                  return luminance > 0.6 ? "#0f172a" : "#fff";
+                };
+                const tooltipTextColor = pickTextColor(selectedBadge.bgColor);
                 return (
                   <div
                     role="tooltip"
@@ -20994,6 +21009,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       transform: "translateX(-50%)",
                       zIndex: 9999,
                       backgroundColor: selectedBadge.bgColor,
+                      color: tooltipTextColor,
                       fontSize: 12,
                       padding: "6px 12px",
                       borderRadius: 6,
