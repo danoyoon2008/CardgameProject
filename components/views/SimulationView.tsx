@@ -16487,7 +16487,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const zoneWidth = opts.zoneWidth ?? 72;
       return (
         <div
-          className="z-[36] grid shrink-0"
+          className="z-[60] grid shrink-0"
           style={{
             maxWidth: zoneWidth,
             width: zoneWidth,
@@ -16504,7 +16504,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div
-        className={`z-[36] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
+        className={`z-[60] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
         role="list"
         aria-label="필드 효과"
       >

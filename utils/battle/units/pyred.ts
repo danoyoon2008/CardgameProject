@@ -34,6 +34,12 @@ export function isPyredAuraPassiveSuppressed(
 /** 살아 있고 [혼란]이 아닌 파이레드가 필드에 있는지 */
 export function fieldHasActivePyredAuraSource(ctx: PyredAuraFieldContext): boolean {
   const allyField = ctx.allyPlayer === "A" ? ctx.playerAField : ctx.playerBField;
+  if (typeof window !== "undefined") {
+    console.log("[PYRED-AURA]", {
+      allyPlayer: ctx.allyPlayer,
+      allyFieldSlots: allyField ? [allyField.is?.name, allyField.m?.name, allyField.os?.name] : null,
+    });
+  }
   const oppField = ctx.allyPlayer === "A" ? ctx.playerBField : ctx.playerAField;
   for (const slot of ["is", "m", "os"] as const) {
     const c = allyField[slot];

@@ -22,7 +22,7 @@ import {
   DEBUFF_IMMUNITY_BADGE,
   fieldHasLivingIronKiwi,
 } from "./battle/units/ironKiwi";
-import { PYRED_ATTACK_AURA_BADGE, getPyredAttackAuraStatuses } from "./battle/units/pyred";
+import { PYRED_ATTACK_AURA_BADGE, PYRED_ID, getPyredAttackAuraStatuses } from "./battle/units/pyred";
 import { getMorningMoodAttackAuraStatuses } from "./battle/units/morningMood";
 import { fieldHasLivingStartingTree, getStartingTreeAttackAuraStatuses } from "./battle/units/startingTree";
 import { getStatusNamesFromPhilipMatchup } from "./battle/units/philip";
@@ -119,6 +119,13 @@ export const getActiveStatuses = (
 
   const passiveFn = passiveStatusRegistry[myCard.name];
   if (passiveFn) {
+    if (typeof window !== "undefined" && myCard.name === PYRED_ID) {
+      console.log("[BADGE-PASSIVE]", {
+        cardName: myCard.name,
+        mySlotKey: battleCtx?.mySlotKey,
+        myFieldSlots: [myFieldSafe.is?.name, myFieldSafe.m?.name, myFieldSafe.os?.name],
+      });
+    }
     let passiveStatuses = passiveFn(myCard, oppCard, myFieldSafe);
     if (isSuppressionActive(myCard)) {
       passiveStatuses = filterStatusesForSuppressionDisplay(passiveStatuses);
