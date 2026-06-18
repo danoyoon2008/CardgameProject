@@ -18266,7 +18266,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         : "rgba(0,0,0,0.25)";
 
     return (
-      <div style={{ position: "relative", overflow: "visible" }}>
+      <div style={{ position: "relative", overflow: "visible", zIndex: 5 }}>
         {renderChatBubble(
           isPlayerA
             ? multiplayMyRole === "player_a"
@@ -20422,6 +20422,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 width: MOBILE_BOARD_W,
                 height: MOBILE_MID_H,
                 position: "relative",
+                zIndex: 30,
               }}
             >
               <div
