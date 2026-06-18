@@ -17731,6 +17731,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       renderMobileFieldHpBar(card, isPlayerA, slot) ?? (
         <div style={{ width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H }} aria-hidden />
       );
+    const hasActiveGauge = (() => {
+      if (!card) return false;
+      const [gOwner, gSlot] = fieldSlotKey.split("-") as ["A" | "B", "is" | "m" | "os"];
+      const facing =
+        state && (gSlot === "is" || gSlot === "m" || gSlot === "os")
+          ? facingOppUnitAtSlot(state, gOwner, gSlot)
+          : null;
+      if (card.name === DARK_KNIGHT_ID) {
+        return !isDarkKnightPassivesPausedByConfusion(card, facing);
+      }
+      if (card.name === EL_WING_ID || card.name === MAXELLAND_ID || card.name === IVERSON_ID) {
+        return true;
+      }
+      return false;
+    })();
     const badgeContent = renderStatusBadges(ownerPlayer, slot, card, isPlayerA, mobileFieldBadgeRenderOpts);
     const badgeOverlay = badgeContent ? (
       <div
@@ -17741,8 +17756,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           zIndex: 55,
           pointerEvents: "none",
           ...(isPlayerA
-            ? { top: "100%", marginTop: MOBILE_FIELD_BADGE_HP_GAP }
-            : { bottom: "100%", marginBottom: MOBILE_FIELD_BADGE_HP_GAP }),
+            ? { top: "100%", marginTop: MOBILE_FIELD_BADGE_HP_GAP + (hasActiveGauge ? MOBILE_FIELD_HP_GAUGE_RESERVE_H + MOBILE_FIELD_BADGE_HP_GAP : 0) }
+            : { bottom: "100%", marginBottom: MOBILE_FIELD_BADGE_HP_GAP + (hasActiveGauge ? MOBILE_FIELD_HP_GAUGE_RESERVE_H + MOBILE_FIELD_BADGE_HP_GAP : 0) }),
         }}
       >
         {badgeContent}
@@ -17799,7 +17814,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div style={mobileHpColumnStyle}>
-        <div style={gaugeReserveStyle}>
+        <div style={{ ...gaugeReserveStyle, justifyContent: "flex-end" }}>
           {renderDarkKnightSoulGaugeAboveHpAbsolute(card, fieldSlotKey)}
           {renderElWingSinseokGaugeAboveHpAbsolute(card, fieldSlotKey)}
           {renderMaxellandTenacityGaugeAboveHpAbsolute(card, fieldSlotKey)}
