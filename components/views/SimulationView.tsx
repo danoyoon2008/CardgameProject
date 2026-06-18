@@ -17724,14 +17724,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     card: FieldCard | null,
     isPlayerA: boolean,
     fieldSlotKey: string,
-    slot: "is" | "m" | "os"
+    slot: "is" | "m" | "os",
+    ownerPlayer: "A" | "B"
   ) => {
-    const player: "A" | "B" = isPlayerA ? "A" : "B";
     const hpInner =
       renderMobileFieldHpBar(card, isPlayerA, slot) ?? (
         <div style={{ width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H }} aria-hidden />
       );
-    const badgeContent = renderStatusBadges(player, slot, card, isPlayerA, mobileFieldBadgeRenderOpts);
+    const badgeContent = renderStatusBadges(ownerPlayer, slot, card, isPlayerA, mobileFieldBadgeRenderOpts);
     const badgeOverlay = badgeContent ? (
       <div
         style={{
@@ -18163,7 +18163,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }}
       >
         <div style={{ width: MOBILE_UNIT_W, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-          {!fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot) : null}
+          {!fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, false, slotKey, slot, player) : null}
           <div className={unitSlotOuterClass} style={{ width: MOBILE_UNIT_W, height: MOBILE_UNIT_H }}>
             {renderMaengsugyeonPoFacingEnemyRect(player, slot, card)}
             <div
@@ -18237,7 +18237,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderIversonWaitAuraOverlay(card, "rounded-[6px]", slotKey)}
             {renderBaekseuInvulnRing(card, "rounded-[6px]", player, slot)}
           </div>
-          {fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot) : null}
+          {fieldSlotIsPlayerA(player) ? renderMobileHpRowWithOptionalDKGauge(card, true, slotKey, slot, player) : null}
           <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups(slotKey)}</div>
         </div>
       </div>
