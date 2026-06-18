@@ -16497,7 +16497,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const zoneWidth = opts.zoneWidth ?? 72;
       return (
         <div
-          className="z-[60] grid shrink-0"
+          className="z-[55] grid shrink-0"
           style={{
             maxWidth: zoneWidth,
             width: zoneWidth,
@@ -16514,7 +16514,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     return (
       <div
-        className={`z-[60] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
+        className={`z-[55] grid shrink-0 ${fieldUnitWidthClass} grid-cols-4 justify-items-center gap-x-1 gap-y-1`}
         role="list"
         aria-label="필드 효과"
       >
@@ -17738,7 +17738,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           position: "absolute",
           left: 0,
           width: MOBILE_UNIT_W,
-          zIndex: 36,
+          zIndex: 55,
           pointerEvents: "none",
           ...(isPlayerA
             ? { top: "100%", marginTop: MOBILE_FIELD_BADGE_HP_GAP }
@@ -17749,7 +17749,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       </div>
     ) : null;
     const hpBarAnchor = (
-      <div style={{ position: "relative", width: MOBILE_UNIT_W, flexShrink: 0 }}>
+      <div style={{ position: "relative", width: MOBILE_UNIT_W, flexShrink: 0, zIndex: 55 }}>
         {!isPlayerA ? badgeOverlay : null}
         {hpInner}
         {isPlayerA ? badgeOverlay : null}
@@ -17762,6 +17762,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       flexDirection: "column",
       alignItems: "center",
       gap: 2,
+      position: "relative",
+      zIndex: 55,
     };
     const gaugeReserveStyle: React.CSSProperties = {
       width: MOBILE_UNIT_W,
@@ -18283,6 +18285,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           ref={isPlayerA ? mobileHandRowRefA : mobileHandRowRefB}
           onClick={() => setSelectedHandCard(null)}
           style={{
+            position: "relative",
+            zIndex: 10,
             width: isNormal ? "52%" : "78%",
             marginLeft: "auto",
             marginRight: "auto",
