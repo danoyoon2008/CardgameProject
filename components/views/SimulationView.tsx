@@ -55,6 +55,7 @@ import {
   bumpMaxellandTenacityGaugeOnEnemyKill,
   applyIncomingDefenseDamage,
   MARY_ID,
+  MARY_DEFENSE_BUFF_BADGE,
   maryDefenseBuffActive,
   PAKKI_ID,
   scalePakkiOutgoingHit,
@@ -1848,6 +1849,7 @@ export default function SimulationView({
     x: number;
     y: number;
     bgColor: string;
+    textColor?: string;
   } | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const touchDragRef = useRef<{
@@ -15554,7 +15556,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       case BANG_EOMAK_DEFENSE_BADGE:
         return "bg-gradient-to-br from-emerald-500 to-lime-400 border-lime-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] text-emerald-950";
       case "방어력 +400":
-        return "bg-slate-100 border-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.55)]";
+        return "bg-slate-100 border-white text-slate-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.55)]";
       case BAEKSEU_INVULN_BADGE:
         return "bg-slate-200 border-slate-50 text-slate-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]";
       case "[공격력 +300]":
@@ -16423,6 +16425,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       x: t.clientX,
                       y: t.clientY,
                       bgColor,
+                      textColor:
+                        status === MARY_DEFENSE_BUFF_BADGE ? "#0f172a" : undefined,
                     });
                   }
                 : undefined
@@ -20997,7 +21001,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
                   return luminance > 0.6 ? "#0f172a" : "#fff";
                 };
-                const tooltipTextColor = pickTextColor(selectedBadge.bgColor);
+                const tooltipTextColor =
+                  selectedBadge.textColor ?? pickTextColor(selectedBadge.bgColor);
                 return (
                   <div
                     role="tooltip"
