@@ -98,6 +98,7 @@ interface HeaderProps {
   onSendFriendChallenge?: (friendId: string, friendNickname: string) => void;
   externalProfileTarget?: { userId: string; nickname: string | null; avatarUrl: string | null } | null;
   onExternalProfileHandled?: () => void;
+  modalOnly?: boolean;
 }
 
 export default function Header({
@@ -113,6 +114,7 @@ export default function Header({
   onSendFriendChallenge,
   externalProfileTarget = null,
   onExternalProfileHandled,
+  modalOnly = false,
 }: HeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [friendPanelOpen, setFriendPanelOpen] = useState(false);
@@ -1604,6 +1606,17 @@ export default function Header({
   const profileEditModal = profileEditModalContent && typeof document !== "undefined"
     ? createPortal(profileEditModalContent, document.body)
     : null;
+
+  if (modalOnly) {
+    return (
+      <>
+        {friendProfileModal}
+        {myProfileModal}
+        {chatModal}
+        {chatNoticeBanner}
+      </>
+    );
+  }
 
   if (layoutMobile) {
     const borderColor = isDarkMode ? "rgba(255,255,255,0.1)" : "#cbd5e1";
