@@ -706,29 +706,6 @@ export default function Home() {
 
       {isFullScreenGame ? (
         <>
-          {isMultiplay && game.user ? (
-            <Header
-              layoutMobile={isMobile}
-              mainView={game.mainView}
-              multiplayOpponentNickname={multiplayOpponentNickname}
-              externalProfileTarget={profileViewTarget}
-              onExternalProfileHandled={() => setProfileViewTarget(null)}
-              authReady={game.authReady}
-              user={game.user}
-              userAvatarUrl={game.userAvatarUrl}
-              currentDisplayName={game.currentDisplayName}
-              isDarkMode={game.isDarkMode}
-              gold={game.gold}
-              primeTokens={game.primeTokens}
-              cardShards={game.cardShards}
-              handleGoogleLogin={game.handleGoogleLogin}
-              handleEditGold={game.handleEditGold}
-              handleEditTokens={game.handleEditTokens}
-              handleEditShards={game.handleEditShards}
-              handleEditNickname={game.handleEditNickname}
-              onSendFriendChallenge={handleSendFriendChallenge}
-            />
-          ) : null}
         <main className={`order-1 flex min-h-full flex-1 flex-col lg:order-2 justify-center`}>
           {game.shouldShowLoginRequired ? (
             <LoginRequiredView onLogin={game.handleGoogleLogin} isDarkMode={game.isDarkMode} />
