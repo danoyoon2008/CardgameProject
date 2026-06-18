@@ -1762,6 +1762,7 @@ export default function SimulationView({
     useState<LegendarySwordPendingSave | null>(null);
   const legendarySwordStrikePendingRef = useRef<LegendarySwordPendingSave | null>(null);
   const legendarySwordRestoreOnMountDoneRef = useRef(false);
+  const [legendarySwordWaitingForOpponent, setLegendarySwordWaitingForOpponent] = useState(false);
   const applyLegendarySwordStrikePending = useCallback((next: LegendarySwordPendingSave | null) => {
     legendarySwordStrikePendingRef.current = next;
     setPendingLegendarySwordStrike(next);
@@ -1773,6 +1774,7 @@ export default function SimulationView({
   } | null>(null);
   const [pendingStartingWraithChainPlayerHp, setPendingStartingWraithChainPlayerHp] =
     useState(false);
+  const [startingWraithWaitingForOpponent, setStartingWraithWaitingForOpponent] = useState(false);
   const startingWraithChainPendingRef = useRef<StartingWraithChainPendingSave | null>(null);
   const startingWraithRestoreOnMountDoneRef = useRef(false);
   const applyStartingWraithChainPending = useCallback((next: StartingWraithChainPendingSave | null) => {
@@ -6975,6 +6977,28 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     });
   }, [state, isInitializing, applyLegendarySwordStrikePending]);
 
+  // 멀티: 전설의 검 연격 — 시전자가 아닌 상대 화면 처리
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.legendarySwordPending;
+
+    if (!pending) {
+      setLegendarySwordWaitingForOpponent(false);
+      return;
+    }
+
+    if (multiplayMyTeam === pending.ownerPlayer) {
+      setLegendarySwordWaitingForOpponent(false);
+      return;
+    }
+
+    if (pendingLegendarySwordStrike) {
+      legendarySwordStrikePendingRef.current = null;
+      setPendingLegendarySwordStrike(null);
+    }
+    setLegendarySwordWaitingForOpponent(true);
+  }, [multiplayMyTeam, state?.legendarySwordPending, pendingLegendarySwordStrike]);
+
   useEffect(() => {
     if (!state || isInitializing) return;
     if (startingWraithRestoreOnMountDoneRef.current) return;
@@ -6984,6 +7008,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     startingWraithRestoreOnMountDoneRef.current = true;
     applyStartingWraithChainPending(pending);
   }, [state, isInitializing, applyStartingWraithChainPending]);
+
+  // 멀티: 시작의 망령 연쇄 — 상대 화면 처리
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.startingWraithChainPending;
+
+    if (!pending) {
+      setStartingWraithWaitingForOpponent(false);
+      return;
+    }
+    if (multiplayMyTeam === pending.attackerPlayer) {
+      setStartingWraithWaitingForOpponent(false);
+      return;
+    }
+
+    if (pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) {
+      startingWraithChainPendingRef.current = null;
+      setPendingStartingWraithChainKill(null);
+      setPendingStartingWraithChainPlayerHp(false);
+      setAttackingSlot(null);
+    }
+    setStartingWraithWaitingForOpponent(true);
+  }, [
+    multiplayMyTeam,
+    state?.startingWraithChainPending,
+    pendingStartingWraithChainKill,
+    pendingStartingWraithChainPlayerHp,
+  ]);
 
   useEffect(() => {
     if (!state || isInitializing) return;
@@ -10961,6 +11013,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const handlePlayerAttack = (targetPlayer: "A" | "B") => {
     if (state?.guihwanPending) return;
     if (pendingLegendarySwordStrike) {
+      if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return;
       const pls = pendingLegendarySwordStrike;
       const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
       if (targetPlayer !== enemyPlayer || !state || winner) return;
@@ -11028,6 +11081,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     if (!attackingSlot || !state || winner) return;
     const [attackerPlayer, attackerSlotName] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+    if (
+      (pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) &&
+      multiplayMyTeam &&
+      multiplayMyTeam !== attackerPlayer
+    ) {
+      return;
+    }
     
     if (attackerPlayer === targetPlayer) return; 
 
@@ -12219,6 +12279,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     if (pendingLegendarySwordStrike) {
+      if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return;
       if (slot === "spell" || player === pendingLegendarySwordStrike.ownerPlayer) {
         alert("전설의 검 연격 대상을 선택하세요.");
         return;
@@ -12554,6 +12615,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     if (pendingLegendarySwordStrike) {
+      if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return;
       const pls = pendingLegendarySwordStrike;
       const targetId = `${player}-${slot}`;
       const enemyPlayer = pls.ownerPlayer === "A" ? "B" : "A";
@@ -13560,6 +13622,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     // 2. 1차 공격 (기본 공격) 처리
     if (attackingSlot) {
       const [attackerPlayer, attackerSlotName] = attackingSlot.split("-") as ["A" | "B", "is" | "m" | "os"];
+      if (
+        (pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) &&
+        multiplayMyTeam &&
+        multiplayMyTeam !== attackerPlayer
+      ) {
+        return;
+      }
       let keepAttackingModeForStartingWraithChain = false;
       const attackerFieldBanner = attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field;
       const attackerCardBanner = attackerFieldBanner[attackerSlotName];
@@ -14999,6 +15068,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }
 
     if (pendingLegendarySwordStrike) {
+      if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return false;
       const pls = pendingLegendarySwordStrike;
       const enemy = pls.ownerPlayer === "A" ? "B" : "A";
       if (targetPlayer !== enemy || slotName === "spell") return false;
@@ -19885,17 +19955,32 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       )}
 
-      {pendingLegendarySwordStrike && (
+      {pendingLegendarySwordStrike &&
+        (!multiplayMyTeam || multiplayMyTeam === pendingLegendarySwordStrike.ownerPlayer) && (
         <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-sky-500 to-cyan-400 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(56,189,248,0.85)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           [전설의 검] {pendingLegendarySwordStrike.phase === 1 ? "1차" : "2차"} 연격 대상을 선택하세요!
         </div>
       )}
 
-      {(pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) && (
+      {legendarySwordWaitingForOpponent && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-slate-600 to-slate-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-lg border-2 border-white/30 pointer-events-none whitespace-nowrap">
+          상대가 [전설의 검] 연격 대상을 선택 중...
+        </div>
+      )}
+
+      {(pendingStartingWraithChainKill || pendingStartingWraithChainPlayerHp) &&
+        (!multiplayMyTeam ||
+          multiplayMyTeam === state?.startingWraithChainPending?.attackerPlayer) && (
         <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-amber-700 to-orange-600 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-[0_0_30px_rgba(180,83,9,0.85)] animate-pulse border-2 border-white/50 pointer-events-none whitespace-nowrap">
           {pendingStartingWraithChainPlayerHp
             ? "[시작의 망령] 추가 공격을 가할 상대 플레이어를 선택하세요!"
             : "[시작의 망령] 추가 공격을 가할 적 유닛을 선택하세요!"}
+        </div>
+      )}
+
+      {startingWraithWaitingForOpponent && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-slate-600 to-slate-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-lg border-2 border-white/30 pointer-events-none whitespace-nowrap">
+          상대가 [시작의 망령] 추가 공격 대상을 선택 중...
         </div>
       )}
 
