@@ -17,6 +17,7 @@ import {
   MOBILE_HEADER_CURRENCY_H,
   MOBILE_HEADER_CURRENCY_FS,
 } from "./mobile/mobileLobbyConstants";
+import { isDeveloperAccount, DEVELOPER_NICKNAME_COLOR, DEVELOPER_BADGE_LABEL } from "@/utils/developerAccounts";
 
 interface UserProfile {
   id: string;
@@ -1068,9 +1069,31 @@ export default function Header({
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: isDeveloperAccount(f.other.id)
+                          ? DEVELOPER_NICKNAME_COLOR
+                          : (isDarkMode ? "#e2e8f0" : "#1e293b"),
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                      }}>
                         {f.other.nickname || "닉네임 없음"}
                       </span>
+                      {isDeveloperAccount(f.other.id) && (
+                        <span style={{
+                          flexShrink: 0,
+                          fontSize: 9,
+                          fontWeight: 800,
+                          color: DEVELOPER_NICKNAME_COLOR,
+                          border: `1px solid ${DEVELOPER_NICKNAME_COLOR}`,
+                          borderRadius: 4,
+                          padding: "1px 4px",
+                          lineHeight: 1.2,
+                          whiteSpace: "nowrap",
+                        }}>
+                          {DEVELOPER_BADGE_LABEL}
+                        </span>
+                      )}
                       {(unreadCounts[f.other.id] ?? 0) > 0 && (
                         <span style={{
                           flexShrink: 0, minWidth: 18, height: 18, padding: "0 5px",
@@ -1231,15 +1254,36 @@ export default function Header({
                         : <IconUser className="h-4 w-4 text-sky-200" />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {/* 온라인/오프라인 상태 점 */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
                         <div style={{
                           width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
                           background: isOnline(u.last_seen_at) ? "#22c55e" : "#475569",
                         }} />
-                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isDeveloperAccount(u.id)
+                            ? DEVELOPER_NICKNAME_COLOR
+                            : (isDarkMode ? "#e2e8f0" : "#1e293b"),
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                        }}>
                           {u.nickname || "닉네임 없음"}
                         </span>
+                        {isDeveloperAccount(u.id) && (
+                          <span style={{
+                            flexShrink: 0,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            color: DEVELOPER_NICKNAME_COLOR,
+                            border: `1px solid ${DEVELOPER_NICKNAME_COLOR}`,
+                            borderRadius: 4,
+                            padding: "1px 4px",
+                            lineHeight: 1.2,
+                            whiteSpace: "nowrap",
+                          }}>
+                            {DEVELOPER_BADGE_LABEL}
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 11, marginTop: 1 }}>
                         {u.inGame ? (
@@ -1308,8 +1352,32 @@ export default function Header({
                     : <IconUser className="h-4 w-4 text-sky-200" />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? "#e2e8f0" : "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {f.other.nickname || "닉네임 없음"}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                    <span style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: isDeveloperAccount(f.other.id)
+                        ? DEVELOPER_NICKNAME_COLOR
+                        : (isDarkMode ? "#e2e8f0" : "#1e293b"),
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                    }}>
+                      {f.other.nickname || "닉네임 없음"}
+                    </span>
+                    {isDeveloperAccount(f.other.id) && (
+                      <span style={{
+                        flexShrink: 0,
+                        fontSize: 9,
+                        fontWeight: 800,
+                        color: DEVELOPER_NICKNAME_COLOR,
+                        border: `1px solid ${DEVELOPER_NICKNAME_COLOR}`,
+                        borderRadius: 4,
+                        padding: "1px 4px",
+                        lineHeight: 1.2,
+                        whiteSpace: "nowrap",
+                      }}>
+                        {DEVELOPER_BADGE_LABEL}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -1386,9 +1454,18 @@ export default function Header({
             : <IconUser className="h-10 w-10 text-sky-200" />}
         </div>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 4 }}>
+          <div style={{
+            fontSize: 22, fontWeight: 900,
+            color: isDeveloperAccount(selectedFriend.other.id) ? DEVELOPER_NICKNAME_COLOR : "#fff",
+            marginBottom: 4
+          }}>
             {selectedFriend.other.nickname || "닉네임 없음"}
           </div>
+          {isDeveloperAccount(selectedFriend.other.id) && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: DEVELOPER_NICKNAME_COLOR, marginBottom: 4 }}>
+              {DEVELOPER_BADGE_LABEL}
+            </div>
+          )}
           <div style={{ fontSize: 13, color: isOnline(selectedFriend.other.last_seen_at) ? "#22c55e" : "#64748b" }}>
             {isOnline(selectedFriend.other.last_seen_at) ? "● 접속 중" : `마지막 접속: ${formatLastSeen(selectedFriend.other.last_seen_at)}`}
           </div>
@@ -1453,7 +1530,18 @@ export default function Header({
           {userAvatarUrl ? <img src={userAvatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <IconUser className="h-10 w-10 text-sky-200" />}
         </div>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 4 }}>{currentDisplayName}</div>
+          <div style={{
+            fontSize: 22, fontWeight: 900,
+            color: isDeveloperAccount(user.id) ? DEVELOPER_NICKNAME_COLOR : "#fff",
+            marginBottom: 4
+          }}>
+            {currentDisplayName}
+          </div>
+          {isDeveloperAccount(user.id) && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: DEVELOPER_NICKNAME_COLOR, marginBottom: 4 }}>
+              {DEVELOPER_BADGE_LABEL}
+            </div>
+          )}
         </div>
         <div style={{ width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 16 }}>
           {profileDeckLoading ? (
