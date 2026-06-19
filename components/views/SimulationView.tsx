@@ -1778,6 +1778,7 @@ export default function SimulationView({
     hitKind: "primary" | "secondary";
     wraithChainFollowUp: boolean;
   } | null>(null);
+  const elWingSinseokDecisionHandledRef = useRef<string | null>(null);
   const [elWingSinseokSecondsLeft, setElWingSinseokSecondsLeft] = useState(0);
   /** 1 → 0 — 신속 선택 창 파란 카운트다운 게이지 */
   const [elWingSinseokTimeRatio, setElWingSinseokTimeRatio] = useState(0);
@@ -3857,6 +3858,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   /** 5초 경과 — UI만 닫고 bypass로 보류 중이던 기본 공격 피해를 적용 */
   const finishElWingSinseokTimeout = useCallback(() => {
+    // 멀티: 소유자 타임아웃 → decision="take" 기록(sync). 시전자가 데미지 처리.
+    if (multiplayMyTeam && state?.elWingSinseokPending && state.elWingSinseokPending.decision === null) {
+      if (multiplayMyTeam === state.elWingSinseokPending.defenderPlayer) {
+        setState(prev =>
+          prev && prev.elWingSinseokPending
+            ? { ...prev, elWingSinseokPending: { ...prev.elWingSinseokPending, decision: "take" } }
+            : prev
+        );
+        dismissElWingSinseokUi();
+        notifyMultiplaySync();
+        return;
+      }
+    }
+
     const fn = elWingSinseokResumeRef.current;
     const meta = elWingSinseokTimeoutMetaRef.current;
     elWingSinseokBypassRef.current = true;
@@ -3869,11 +3884,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       setAttackingSlot(null);
       setAttackOptionOverride(null);
     }
-  }, [dismissElWingSinseokUi]);
+  }, [dismissElWingSinseokUi, multiplayMyTeam, state?.elWingSinseokPending]);
 
   const commitElWingSinseokDodge = useCallback(() => {
     const pend = pendingElWingSinseokDefense;
     if (!pend || !state) return;
+
+    // 멀티: 소유자는 결정만 game state에 기록(sync). 실제 처리는 시전자가.
+    if (multiplayMyTeam) {
+      setState(prev =>
+        prev && prev.elWingSinseokPending
+          ? { ...prev, elWingSinseokPending: { ...prev.elWingSinseokPending, decision: "dodge" } }
+          : prev
+      );
+      dismissElWingSinseokUi();
+      notifyMultiplaySync();
+      return;
+    }
+
     const {
       defenderPlayer,
       defenderSlot,
@@ -3912,6 +3940,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   }, [
     pendingElWingSinseokDefense,
     state,
+    multiplayMyTeam,
+    dismissElWingSinseokUi,
     clearElWingSinseokPending,
     applyStartingWraithChainPending,
   ]);
@@ -7171,7 +7201,102 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const msLeft = Math.max(0, pending.deadlineAt - Date.now());
     setElWingSinseokSecondsLeft(Math.ceil(msLeft / 1000));
     setElWingSinseokTimeRatio(msLeft / EL_WING_SINSEOK_PROMPT_MS);
-  }, [multiplayMyTeam, state?.elWingSinseokPending, pendingElWingSinseokDefense, dismissElWingSinseokUi]);
+    if (elWingSinseokTimerRef.current != null) {
+      window.clearTimeout(elWingSinseokTimerRef.current);
+    }
+    elWingSinseokTimerRef.current = window.setTimeout(
+      () => finishElWingSinseokTimeout(),
+      msLeft
+    );
+    return () => {
+      if (elWingSinseokTimerRef.current != null) {
+        window.clearTimeout(elWingSinseokTimerRef.current);
+        elWingSinseokTimerRef.current = null;
+      }
+    };
+  }, [
+    multiplayMyTeam,
+    state?.elWingSinseokPending,
+    pendingElWingSinseokDefense,
+    dismissElWingSinseokUi,
+    finishElWingSinseokTimeout,
+  ]);
+
+  // 멀티: 엘 윙 신속 — 시전자(attackerPlayer)가 소유자 결정을 받아 공격 완료
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.elWingSinseokPending;
+    if (!pending || pending.decision === null) {
+      elWingSinseokDecisionHandledRef.current = null;
+      return;
+    }
+    if (multiplayMyTeam !== pending.attackerPlayer) return;
+
+    const key = `${pending.attackerPlayer}-${pending.attackerSlot}-${pending.deadlineAt}-${pending.decision}`;
+    if (elWingSinseokDecisionHandledRef.current === key) return;
+    elWingSinseokDecisionHandledRef.current = key;
+
+    if (pending.decision === "dodge") {
+      const { defenderPlayer, defenderSlot, attackerPlayer, attackerSlot, hitKind, wraithChainFollowUp } =
+        pending;
+      const defenderKey = defenderPlayer === "A" ? "playerA" : "playerB";
+      const attackerKey = attackerPlayer === "A" ? "playerA" : "playerB";
+      const defenderSlotKey = `${defenderPlayer}-${defenderSlot}`;
+      setState(prev => {
+        if (!prev) return prev;
+        const defSide = { ...prev[defenderKey], field: { ...prev[defenderKey].field } };
+        const atkSide = { ...prev[attackerKey], field: { ...prev[attackerKey].field } };
+        const wing = defSide.field[defenderSlot];
+        const attacker = atkSide.field[attackerSlot];
+        if (!wing || wing.name !== EL_WING_ID || !attacker) {
+          return { ...prev, elWingSinseokPending: null };
+        }
+        const nextGauge = clampElWingSinseokGauge((wing.elWingSinseokGauge ?? 0) - 1);
+        defSide.field[defenderSlot] = { ...wing, elWingSinseokGauge: nextGauge };
+        atkSide.field[attackerSlot] = { ...attacker, hasAttacked: true };
+        if (hitKind === "primary" && !wraithChainFollowUp) {
+          atkSide.attacksThisTurn = (atkSide.attacksThisTurn || 0) + 1;
+        }
+        return { ...prev, [defenderKey]: defSide, [attackerKey]: atkSide, elWingSinseokPending: null };
+      });
+      triggerCardFlash(defenderSlotKey, "elWingMagicImmunityBlock");
+      pushInfoFloat(defenderSlotKey, EL_WING_SINSEOK_BADGE, INFO_FLOAT_MS, "magicImmunityGreen");
+      if (pending.hitKind === "primary") {
+        setAttackingSlot(null);
+        setAttackOptionOverride(null);
+        applyStartingWraithChainPending(null);
+      }
+      elWingSinseokResumeRef.current = null;
+      elWingSinseokTimeoutMetaRef.current = null;
+      if (elWingSinseokTimerRef.current != null) {
+        window.clearTimeout(elWingSinseokTimerRef.current);
+        elWingSinseokTimerRef.current = null;
+      }
+      notifyMultiplaySync();
+    } else if (pending.decision === "take") {
+      const fn = elWingSinseokResumeRef.current;
+      const meta = elWingSinseokTimeoutMetaRef.current;
+      elWingSinseokBypassRef.current = true;
+      setState(prev => (prev ? { ...prev, elWingSinseokPending: null } : prev));
+      fn?.();
+      elWingSinseokBypassRef.current = false;
+      elWingSinseokResumeRef.current = null;
+      elWingSinseokTimeoutMetaRef.current = null;
+      if (elWingSinseokTimerRef.current != null) {
+        window.clearTimeout(elWingSinseokTimerRef.current);
+        elWingSinseokTimerRef.current = null;
+      }
+      if (meta?.hitKind === "primary" && !meta.wraithChainFollowUp) {
+        setAttackingSlot(null);
+        setAttackOptionOverride(null);
+      }
+      notifyMultiplaySync();
+    }
+  }, [
+    multiplayMyTeam,
+    state?.elWingSinseokPending,
+    applyStartingWraithChainPending,
+  ]);
 
   useEffect(() => {
     if (!state || isInitializing) return;
@@ -13230,6 +13355,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   : prev
               );
               notifyMultiplaySync();
+              if (elWingSinseokTimerRef.current != null) {
+                window.clearTimeout(elWingSinseokTimerRef.current);
+              }
+              elWingSinseokTimerRef.current = window.setTimeout(() => {
+                setState(prev =>
+                  prev && prev.elWingSinseokPending && prev.elWingSinseokPending.decision === null
+                    ? {
+                        ...prev,
+                        elWingSinseokPending: { ...prev.elWingSinseokPending, decision: "take" },
+                      }
+                    : prev
+                );
+                notifyMultiplaySync();
+              }, EL_WING_SINSEOK_PROMPT_MS + 1500);
               return;
             }
 
@@ -14446,6 +14585,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     : prev
                 );
                 notifyMultiplaySync();
+                if (elWingSinseokTimerRef.current != null) {
+                  window.clearTimeout(elWingSinseokTimerRef.current);
+                }
+                elWingSinseokTimerRef.current = window.setTimeout(() => {
+                  setState(prev =>
+                    prev && prev.elWingSinseokPending && prev.elWingSinseokPending.decision === null
+                      ? {
+                          ...prev,
+                          elWingSinseokPending: { ...prev.elWingSinseokPending, decision: "take" },
+                        }
+                      : prev
+                  );
+                  notifyMultiplaySync();
+                }, EL_WING_SINSEOK_PROMPT_MS + 1500);
                 return;
               }
 
