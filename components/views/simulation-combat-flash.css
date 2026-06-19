@@ -2855,7 +2855,9 @@
 }
 
 .pp-type-set-field-ring-overlay--r6::before {
-  border-radius: 9px;
+  inset: -2px;
+  padding: 2px;
+  border-radius: 8px;
 }
 
 /* 타입 세트 — 효과 뱃지 */
