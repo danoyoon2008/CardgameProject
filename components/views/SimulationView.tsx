@@ -11279,6 +11279,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       isSilenced: isSilenced(attackerCard, null),
       isStunned: isStunned(attackerCard),
       overrideHasAttackedCheck: wraithPlayerHpFollowUpValidate,
+      bypassTurnAttackBudget: wraithPlayerHpFollowUpValidate,
     });
     if (!playerStrikeRules.canAttack) {
       alert(playerStrikeRules.reason ?? "공격할 수 없습니다.");
@@ -11397,14 +11398,19 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
       const newPlayerB = { ...prev.playerB, field: { ...prev.playerB.field } };
       
+      // 망령 연쇄 추가 공격은 공격권·턴 예산을 소모하지 않는다.
       const updatedAttacker = { ...attackerCard, hasAttacked: true, ...skillUpdates }; 
       
       if (attackerPlayer === "A") {
         newPlayerA.field[attackerSlotName] = updatedAttacker;
-        newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+        if (!wraithPlayerHpFollowUpValidate) {
+          newPlayerA.attacksThisTurn = (newPlayerA.attacksThisTurn || 0) + 1;
+        }
       } else {
         newPlayerB.field[attackerSlotName] = updatedAttacker;
-        newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+        if (!wraithPlayerHpFollowUpValidate) {
+          newPlayerB.attacksThisTurn = (newPlayerB.attacksThisTurn || 0) + 1;
+        }
       }
 
       if (targetPlayer === "A") {
