@@ -2791,10 +2791,10 @@
 
 @keyframes pp-type-set-rainbow-border-flow {
   0% {
-    background-position: 0 0, 0% 0;
+    background-position: 0% 0;
   }
   100% {
-    background-position: 0 0, 400% 0;
+    background-position: 400% 0;
   }
 }
 
@@ -2817,25 +2817,40 @@
   }
 }
 
+/* 내부는 투명, 2px 테두리만 무지개 (mask로 중앙 구멍) */
 .pp-type-set-field-row-outline {
-  border: 2px solid transparent;
-  background:
-    linear-gradient(transparent, transparent) padding-box,
-    linear-gradient(
-      90deg,
-      hsl(290 50% 68%),
-      hsl(215 52% 65%),
-      hsl(150 48% 62%),
-      hsl(42 50% 65%),
-      hsl(12 48% 66%),
-      hsl(330 46% 68%),
-      hsl(290 50% 68%)
-    )
-    border-box;
-  background-size: 100% 100%, 400% 100%;
+  background: transparent;
+}
+
+.pp-type-set-field-row-outline::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    90deg,
+    hsl(290 50% 68%),
+    hsl(215 52% 65%),
+    hsl(150 48% 62%),
+    hsl(42 50% 65%),
+    hsl(12 48% 66%),
+    hsl(330 46% 68%),
+    hsl(290 50% 68%)
+  );
+  background-size: 400% 100%;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
   animation:
     pp-type-set-rainbow-border-flow 5s linear infinite,
     pp-type-set-row-outline-glow 3s ease-in-out infinite;
+  pointer-events: none;
 }
 
 /* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
