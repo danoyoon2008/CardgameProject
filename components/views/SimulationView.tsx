@@ -15623,15 +15623,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       return `${cardStyle} z-10 border-[2px] border-red-600/95 bg-red-950/35 shadow-[0_0_12px_rgba(220,38,38,0.65),0_0_22px_rgba(249,115,22,0.42)] ${!attackingSlot ? "cursor-pointer hover:border-orange-500/90" : ""}`;
     }
 
-    const allyField = player === "A" ? state?.playerA.field : state?.playerB.field;
-    if (card && state && unitReceivesTypeSetBuff(card, allyField)) {
-      const hover = !attackingSlot ? " cursor-pointer hover:brightness-110" : "";
-      const typeSetRadiusClass = cardStyle.includes("rounded-[6px]")
-        ? "pp-type-set-unit-card-border--r6"
-        : "pp-type-set-unit-card-border--r8";
-      return `${cardStyle} pp-type-set-unit-card-border ${typeSetRadiusClass} z-10${hover}${handDragSlotHoverGlow}`;
-    }
-
     if (player === "A") {
       return `${cardStyle} border-sky-500/30 bg-sky-950/20 ${card && !attackingSlot ? "cursor-pointer hover:border-sky-400/80" : state?.currentTurn === "A" && !attackingSlot ? "hover:border-sky-400 transition-colors" : ""}`;
     }
@@ -15933,6 +15924,27 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     return (
       <div
         className="pointer-events-none absolute inset-0 z-[27] overflow-visible rounded-[8px] pp-mary-defense-field-ring-overlay"
+        aria-hidden
+      />
+    );
+  };
+
+  /** 타입 세트 — 카드 이미지 바깥 무지개 윤곽 (반짓고리·메리 링과 동형 오버레이) */
+  const renderTypeSetFieldRing = (
+    player: "A" | "B",
+    slot: "is" | "m" | "os",
+    card: FieldCard | null,
+    roundedClass = "rounded-[8px]"
+  ) => {
+    if (!state || !card || (card.currentHp ?? 0) <= 0) return null;
+    const allyField = player === "A" ? state.playerA.field : state.playerB.field;
+    if (!unitReceivesTypeSetBuff(card, allyField)) return null;
+    const radiusMod = roundedClass.includes("6px")
+      ? "pp-type-set-field-ring-overlay--r6"
+      : "pp-type-set-field-ring-overlay--r8";
+    return (
+      <div
+        className={`pointer-events-none absolute inset-0 z-[28] overflow-visible ${roundedClass} pp-type-set-field-ring-overlay ${radiusMod}`}
         aria-hidden
       />
     );
@@ -18391,6 +18403,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderCheolgibyeongFieldRing(player, slot, card)}
             {renderRyeomchoFieldRing(player, slot, card)}
             {renderMaryDefenseFieldRing(player, slot, card)}
+            {renderTypeSetFieldRing(player, slot, card, "rounded-[6px]")}
             {renderBanjitgoriFieldRing(player, slot, card)}
             {renderPhilipFacingRing(player, slot, card)}
             {renderDinnerFacingRing(player, slot, card)}
@@ -21701,6 +21714,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("B", "is", state.playerB.field.is)}
                      {renderRyeomchoFieldRing("B", "is", state.playerB.field.is)}
                      {renderMaryDefenseFieldRing("B", "is", state.playerB.field.is)}
+                     {renderTypeSetFieldRing("B", "is", state.playerB.field.is)}
                      {renderBanjitgoriFieldRing("B", "is", state.playerB.field.is)}
                      {renderPhilipFacingRing("B", "is", state.playerB.field.is)}
                      {renderDinnerFacingRing("B", "is", state.playerB.field.is)}
@@ -21747,6 +21761,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("B", "m", state.playerB.field.m)}
                      {renderRyeomchoFieldRing("B", "m", state.playerB.field.m)}
                      {renderMaryDefenseFieldRing("B", "m", state.playerB.field.m)}
+                     {renderTypeSetFieldRing("B", "m", state.playerB.field.m)}
                      {renderBanjitgoriFieldRing("B", "m", state.playerB.field.m)}
                      {renderPhilipFacingRing("B", "m", state.playerB.field.m)}
                      {renderDinnerFacingRing("B", "m", state.playerB.field.m)}
@@ -21793,6 +21808,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("B", "os", state.playerB.field.os)}
                      {renderRyeomchoFieldRing("B", "os", state.playerB.field.os)}
                      {renderMaryDefenseFieldRing("B", "os", state.playerB.field.os)}
+                     {renderTypeSetFieldRing("B", "os", state.playerB.field.os)}
                      {renderBanjitgoriFieldRing("B", "os", state.playerB.field.os)}
                      {renderPhilipFacingRing("B", "os", state.playerB.field.os)}
                      {renderDinnerFacingRing("B", "os", state.playerB.field.os)}
@@ -21905,6 +21921,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("A", "is", state.playerA.field.is)}
                      {renderRyeomchoFieldRing("A", "is", state.playerA.field.is)}
                      {renderMaryDefenseFieldRing("A", "is", state.playerA.field.is)}
+                     {renderTypeSetFieldRing("A", "is", state.playerA.field.is)}
                      {renderBanjitgoriFieldRing("A", "is", state.playerA.field.is)}
                      {renderPhilipFacingRing("A", "is", state.playerA.field.is)}
                      {renderDinnerFacingRing("A", "is", state.playerA.field.is)}
@@ -21951,6 +21968,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("A", "m", state.playerA.field.m)}
                      {renderRyeomchoFieldRing("A", "m", state.playerA.field.m)}
                      {renderMaryDefenseFieldRing("A", "m", state.playerA.field.m)}
+                     {renderTypeSetFieldRing("A", "m", state.playerA.field.m)}
                      {renderBanjitgoriFieldRing("A", "m", state.playerA.field.m)}
                      {renderPhilipFacingRing("A", "m", state.playerA.field.m)}
                      {renderDinnerFacingRing("A", "m", state.playerA.field.m)}
@@ -21997,6 +22015,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderCheolgibyeongFieldRing("A", "os", state.playerA.field.os)}
                      {renderRyeomchoFieldRing("A", "os", state.playerA.field.os)}
                      {renderMaryDefenseFieldRing("A", "os", state.playerA.field.os)}
+                     {renderTypeSetFieldRing("A", "os", state.playerA.field.os)}
                      {renderBanjitgoriFieldRing("A", "os", state.playerA.field.os)}
                      {renderPhilipFacingRing("A", "os", state.playerA.field.os)}
                      {renderDinnerFacingRing("A", "os", state.playerA.field.os)}

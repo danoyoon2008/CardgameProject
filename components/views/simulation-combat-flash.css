@@ -2817,16 +2817,11 @@
   }
 }
 
-/* 타입 세트 — 필드 유닛 카드 무지개 윤곽 (mask로 테두리만, 모서리 r6/r8) */
-.pp-type-set-unit-card-border {
-  border-color: transparent !important;
-  isolation: isolate;
-}
-
-.pp-type-set-unit-card-border::before {
+/* 타입 세트 — 카드 이미지 바깥 무지개 윤곽 (inset -3px + mask, 카드와 비겹침) */
+.pp-type-set-field-ring-overlay::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -3px;
   padding: 3px;
   background: linear-gradient(
     90deg,
@@ -2853,17 +2848,14 @@
     pp-type-set-rainbow-border-flow 5s linear infinite,
     pp-type-set-row-outline-glow 3s ease-in-out infinite;
   pointer-events: none;
-  z-index: 3;
 }
 
-.pp-type-set-unit-card-border--r6,
-.pp-type-set-unit-card-border--r6::before {
-  border-radius: 6px;
+.pp-type-set-field-ring-overlay--r8::before {
+  border-radius: 11px;
 }
 
-.pp-type-set-unit-card-border--r8,
-.pp-type-set-unit-card-border--r8::before {
-  border-radius: 8px;
+.pp-type-set-field-ring-overlay--r6::before {
+  border-radius: 9px;
 }
 
 /* 타입 세트 — 효과 뱃지 */
