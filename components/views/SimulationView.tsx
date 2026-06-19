@@ -5052,6 +5052,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const isWraithTrueStrikeFloat = e.startingWraithTrueStrikeDamageText === true;
           const isKalliPureFloat = e.kalliVsDefensePureDamageText === true && !isWraithTrueStrikeFloat;
           const isDkNavy = e.dkFullGaugeNavyDamageText === true && !isKalliPureFloat && !isWraithTrueStrikeFloat;
+          const isTypeSetFloat =
+            e.typeSetDamageOutline === true &&
+            !isKalliPureFloat &&
+            !isWraithTrueStrikeFloat &&
+            !isDkNavy &&
+            e.maxellandFullGaugeVictimDamageOutline !== true;
           const stackStyle = isKalliPureFloat
             ? {}
             : isWraithTrueStrikeFloat
@@ -5060,7 +5066,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 ? { textShadow: dkFullGaugeNavyFloatingOutline }
                 : e.maxellandFullGaugeVictimDamageOutline === true
                   ? { textShadow: maxellFullGaugeYellowDamageOutline }
-                  : e.typeSetDamageOutline === true
+                  : isTypeSetFloat
                     ? { textShadow: typeSetRainbowDamageOutline }
                     : {};
           const zDamage = isKalliPureFloat ? "z-[40]" : isDkNavy ? "z-[52]" : "z-[40]";
@@ -5070,11 +5076,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               ? "text-slate-200"
               : isDkNavy
                 ? "text-[#1e1b4b]"
-                : "text-red-500";
+                : isTypeSetFloat
+                  ? "text-black"
+                  : "text-red-500";
           return (
           <span
             key={e.id}
-            className={`${damagePopupBase} ${zDamage} ${textDamage} ${damageTextShadow}`}
+            className={`${damagePopupBase} ${zDamage} ${textDamage}${isTypeSetFloat ? "" : ` ${damageTextShadow}`}`}
             style={{
               top: popupTopFromAnchor(heals.length * POPUP_ROW_STEP + bandGap + i * POPUP_ROW_STEP),
               animation: anim,
