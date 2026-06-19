@@ -11413,12 +11413,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         }
       }
 
+      // 망령 연쇄 추가 공격은 플레이어를 "이미 공격받음"으로 마킹하지 않는다(후속 유닛 공격 허용).
       if (targetPlayer === "A") {
         newPlayerA.hp = Math.max(0, newPlayerA.hp - primaryDamage);
-        newPlayerA.hasBeenAttackedThisTurn = true; 
+        if (!wraithPlayerHpFollowUpValidate) {
+          newPlayerA.hasBeenAttackedThisTurn = true;
+        }
       } else {
         newPlayerB.hp = Math.max(0, newPlayerB.hp - primaryDamage);
-        newPlayerB.hasBeenAttackedThisTurn = true; 
+        if (!wraithPlayerHpFollowUpValidate) {
+          newPlayerB.hasBeenAttackedThisTurn = true;
+        }
       }
 
       const activePlayer = attackerPlayer === "A" ? newPlayerA : newPlayerB;
