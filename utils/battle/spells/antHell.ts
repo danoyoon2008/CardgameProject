@@ -135,6 +135,8 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
   globalTurnCount: number;
   /** true면 이미 [제압]인 유닛은 건너뜀(지속 동기화용) */
   skipAlreadySuppressed?: boolean;
+  /** true(기본)면 엘 윙 면역 시 신속 스택 충전. 지속 동기화에선 false로 재충전 방지. */
+  grantElWingSinseok?: boolean;
 }): AntHellSuppressionWaveResult {
   const enemyPlayer = args.casterPlayer === "A" ? "B" : "A";
   const enemySide =
@@ -158,7 +160,9 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
       )
     ) {
       elWingImmunitySlotKeys.push(`${enemyPlayer}-${slotName}`);
-      enemySide[slotName] = grantElWingSinseokGaugeFromMeteoSplash(unit);
+      if (args.grantElWingSinseok !== false) {
+        enemySide[slotName] = grantElWingSinseokGaugeFromMeteoSplash(unit);
+      }
       continue;
     }
 
@@ -229,6 +233,7 @@ export function syncAntHellSuppressionForActiveCasters(args: {
       playerB: args.playerB,
       globalTurnCount: args.globalTurnCount,
       skipAlreadySuppressed: true,
+      grantElWingSinseok: false,
     });
     merged.appliedSlotKeys.push(...w.appliedSlotKeys);
     merged.elWingImmunitySlotKeys.push(...w.elWingImmunitySlotKeys);
@@ -240,6 +245,7 @@ export function syncAntHellSuppressionForActiveCasters(args: {
       playerB: args.playerB,
       globalTurnCount: args.globalTurnCount,
       skipAlreadySuppressed: true,
+      grantElWingSinseok: false,
     });
     merged.appliedSlotKeys.push(...w.appliedSlotKeys);
     merged.elWingImmunitySlotKeys.push(...w.elWingImmunitySlotKeys);
