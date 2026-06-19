@@ -1057,6 +1057,8 @@ type CombatDamagePopupExtras = {
   kalliVsDefensePureDamageText?: true;
   /** 시작의 망령 트루 스트라이크 기본 공격 — 어두운 회색 플로팅 */
   startingWraithTrueStrikeDamageText?: true;
+  /** 타입 세트 버프 공격 — 무지개 윤곽(다른 특수 윤곽보다 후순위) */
+  typeSetDamageOutline?: true;
 };
 
 function mergeKalliPureDamageFloat(
@@ -1075,6 +1077,17 @@ function mergeStartingWraithTrueStrikeDamageFloat(
   return { ...base, startingWraithTrueStrikeDamageText: true };
 }
 
+function mergeTypeSetAttackerDamageOutline(
+  attacker: FieldCard | null | undefined,
+  allyField: { is: FieldCard | null; m: FieldCard | null; os: FieldCard | null } | null | undefined,
+  base?: CombatDamagePopupExtras
+): CombatDamagePopupExtras | undefined {
+  if (!attacker || (attacker.currentHp ?? 0) <= 0) return base;
+  if (!unitReceivesTypeSetBuff(attacker, allyField)) return base;
+  if (!base) return { typeSetDamageOutline: true };
+  return { ...base, typeSetDamageOutline: true };
+}
+
 type CombatPopupEntry =
   | {
       id: number;
@@ -1084,6 +1097,7 @@ type CombatPopupEntry =
       maxellandFullGaugeVictimDamageOutline?: true;
       kalliVsDefensePureDamageText?: true;
       startingWraithTrueStrikeDamageText?: true;
+      typeSetDamageOutline?: true;
     }
   | { id: number; kind: "heal"; amount: number }
   | { id: number; kind: "banjitgoriBuff"; lines: readonly string[] }
@@ -1167,6 +1181,7 @@ type FlashOverlayKind =
   | "spellBangEomakAllyPulse"
   | "spellJipjungAllyPulse"
   | "typeSetActivate"
+  | "typeSetDeactivate"
   | "spellCheolbyeokAllyPulse"
   | "spellHyugesojauiAnsikAllyPulse"
   | "orietShieldAllyPulse"
@@ -2679,6 +2694,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     spellBangEomakAllyPulse: 820,
     spellJipjungAllyPulse: 820,
     typeSetActivate: 820,
+    typeSetDeactivate: 820,
     spellCheolbyeokAllyPulse: 820,
     spellHyugesojauiAnsikAllyPulse: 820,
     orietShieldAllyPulse: 820,
@@ -3385,6 +3401,13 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             triggerCardFlash(`${player}-${slot}`, "typeSetActivate");
           }
         });
+      } else if (prevType && !nowType) {
+        (["is", "m", "os"] as const).forEach(slot => {
+          const card = field[slot];
+          if (card && (card.currentHp ?? 0) > 0) {
+            triggerCardFlash(`${player}-${slot}`, "typeSetDeactivate");
+          }
+        });
       }
       typeSetPrevByPlayerRef.current[player] = nowType;
     }
@@ -3613,6 +3636,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             ...(damageExtras?.startingWraithTrueStrikeDamageText
               ? { startingWraithTrueStrikeDamageText: true as const }
               : {}),
+            ...(damageExtras?.typeSetDamageOutline ? { typeSetDamageOutline: true as const } : {}),
           }
         : { id, kind, amount };
     addCombatPopup(slotKey, entry);
@@ -4075,6 +4099,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const showDamageNumber = (slotKey: string, amount: number, damageExtras?: CombatDamagePopupExtras) => {
     pushCombatPopup(slotKey, "damage", amount, damageExtras);
     triggerCardFlash(slotKey, "damage");
+  };
+
+  /** 공격 유닛 플로팅 데미지 extras — 캘리 순수 피해 + 타입 세트 무지개 윤곽(최후순위) */
+  const atkDmgExtras = (
+    attacker: FieldCard | null | undefined,
+    attackerPlayer: "A" | "B",
+    kalliPure: number,
+    base?: CombatDamagePopupExtras
+  ): CombatDamagePopupExtras | undefined => {
+    if (!state) return mergeKalliPureDamageFloat(kalliPure, base);
+    const allyField = attackerPlayer === "A" ? state.playerA.field : state.playerB.field;
+    return mergeTypeSetAttackerDamageOutline(
+      attacker,
+      allyField,
+      mergeKalliPureDamageFloat(kalliPure, base)
+    );
   };
 
   /** 패키 처치: 붉은 피격 섬광 없음 — 필립 소환과 동형 레이어·타이밍의 능력 발동 이펙트(패키 색) + 피해 숫자만 */
@@ -4967,6 +5007,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     /** 시작의 망령 트루 스트라이크 회색 데미지 — 얇은 흰색 윤곽(가독성) */
     const startingWraithTrueStrikeFloatingOutline =
       "-1px -1px 0 rgba(255, 255, 255, 0.92), 1px -1px 0 rgba(255, 255, 255, 0.92), -1px 1px 0 rgba(255, 255, 255, 0.92), 1px 1px 0 rgba(255, 255, 255, 0.92), 0 0 2px rgba(255, 255, 255, 0.55)";
+    /** 타입 세트 공격 데미지 — 무지개 윤곽(다른 특수 윤곽보다 후순위) */
+    const typeSetRainbowDamageOutline =
+      "-1px -1px 0 hsl(290 50% 75%), 1px -1px 0 hsl(215 52% 72%), -1px 1px 0 hsl(150 48% 68%), 1px 1px 0 hsl(42 50% 72%), 0 0 3px hsl(330 46% 70%), 0 0 8px hsl(290 48% 68% / 0.85)";
     const healText =
       `${baseText} text-emerald-400 drop-shadow-[0_2px_0_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.55)]`;
     const stackAboveDamagesHeals =
@@ -5017,7 +5060,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 ? { textShadow: dkFullGaugeNavyFloatingOutline }
                 : e.maxellandFullGaugeVictimDamageOutline === true
                   ? { textShadow: maxellFullGaugeYellowDamageOutline }
-                  : {};
+                  : e.typeSetDamageOutline === true
+                    ? { textShadow: typeSetRainbowDamageOutline }
+                    : {};
           const zDamage = isKalliPureFloat ? "z-[40]" : isDkNavy ? "z-[52]" : "z-[40]";
           const textDamage = isWraithTrueStrikeFloat
             ? "text-zinc-500"
@@ -5846,20 +5891,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         </div>
       );
     }
-    /* 타입 세트 발동 — 집중 사격 동형·다홍색 섬광 */
-    if (snap.kind === "typeSetActivate") {
+    /* 타입 세트 발동·해제 — 집중 사격 동형·저채도 무지개(다색 동시) 섬광 */
+    if (snap.kind === "typeSetActivate" || snap.kind === "typeSetDeactivate") {
+      const typeSetFlashKey = snap.kind === "typeSetDeactivate" ? "deactivate" : "activate";
       return (
         <div
-          key={`${slotKey}-${snap.id}-type-set-wrap`}
+          key={`${slotKey}-${snap.id}-type-set-wrap-${typeSetFlashKey}`}
           className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
           aria-hidden
         >
           <div
-            key={`${slotKey}-${snap.id}-type-set-aura`}
+            key={`${slotKey}-${snap.id}-type-set-aura-${typeSetFlashKey}`}
             className={`pp-combat-flash-layer--type-set-activate-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
           />
           <div
-            key={`${slotKey}-${snap.id}-type-set-inner`}
+            key={`${slotKey}-${snap.id}-type-set-inner-${typeSetFlashKey}`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--type-set-activate`}
           />
         </div>
@@ -12050,7 +12096,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         showPakkiSlainDamageOnTarget(
           tgt,
           r.actualPrimaryDamage,
-          mergeKalliPureDamageFloat(r.kalliPurePrimary, dkKillExtrasPrimary)
+          atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary, dkKillExtrasPrimary)
         );
         if (
           attackerCardSnap.name === GHOSTONE_ID &&
@@ -12084,10 +12130,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           true
         )
       ) {
-        showGhostoneKillDamageOnTarget(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showGhostoneKillDamageOnTarget(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
         triggerGhostoneKillFlashOnAttacker(atkKey);
       } else if (r.isDestroyed && attackerCardSnap.name === GHOSTONE_ID) {
-        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showDamageNumber(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       } else if (
         r.isDestroyed &&
         attackerCardSnap.name === DARK_KNIGHT_ID &&
@@ -12097,13 +12143,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           tgt,
           r.actualPrimaryDamage,
           atkKey,
-          mergeKalliPureDamageFloat(
+          atkDmgExtras(
+            attackerCardSnap,
+            attackerPlayer,
             r.kalliPurePrimary,
             dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
           )
         );
       } else if (r.isDestroyed && attackerCardSnap.name === DARK_KNIGHT_ID) {
-        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showDamageNumber(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       } else if (r.isDestroyed && attackerCardSnap.name === MAXELLAND_ID) {
         const maxellFacing = facingOppUnitAtSlot(state, attackerPlayer, attackerSlotName);
         if (shouldPlayMaxellandKillVfx(attackerCardSnap, maxellFacing)) {
@@ -12111,33 +12159,33 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             tgt,
             r.actualPrimaryDamage,
             atkKey,
-            mergeKalliPureDamageFloat(r.kalliPurePrimary),
+            atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary),
             attackerCardSnap,
             maxellFacing
           );
         } else {
-          showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+          showDamageNumber(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
         }
       } else if (
         attackerCardSnap.name === PHILIP_ID &&
         r.actualPrimaryDamage > 0
       ) {
-        showPhilipBasicHitDamage(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showPhilipBasicHitDamage(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       } else if (
         attackerCardSnap.name === CHEOLGIBYEONG_ID &&
         r.actualPrimaryDamage > 0
       ) {
-        showCheolgibyeongBasicHitDamage(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showCheolgibyeongBasicHitDamage(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       } else if (dkFullSoulStrike) {
-        showDarkKnightFullSoulStrikeOnTarget(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showDarkKnightFullSoulStrikeOnTarget(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       } else if (maxellFullStrikeVfx) {
         showMaxellandFullGaugeStrikeDamageOnTarget(
           tgt,
           r.actualPrimaryDamage,
-          mergeKalliPureDamageFloat(r.kalliPurePrimary)
+          atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary)
         );
       } else {
-        showDamageNumber(tgt, r.actualPrimaryDamage, mergeKalliPureDamageFloat(r.kalliPurePrimary));
+        showDamageNumber(tgt, r.actualPrimaryDamage, atkDmgExtras(attackerCardSnap, attackerPlayer, r.kalliPurePrimary));
       }
       if (r.baekseuLastStandPrimary) {
         window.setTimeout(() => triggerCardFlash(tgt, "kalliBuffBan"), 0);
@@ -13465,7 +13513,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           showPakkiSlainDamageOnTarget(
             targetKey,
             actualDamage,
-            mergeKalliPureDamageFloat(kalliPureSecondary, dkKillExtras)
+            atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary, dkKillExtras)
           );
           if (
             attackerCard?.name === GHOSTONE_ID &&
@@ -13496,10 +13544,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             true
           )
         ) {
-          showGhostoneKillDamageOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          showGhostoneKillDamageOnTarget(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
           triggerGhostoneKillFlashOnAttacker(attackerSlotKey);
         } else if (isDestroyed && attackerCard?.name === GHOSTONE_ID) {
-          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          showDamageNumber(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
         } else if (
           isDestroyed &&
           attackerCard?.name === DARK_KNIGHT_ID &&
@@ -13509,13 +13557,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             targetKey,
             actualDamage,
             attackerSlotKey,
-            mergeKalliPureDamageFloat(
+            atkDmgExtras(
+              attackerCard,
+              attackerPlayer,
               kalliPureSecondary,
               dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined
             )
           );
         } else if (isDestroyed && attackerCard?.name === DARK_KNIGHT_ID) {
-          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          showDamageNumber(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
         } else if (isDestroyed && attackerCard?.name === MAXELLAND_ID) {
           const maxellFacingSec = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
           if (shouldPlayMaxellandKillVfx(attackerCard, maxellFacingSec)) {
@@ -13523,12 +13573,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               targetKey,
               actualDamage,
               attackerSlotKey,
-              mergeKalliPureDamageFloat(kalliPureSecondary),
+              atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary),
               attackerCard,
               maxellFacingSec
             );
           } else {
-            showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+            showDamageNumber(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
           }
         } else if (
           isDestroyed &&
@@ -13538,16 +13588,16 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           showStartingWraithChainKillOnTarget(
             targetKey,
             actualDamage,
-            mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPureSecondary))
+            mergeStartingWraithTrueStrikeDamageFloat(atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary))
           );
           triggerStartingWraithChainKillFlashOnAttacker(attackerSlotKey);
         } else if (dkFullSoulStrike) {
-          showDarkKnightFullSoulStrikeOnTarget(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          showDarkKnightFullSoulStrikeOnTarget(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
         } else if (maxellFullStrikeSecVfx) {
           showMaxellandFullGaugeStrikeDamageOnTarget(
             targetKey,
             actualDamage,
-            mergeKalliPureDamageFloat(kalliPureSecondary)
+            atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary)
           );
         } else if (
           attackerCard != null &&
@@ -13557,10 +13607,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           showStartingWraithTrueStrikeDamageOnTarget(
             targetKey,
             actualDamage,
-            mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPureSecondary))
+            mergeStartingWraithTrueStrikeDamageFloat(atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary))
           );
         } else {
-          showDamageNumber(targetKey, actualDamage, mergeKalliPureDamageFloat(kalliPureSecondary));
+          showDamageNumber(targetKey, actualDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPureSecondary));
         }
         if (baekseuLastStandSecondary) {
           window.setTimeout(() => triggerCardFlash(targetKey, "kalliBuffBan"), 0);
@@ -14747,7 +14797,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             showPakkiSlainDamageOnTarget(
               tgt,
               actualPrimaryDamage,
-              mergeKalliPureDamageFloat(kalliPurePrimary, dkKillExtrasPrimary)
+              atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary, dkKillExtrasPrimary)
             );
             if (
               attackerCard.name === GHOSTONE_ID &&
@@ -14778,10 +14828,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               true
             )
           ) {
-            showGhostoneKillDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showGhostoneKillDamageOnTarget(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
             triggerGhostoneKillFlashOnAttacker(atkKey);
           } else if (isDestroyed && attackerCard.name === GHOSTONE_ID) {
-            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showDamageNumber(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (
             isDestroyed &&
             attackerCard.name === DARK_KNIGHT_ID &&
@@ -14791,10 +14841,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               tgt,
               actualPrimaryDamage,
               atkKey,
-              mergeKalliPureDamageFloat(kalliPurePrimary, dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined)
+              atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary, dkFullSoulStrike ? { dkFullGaugeNavyDamageText: true } : undefined)
             );
           } else if (isDestroyed && attackerCard.name === DARK_KNIGHT_ID) {
-            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showDamageNumber(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (isDestroyed && attackerCard.name === MAXELLAND_ID) {
             const maxellFacingPri = facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName);
             if (shouldPlayMaxellandKillVfx(attackerCard, maxellFacingPri)) {
@@ -14802,12 +14852,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 tgt,
                 actualPrimaryDamage,
                 atkKey,
-                mergeKalliPureDamageFloat(kalliPurePrimary),
+                atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary),
                 attackerCard,
                 maxellFacingPri
               );
             } else {
-              showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+              showDamageNumber(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
             }
           } else if (
             isDestroyed &&
@@ -14816,7 +14866,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             showStartingWraithChainKillOnTarget(
               tgt,
               actualPrimaryDamage,
-              mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPurePrimary))
+              mergeStartingWraithTrueStrikeDamageFloat(atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary))
             );
             triggerStartingWraithChainKillFlashOnAttacker(atkKey);
           } else if (
@@ -14824,17 +14874,17 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             attackType === "NORMAL" &&
             actualPrimaryDamage > 0
           ) {
-            showPhilipBasicHitDamage(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showPhilipBasicHitDamage(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (
             attackerCard.name === CHEOLGIBYEONG_ID &&
             attackType === "NORMAL" &&
             actualPrimaryDamage > 0
           ) {
-            showCheolgibyeongBasicHitDamage(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showCheolgibyeongBasicHitDamage(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (dkFullSoulStrike) {
-            showDarkKnightFullSoulStrikeOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showDarkKnightFullSoulStrikeOnTarget(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (maxellFullStrikeVfx) {
-            showMaxellandFullGaugeStrikeDamageOnTarget(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showMaxellandFullGaugeStrikeDamageOnTarget(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           } else if (
             isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary) &&
             attackType === "NORMAL" &&
@@ -14843,10 +14893,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             showStartingWraithTrueStrikeDamageOnTarget(
               tgt,
               actualPrimaryDamage,
-              mergeStartingWraithTrueStrikeDamageFloat(mergeKalliPureDamageFloat(kalliPurePrimary))
+              mergeStartingWraithTrueStrikeDamageFloat(atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary))
             );
           } else {
-            showDamageNumber(tgt, actualPrimaryDamage, mergeKalliPureDamageFloat(kalliPurePrimary));
+            showDamageNumber(tgt, actualPrimaryDamage, atkDmgExtras(attackerCard, attackerPlayer, kalliPurePrimary));
           }
           if (baekseuLastStandPrimary) {
             window.setTimeout(() => triggerCardFlash(tgt, "kalliBuffBan"), 0);
@@ -15733,7 +15783,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   /**
    * 필드 카드 특수 윤곽 링 z 순서 (높을수록 위):
-   * z-33 맥셀렌드 [투지] 만축 외곽 붉은 광채 → z-31 소울·투지 만축 링 → z-32 맹수견 포 패시브(항상 붉은 글로우) → z-30 필립 마주 패시브(노랑) → z-29 반짓고리 부여 대상(핑크) → z-28 렴초·철기병 → z-27 메리 [방어력 +400].
+   * z-33 맥셀렌드 [투지] 만축 외곽 붉은 광채 → z-31 소울·투지 만축 링 → z-32 맹수견 포 패시브(항상 붉은 글로우) → z-30 필립 마주 패시브(노랑) → z-29 반짓고리 부여 대상(핑크) → z-28 렴초·철기병 → z-27 메리 [방어력 +400] → z-25 타입 세트 무지개(최후순위).
    */
   const renderPhilipFacingRing = (
     player: "A" | "B",
@@ -15944,7 +15994,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       : "pp-type-set-field-ring-overlay--r8";
     return (
       <div
-        className={`pointer-events-none absolute inset-0 z-[28] overflow-visible ${roundedClass} pp-type-set-field-ring-overlay ${radiusMod}`}
+        className={`pointer-events-none absolute inset-0 z-[25] overflow-visible ${roundedClass} pp-type-set-field-ring-overlay ${radiusMod}`}
         aria-hidden
       />
     );
@@ -18400,10 +18450,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {renderGhostoneClawHitOverlay(slotKey, "rounded-[6px]")}
             {renderIversonClawHitOverlay(slotKey, "rounded-[6px]")}
             {renderEristinaHitLineOverlay(slotKey, "rounded-[6px]")}
+            {renderTypeSetFieldRing(player, slot, card, "rounded-[6px]")}
             {renderCheolgibyeongFieldRing(player, slot, card)}
             {renderRyeomchoFieldRing(player, slot, card)}
             {renderMaryDefenseFieldRing(player, slot, card)}
-            {renderTypeSetFieldRing(player, slot, card, "rounded-[6px]")}
             {renderBanjitgoriFieldRing(player, slot, card)}
             {renderPhilipFacingRing(player, slot, card)}
             {renderDinnerFacingRing(player, slot, card)}
@@ -21711,10 +21761,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("B-is", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("B-is", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("B-is", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("B", "is", state.playerB.field.is)}
                      {renderCheolgibyeongFieldRing("B", "is", state.playerB.field.is)}
                      {renderRyeomchoFieldRing("B", "is", state.playerB.field.is)}
                      {renderMaryDefenseFieldRing("B", "is", state.playerB.field.is)}
-                     {renderTypeSetFieldRing("B", "is", state.playerB.field.is)}
                      {renderBanjitgoriFieldRing("B", "is", state.playerB.field.is)}
                      {renderPhilipFacingRing("B", "is", state.playerB.field.is)}
                      {renderDinnerFacingRing("B", "is", state.playerB.field.is)}
@@ -21758,10 +21808,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("B-m", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("B-m", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("B-m", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("B", "m", state.playerB.field.m)}
                      {renderCheolgibyeongFieldRing("B", "m", state.playerB.field.m)}
                      {renderRyeomchoFieldRing("B", "m", state.playerB.field.m)}
                      {renderMaryDefenseFieldRing("B", "m", state.playerB.field.m)}
-                     {renderTypeSetFieldRing("B", "m", state.playerB.field.m)}
                      {renderBanjitgoriFieldRing("B", "m", state.playerB.field.m)}
                      {renderPhilipFacingRing("B", "m", state.playerB.field.m)}
                      {renderDinnerFacingRing("B", "m", state.playerB.field.m)}
@@ -21805,10 +21855,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("B-os", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("B-os", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("B-os", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("B", "os", state.playerB.field.os)}
                      {renderCheolgibyeongFieldRing("B", "os", state.playerB.field.os)}
                      {renderRyeomchoFieldRing("B", "os", state.playerB.field.os)}
                      {renderMaryDefenseFieldRing("B", "os", state.playerB.field.os)}
-                     {renderTypeSetFieldRing("B", "os", state.playerB.field.os)}
                      {renderBanjitgoriFieldRing("B", "os", state.playerB.field.os)}
                      {renderPhilipFacingRing("B", "os", state.playerB.field.os)}
                      {renderDinnerFacingRing("B", "os", state.playerB.field.os)}
@@ -21918,10 +21968,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("A-is", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("A-is", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("A-is", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("A", "is", state.playerA.field.is)}
                      {renderCheolgibyeongFieldRing("A", "is", state.playerA.field.is)}
                      {renderRyeomchoFieldRing("A", "is", state.playerA.field.is)}
                      {renderMaryDefenseFieldRing("A", "is", state.playerA.field.is)}
-                     {renderTypeSetFieldRing("A", "is", state.playerA.field.is)}
                      {renderBanjitgoriFieldRing("A", "is", state.playerA.field.is)}
                      {renderPhilipFacingRing("A", "is", state.playerA.field.is)}
                      {renderDinnerFacingRing("A", "is", state.playerA.field.is)}
@@ -21965,10 +22015,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("A-m", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("A-m", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("A-m", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("A", "m", state.playerA.field.m)}
                      {renderCheolgibyeongFieldRing("A", "m", state.playerA.field.m)}
                      {renderRyeomchoFieldRing("A", "m", state.playerA.field.m)}
                      {renderMaryDefenseFieldRing("A", "m", state.playerA.field.m)}
-                     {renderTypeSetFieldRing("A", "m", state.playerA.field.m)}
                      {renderBanjitgoriFieldRing("A", "m", state.playerA.field.m)}
                      {renderPhilipFacingRing("A", "m", state.playerA.field.m)}
                      {renderDinnerFacingRing("A", "m", state.playerA.field.m)}
@@ -22012,10 +22062,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                      {renderGhostoneClawHitOverlay("A-os", "rounded-[8px]")}
                      {renderIversonClawHitOverlay("A-os", "rounded-[8px]")}
                      {renderEristinaHitLineOverlay("A-os", "rounded-[8px]")}
+                     {renderTypeSetFieldRing("A", "os", state.playerA.field.os)}
                      {renderCheolgibyeongFieldRing("A", "os", state.playerA.field.os)}
                      {renderRyeomchoFieldRing("A", "os", state.playerA.field.os)}
                      {renderMaryDefenseFieldRing("A", "os", state.playerA.field.os)}
-                     {renderTypeSetFieldRing("A", "os", state.playerA.field.os)}
                      {renderBanjitgoriFieldRing("A", "os", state.playerA.field.os)}
                      {renderPhilipFacingRing("A", "os", state.playerA.field.os)}
                      {renderDinnerFacingRing("A", "os", state.playerA.field.os)}
