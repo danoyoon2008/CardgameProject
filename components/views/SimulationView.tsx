@@ -5,7 +5,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, typ
 import { flushSync } from "react-dom";
 import { IconBook, IconDeck, IconHome, IconLock, IconSettings, IconUser, IconUsers } from "../ui/Icons";
 import { GuardedImg, MOBILE_CARD_TOUCH_BLOCK_STYLE, preventImageContextMenu } from "../ui/GuardedImg";
-import { CardRow, FieldCard } from "../../types/game";
+import { CardRow, FieldCard, type ElWingSinseokPendingSave } from "../../types/game";
 import type { PlayerRole } from "@/hooks/useMatchmaking";
 import type { UnitCombatStatsRow, SpellDeployPlaceholderRow } from "../../types/gameStats";
 import {
@@ -437,6 +437,8 @@ interface SimulationState {
   witchTarotPending: WitchTarotPendingSave | null;
   /** No.16 전설의 검 — 연격 대상 선택 중(저장·복귀 시 재개) */
   legendarySwordPending: LegendarySwordPendingSave | null;
+  /** 엘 윙 [신속] — 소유자의 회피 사용 여부 결정 대기 (멀티 sync) */
+  elWingSinseokPending: ElWingSinseokPendingSave | null;
   /** No.44 시작의 망령 — 처치 연쇄 추가 공격 대상 선택 중(저장·복귀 시 재개) */
   startingWraithChainPending: StartingWraithChainPendingSave | null;
   /** No.34 한날 밤의 내기 — 발동 연출·토큰 정산 중(저장·복귀 시 재개) */
@@ -555,6 +557,7 @@ function normalizeBootstrapSimulationState(raw: SimulationState): SimulationStat
   parsed.simpanPeekTick = typeof parsed.simpanPeekTick === "number" ? parsed.simpanPeekTick : 0;
   parsed.witchTarotPending = parsed.witchTarotPending ?? null;
   parsed.legendarySwordPending = parsed.legendarySwordPending ?? null;
+  parsed.elWingSinseokPending = parsed.elWingSinseokPending ?? null;
   parsed.startingWraithChainPending = parsed.startingWraithChainPending ?? null;
   parsed.oneNightWagerPending = parsed.oneNightWagerPending ?? null;
   parsed.spellUsagePending = parsed.spellUsagePending ?? null;
@@ -6350,6 +6353,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       simpanPeekTick: 0,
       witchTarotPending: null,
       legendarySwordPending: null,
+      elWingSinseokPending: null,
       startingWraithChainPending: null,
       oneNightWagerPending: null,
       spellUsagePending: null,
@@ -7137,6 +7141,38 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     pendingStartingWraithChainPlayerHp,
   ]);
 
+  // 멀티: 엘 윙 신속 — 소유자(defenderPlayer)가 sync된 pending을 받아 자기 화면에 신속 창
+  useEffect(() => {
+    if (!multiplayMyTeam) return;
+    const pending = state?.elWingSinseokPending;
+
+    if (!pending || pending.decision !== null) {
+      if (
+        pendingElWingSinseokDefense &&
+        (!pending || multiplayMyTeam === pending.defenderPlayer)
+      ) {
+        dismissElWingSinseokUi();
+      }
+      return;
+    }
+    if (multiplayMyTeam !== pending.defenderPlayer) return;
+    if (pendingElWingSinseokDefense) return;
+
+    setPendingElWingSinseokDefense({
+      defenderPlayer: pending.defenderPlayer,
+      defenderSlot: pending.defenderSlot,
+      attackerPlayer: pending.attackerPlayer,
+      attackerSlot: pending.attackerSlot,
+      hitKind: pending.hitKind,
+      popupPosition: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+      deadlineAt: pending.deadlineAt,
+      wraithChainFollowUp: pending.wraithChainFollowUp,
+    });
+    const msLeft = Math.max(0, pending.deadlineAt - Date.now());
+    setElWingSinseokSecondsLeft(Math.ceil(msLeft / 1000));
+    setElWingSinseokTimeRatio(msLeft / EL_WING_SINSEOK_PROMPT_MS);
+  }, [multiplayMyTeam, state?.elWingSinseokPending, pendingElWingSinseokDefense, dismissElWingSinseokUi]);
+
   useEffect(() => {
     if (!state || isInitializing) return;
     if (witchTarotRestoreOnMountDoneRef.current) return;
@@ -7304,6 +7340,34 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 hitTargets: Array.isArray(parsed.legendarySwordPending.hitTargets)
                   ? parsed.legendarySwordPending.hitTargets.map(String)
                   : [],
+              }
+            : null;
+        parsed.elWingSinseokPending =
+          parsed.elWingSinseokPending && typeof parsed.elWingSinseokPending === "object"
+            ? {
+                defenderPlayer:
+                  parsed.elWingSinseokPending.defenderPlayer === "B" ? "B" : "A",
+                defenderSlot: (["is", "m", "os"] as const).includes(
+                  parsed.elWingSinseokPending.defenderSlot
+                )
+                  ? parsed.elWingSinseokPending.defenderSlot
+                  : "is",
+                attackerPlayer:
+                  parsed.elWingSinseokPending.attackerPlayer === "B" ? "B" : "A",
+                attackerSlot: (["is", "m", "os"] as const).includes(
+                  parsed.elWingSinseokPending.attackerSlot
+                )
+                  ? parsed.elWingSinseokPending.attackerSlot
+                  : "is",
+                hitKind:
+                  parsed.elWingSinseokPending.hitKind === "secondary" ? "secondary" : "primary",
+                wraithChainFollowUp: !!parsed.elWingSinseokPending.wraithChainFollowUp,
+                deadlineAt: Number(parsed.elWingSinseokPending.deadlineAt) || 0,
+                decision:
+                  parsed.elWingSinseokPending.decision === "dodge" ||
+                  parsed.elWingSinseokPending.decision === "take"
+                    ? parsed.elWingSinseokPending.decision
+                    : null,
               }
             : null;
         parsed.startingWraithChainPending =
@@ -13131,23 +13195,47 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               window.clearTimeout(elWingSinseokTimerRef.current);
             }
             const deadlineAt = Date.now() + EL_WING_SINSEOK_PROMPT_MS;
-            setPendingElWingSinseokDefense({
+            const sinseokPendingData = {
               defenderPlayer: player,
               defenderSlot: slot as "is" | "m" | "os",
               attackerPlayer,
               attackerSlot: attackerSlotName,
-              hitKind: "secondary",
+              hitKind: "secondary" as const,
               popupPosition: { x: e.clientX, y: e.clientY },
               deadlineAt,
               wraithChainFollowUp: false,
-            });
+            };
+            elWingSinseokResumeRef.current = runElWingDeferrableSecondaryHit;
             elWingSinseokTimeoutMetaRef.current = {
               hitKind: "secondary",
               wraithChainFollowUp: false,
             };
-            elWingSinseokResumeRef.current = runElWingDeferrableSecondaryHit;
-              setElWingSinseokSecondsLeft(Math.ceil(EL_WING_SINSEOK_PROMPT_MS / 1000));
-              setElWingSinseokTimeRatio(1);
+
+            if (multiplayMyTeam) {
+              setState(prev =>
+                prev
+                  ? {
+                      ...prev,
+                      elWingSinseokPending: {
+                        defenderPlayer: player,
+                        defenderSlot: slot as "is" | "m" | "os",
+                        attackerPlayer,
+                        attackerSlot: attackerSlotName,
+                        hitKind: "secondary",
+                        wraithChainFollowUp: false,
+                        deadlineAt,
+                        decision: null,
+                      },
+                    }
+                  : prev
+              );
+              notifyMultiplaySync();
+              return;
+            }
+
+            setPendingElWingSinseokDefense(sinseokPendingData);
+            setElWingSinseokSecondsLeft(Math.ceil(EL_WING_SINSEOK_PROMPT_MS / 1000));
+            setElWingSinseokTimeRatio(1);
             elWingSinseokTimerRef.current = window.setTimeout(
               () => finishElWingSinseokTimeout(),
               EL_WING_SINSEOK_PROMPT_MS
@@ -14323,21 +14411,45 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 window.clearTimeout(elWingSinseokTimerRef.current);
               }
               const deadlineAt = Date.now() + EL_WING_SINSEOK_PROMPT_MS;
-              setPendingElWingSinseokDefense({
+              const sinseokPendingData = {
                 defenderPlayer: player,
                 defenderSlot: slot as "is" | "m" | "os",
                 attackerPlayer,
                 attackerSlot: attackerSlotName,
-                hitKind: "primary",
+                hitKind: "primary" as const,
                 popupPosition: { x: e.clientX, y: e.clientY },
                 deadlineAt,
                 wraithChainFollowUp: isStartingWraithChainFollowUp,
-              });
+              };
+              elWingSinseokResumeRef.current = runElWingDeferrablePrimaryHit;
               elWingSinseokTimeoutMetaRef.current = {
                 hitKind: "primary",
                 wraithChainFollowUp: isStartingWraithChainFollowUp,
               };
-              elWingSinseokResumeRef.current = runElWingDeferrablePrimaryHit;
+
+              if (multiplayMyTeam) {
+                setState(prev =>
+                  prev
+                    ? {
+                        ...prev,
+                        elWingSinseokPending: {
+                          defenderPlayer: player,
+                          defenderSlot: slot as "is" | "m" | "os",
+                          attackerPlayer,
+                          attackerSlot: attackerSlotName,
+                          hitKind: "primary",
+                          wraithChainFollowUp: isStartingWraithChainFollowUp,
+                          deadlineAt,
+                          decision: null,
+                        },
+                      }
+                    : prev
+                );
+                notifyMultiplaySync();
+                return;
+              }
+
+              setPendingElWingSinseokDefense(sinseokPendingData);
               setElWingSinseokSecondsLeft(Math.ceil(EL_WING_SINSEOK_PROMPT_MS / 1000));
               setElWingSinseokTimeRatio(1);
               elWingSinseokTimerRef.current = window.setTimeout(
@@ -18303,6 +18415,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       strikeAttackerCardForPlayerHp,
       strikeAttackerFacingForPlayerHp
     );
+  const elWingSinseokWaitingForOpponent =
+    !!multiplayMyTeam &&
+    !!state?.elWingSinseokPending &&
+    state.elWingSinseokPending.decision === null &&
+    multiplayMyTeam === state.elWingSinseokPending.attackerPlayer;
   const canDirectAttackOpponentPlayerHp =
     strikeAttackerCardForPlayerHp != null &&
     (wraithPlayerHpChainStrikeActive ||
@@ -20126,6 +20243,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       {startingWraithWaitingForOpponent && (
         <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-slate-600 to-slate-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-lg border-2 border-white/30 pointer-events-none whitespace-nowrap">
           상대가 [시작의 망령] 추가 공격 대상을 선택 중...
+        </div>
+      )}
+
+      {elWingSinseokWaitingForOpponent && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-50 bg-gradient-to-r from-slate-600 to-slate-500 text-white px-8 py-3 rounded-full font-black text-sm md:text-base shadow-lg border-2 border-white/30 pointer-events-none whitespace-nowrap">
+          상대가 [신속] 사용 여부 판단 중...
         </div>
       )}
 

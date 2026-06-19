@@ -154,6 +154,19 @@ export type SimulationPlayerField = {
   spellStack: FieldCard[];
 };
 
+/** 엘 윙 [신속] — 소유자의 회피 사용 여부 결정 대기 (멀티 sync) */
+export interface ElWingSinseokPendingSave {
+  defenderPlayer: "A" | "B";
+  defenderSlot: "is" | "m" | "os";
+  attackerPlayer: "A" | "B";
+  attackerSlot: "is" | "m" | "os";
+  hitKind: "primary" | "secondary";
+  wraithChainFollowUp: boolean;
+  deadlineAt: number;
+  /** 소유자 결정: null=대기중, "dodge"=신속 사용, "take"=미사용(피해받음) */
+  decision: "dodge" | "take" | null;
+}
+
 // ─────────────────────────────────────────
 // 가챠 뽑기 결과
 // ─────────────────────────────────────────

@@ -242,6 +242,7 @@ function createInitialGameState(
     simpanPeekTick: 0,
     witchTarotPending: null,
     legendarySwordPending: null,
+    elWingSinseokPending: null,
     startingWraithChainPending: null,
     oneNightWagerPending: null,
     spellUsagePending: null,
