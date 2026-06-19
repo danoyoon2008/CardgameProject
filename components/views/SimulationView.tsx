@@ -15928,15 +15928,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  /** 타입 세트 — 유닛 3칸(is/m/os) 전체를 감싸는 다홍색 윤곽 (진영별 1개) */
+  /** 타입 세트 — 유닛 3칸(is/m/os) 카드 이미지 영역만 감싸는 윤곽 (체력바·뱃지 제외) */
   const renderTypeSetUnitRowOutline = (
     player: "A" | "B",
-    field: PlayerState["field"] | null | undefined
+    field: PlayerState["field"] | null | undefined,
+    layout: "mobile" | "desktop"
   ) => {
     if (!field || !hasActiveTypeSet(field)) return null;
+    const cardsAtTop = fieldSlotIsPlayerA(player);
+    const vertClass = cardsAtTop ? "top-0 bottom-auto" : "bottom-0 top-auto";
+    const desktopCardH =
+      "h-[calc(85px*1.58)] md:h-[calc(100px*1.58)] lg:h-[calc(120px*1.58)]";
     return (
       <div
-        className="pp-type-set-field-row-outline pointer-events-none absolute inset-0 z-[26] overflow-visible rounded-[10px]"
+        className={`pp-type-set-field-row-outline pointer-events-none absolute left-0 right-0 z-[26] overflow-visible rounded-[10px] ${vertClass} ${
+          layout === "desktop" ? desktopCardH : ""
+        }`}
+        style={layout === "mobile" ? { height: MOBILE_UNIT_H } : undefined}
         aria-hidden
         data-type-set-player={player}
       />
@@ -20876,7 +20884,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       boxSizing: "border-box",
                     }}
                   >
-                    {renderTypeSetUnitRowOutline("B", state.playerB.field)}
+                    {renderTypeSetUnitRowOutline("B", state.playerB.field, "mobile")}
                     {renderMobileUnitSlot("B", "is", "Is", false)}
                     {renderMobileUnitSlot("B", "m", "M", false)}
                     {renderMobileUnitSlot("B", "os", "Os", false)}
@@ -20989,7 +20997,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       boxSizing: "border-box",
                     }}
                   >
-                    {renderTypeSetUnitRowOutline("A", state.playerA.field)}
+                    {renderTypeSetUnitRowOutline("A", state.playerA.field, "mobile")}
                     {renderMobileUnitSlot("A", "is", "Is", true)}
                     {renderMobileUnitSlot("A", "m", "M", true)}
                     {renderMobileUnitSlot("A", "os", "Os", true)}
@@ -21667,7 +21675,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             {/* ⭐️ Player B 영역 (상단) */}
             <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-3" : "order-1"}`}>
               <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("B", "units")}`}>
-                 {renderTypeSetUnitRowOutline("B", state.playerB.field)}
+                 {renderTypeSetUnitRowOutline("B", state.playerB.field, "desktop")}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "is", state.playerB.field.is, fieldSlotIsPlayerA("B"))}</div>
@@ -21879,7 +21887,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </div>
               </div>
               <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("A", "units")}`}>
-                 {renderTypeSetUnitRowOutline("A", state.playerA.field)}
+                 {renderTypeSetUnitRowOutline("A", state.playerA.field, "desktop")}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">

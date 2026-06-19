@@ -401,38 +401,38 @@
   mix-blend-mode: screen;
 }
 
-/* 타입 세트 발동 — 집중 사격 동형·다홍색(빨강-주황) 섬광 */
+/* 타입 세트 발동 — 집중 사격 동형·저채도 무지개 섬광 */
 .pp-combat-flash-layer--type-set-activate {
   animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
   background: radial-gradient(
     ellipse 118% 105% at 50% 46%,
-    rgba(234, 88, 12, 0.92) 0%,
-    rgba(220, 38, 38, 0.62) 32%,
-    rgba(153, 27, 27, 0.28) 54%,
-    rgba(80, 18, 18, 0.1) 70%,
+    rgba(186, 168, 210, 0.72) 0%,
+    rgba(168, 198, 218, 0.48) 28%,
+    rgba(178, 212, 188, 0.32) 48%,
+    rgba(212, 198, 168, 0.18) 62%,
     transparent 82%
   );
   box-shadow:
-    inset 0 0 0 4px rgba(254, 215, 170, 0.55),
-    inset 0 0 48px rgba(234, 88, 12, 0.58),
-    inset 0 0 100px rgba(220, 38, 38, 0.42);
+    inset 0 0 0 4px rgba(210, 192, 228, 0.42),
+    inset 0 0 48px rgba(168, 198, 218, 0.38),
+    inset 0 0 100px rgba(198, 178, 208, 0.28);
 }
 
 .pp-combat-flash-layer--type-set-activate-aura {
   animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
   background: radial-gradient(
     ellipse 100% 95% at 50% 50%,
-    rgba(251, 146, 60, 0.44) 0%,
-    rgba(239, 68, 68, 0.28) 36%,
-    rgba(185, 28, 28, 0.16) 58%,
-    rgba(90, 20, 20, 0.08) 74%,
+    rgba(198, 182, 220, 0.38) 0%,
+    rgba(172, 202, 222, 0.24) 32%,
+    rgba(182, 216, 192, 0.16) 52%,
+    rgba(218, 204, 176, 0.1) 68%,
     transparent 84%
   );
   box-shadow:
-    0 0 42px 22px rgba(251, 146, 60, 0.46),
-    0 0 72px 44px rgba(234, 88, 12, 0.32),
-    0 0 110px 64px rgba(220, 38, 38, 0.22),
-    0 0 0 1px rgba(254, 226, 226, 0.22);
+    0 0 42px 22px rgba(192, 176, 214, 0.32),
+    0 0 72px 44px rgba(168, 198, 218, 0.22),
+    0 0 110px 64px rgba(178, 212, 188, 0.16),
+    0 0 0 1px rgba(228, 218, 238, 0.2);
   filter: blur(0.8px);
   mix-blend-mode: screen;
 }
@@ -2798,23 +2798,46 @@
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(251, 146, 60, 0.45),
-      0 0 14px rgba(220, 38, 38, 0.5),
-      inset 0 0 18px rgba(234, 88, 12, 0.22);
-    border-color: rgba(239, 68, 68, 0.82);
+      0 0 0 1px rgba(198, 182, 220, 0.35),
+      0 0 12px rgba(168, 198, 218, 0.38),
+      inset 0 0 14px rgba(178, 212, 188, 0.18);
+    opacity: 0.88;
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(254, 215, 170, 0.55),
-      0 0 22px rgba(234, 88, 12, 0.62),
-      inset 0 0 26px rgba(220, 38, 38, 0.32);
-    border-color: rgba(251, 146, 60, 0.92);
+      0 0 0 1px rgba(212, 198, 168, 0.42),
+      0 0 18px rgba(198, 178, 208, 0.45),
+      inset 0 0 18px rgba(172, 202, 222, 0.24);
+    opacity: 1;
+  }
+}
+
+@keyframes pp-type-set-rainbow-border-shift {
+  0% {
+    border-color: rgba(186, 168, 210, 0.72);
+  }
+  20% {
+    border-color: rgba(168, 198, 218, 0.72);
+  }
+  40% {
+    border-color: rgba(178, 212, 188, 0.72);
+  }
+  60% {
+    border-color: rgba(212, 198, 168, 0.72);
+  }
+  80% {
+    border-color: rgba(208, 178, 192, 0.72);
+  }
+  100% {
+    border-color: rgba(186, 168, 210, 0.72);
   }
 }
 
 .pp-type-set-field-row-outline {
-  border: 2px solid rgba(239, 68, 68, 0.85);
-  animation: pp-type-set-row-outline-pulse 2.2s ease-in-out infinite;
+  border: 2px solid rgba(186, 168, 210, 0.72);
+  animation:
+    pp-type-set-row-outline-pulse 2.2s ease-in-out infinite,
+    pp-type-set-rainbow-border-shift 6s ease-in-out infinite;
 }
 
 /* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
