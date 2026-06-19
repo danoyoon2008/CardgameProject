@@ -1589,6 +1589,22 @@ export default function SimulationView({
     return map[order] ?? "order-1";
   };
 
+  /** 모바일 — 유닛·스펠 행을 묶는 필드 래퍼 flex order (중앙선 직전까지 한 플레이어 영역) */
+  const mobilePlayerFieldWrapOrderClass = (player: "A" | "B"): string => {
+    const wrapOrder = Math.min(
+      mobileFieldRowOrder(player, "units"),
+      mobileFieldRowOrder(player, "spell")
+    );
+    const map: Record<number, string> = {
+      1: "order-1",
+      2: "order-2",
+      3: "order-3",
+      4: "order-4",
+      5: "order-5",
+    };
+    return map[wrapOrder] ?? "order-1";
+  };
+
   const desktopFieldBlockOrderClass = (player: "A" | "B", block: "units" | "spell"): string =>
     fieldUnitsBeforeSpell(player)
       ? block === "units"
@@ -15928,23 +15944,15 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     );
   };
 
-  /** 타입 세트 — 유닛 3칸(is/m/os) 카드 이미지 영역만 감싸는 윤곽 (체력바·뱃지 제외) */
-  const renderTypeSetUnitRowOutline = (
+  /** 타입 세트 — 해당 플레이어 필드 전체(유닛·스펠·체력바·뱃지, 중앙선 직전) 윤곽 */
+  const renderTypeSetFieldOutline = (
     player: "A" | "B",
-    field: PlayerState["field"] | null | undefined,
-    layout: "mobile" | "desktop"
+    field: PlayerState["field"] | null | undefined
   ) => {
     if (!field || !hasActiveTypeSet(field)) return null;
-    const cardsAtTop = fieldSlotIsPlayerA(player);
-    const vertClass = cardsAtTop ? "top-0 bottom-auto" : "bottom-0 top-auto";
-    const desktopCardH =
-      "h-[calc(85px*1.58)] md:h-[calc(100px*1.58)] lg:h-[calc(120px*1.58)]";
     return (
       <div
-        className={`pp-type-set-field-row-outline pointer-events-none absolute left-0 right-0 z-[26] overflow-visible rounded-[10px] ${vertClass} ${
-          layout === "desktop" ? desktopCardH : ""
-        }`}
-        style={layout === "mobile" ? { height: MOBILE_UNIT_H } : undefined}
+        className="pp-type-set-field-row-outline pointer-events-none absolute inset-0 z-[26] overflow-visible rounded-[12px]"
         aria-hidden
         data-type-set-player={player}
       />
@@ -20871,65 +20879,70 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   }}
                 >
                   <div
-                    data-mobile-units-row="B"
-                    className={mobileFieldRowOrderClass("B", "units")}
-                    style={{
-                      position: "relative",
-                      width: MOBILE_UNIT_ROW_W,
-                      display: "flex",
-                      flexDirection: "row",
-                      gap: MOBILE_UNIT_SLOT_GAP,
-                      justifyContent: "center",
-                      paddingTop: MOBILE_BOARD_EDGE_GAP,
-                      boxSizing: "border-box",
-                    }}
+                    className={`relative flex w-full flex-col items-center ${mobilePlayerFieldWrapOrderClass("B")}`}
+                    style={{ gap: MOBILE_FIELD_STACK_GAP, boxSizing: "border-box" }}
                   >
-                    {renderTypeSetUnitRowOutline("B", state.playerB.field, "mobile")}
-                    {renderMobileUnitSlot("B", "is", "Is", false)}
-                    {renderMobileUnitSlot("B", "m", "M", false)}
-                    {renderMobileUnitSlot("B", "os", "Os", false)}
-                  </div>
-                  <div
-                    data-mobile-spell-row="B"
-                    className={mobileFieldRowOrderClass("B", "spell")}
-                    style={{
-                      width: MOBILE_UNIT_ROW_W,
-                      display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "flex-start",
-                      gap: 4,
-                      boxSizing: "border-box",
-                    }}
-                  >
+                    {renderTypeSetFieldOutline("B", state.playerB.field)}
                     <div
-                      className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
-                      style={MOBILE_SPELL_SLOT_BOX_STYLE}
-                      data-field-drop
-                      data-field-player="B"
-                      data-field-slot="spell"
-                      data-slot="spell"
-                      data-player="B"
-                      onDragOver={e => e.preventDefault()}
-                      onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
+                      data-mobile-units-row="B"
+                      className={mobileFieldRowOrderClass("B", "units")}
+                      style={{
+                        position: "relative",
+                        width: MOBILE_UNIT_ROW_W,
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: MOBILE_UNIT_SLOT_GAP,
+                        justifyContent: "center",
+                        paddingTop: MOBILE_BOARD_EDGE_GAP,
+                        boxSizing: "border-box",
+                      }}
                     >
-                      {renderFlashOverlay("B-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("B", state.playerB.field, mobileFieldSpellFaceOpts)}
-                      {renderFieldSpellDurationBadge(state.playerB.field, "B")}
-                      {renderOpponentFocusOverlay("B", "spell")}
-                      {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
-                      <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
+                      {renderMobileUnitSlot("B", "is", "Is", false)}
+                      {renderMobileUnitSlot("B", "m", "M", false)}
+                      {renderMobileUnitSlot("B", "os", "Os", false)}
                     </div>
-                    {normalizeSpellStack(state.playerB.field).length > 1 ? (
-                      <button
-                        type="button"
-                        style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
-                        className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
-                        onClick={e => handleSpellStackShuffleClick(e, "B")}
+                    <div
+                      data-mobile-spell-row="B"
+                      className={mobileFieldRowOrderClass("B", "spell")}
+                      style={{
+                        width: MOBILE_UNIT_ROW_W,
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "flex-start",
+                        gap: 4,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <div
+                        className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("B")}${getHandDragCheolbyeokSpellSlotPulseClass("B")}${getHandDragBusinessGangSpellSlotPulseClass("B")}${getHandDragBefpkkiriSpellSlotPulseClass("B")}${getHandDragBubbleStationSpellSlotPulseClass("B")}${getHandDragSpellSlotPlacementPulseClass("B")}${getGonchungHiddenPeekSpellSlotPulseClass("B")}${handDragSpellSlotHoverGlow("B")}`}
+                        style={MOBILE_SPELL_SLOT_BOX_STYLE}
+                        data-field-drop
+                        data-field-player="B"
+                        data-field-slot="spell"
+                        data-slot="spell"
+                        data-player="B"
+                        onDragOver={e => e.preventDefault()}
+                        onClick={e => handleFieldClick(e, "B", "spell", getTopSpellFromField(state.playerB.field))}
                       >
-                        {normalizeSpellStack(state.playerB.field).length}
-                      </button>
-                    ) : null}
+                        {renderFlashOverlay("B-spell", "rounded-[6px]")}
+                        {renderGonchungSpellStackFace("B", state.playerB.field, mobileFieldSpellFaceOpts)}
+                        {renderFieldSpellDurationBadge(state.playerB.field, "B")}
+                        {renderOpponentFocusOverlay("B", "spell")}
+                        {renderActionMenu("B", "spell", getTopSpellFromField(state.playerB.field))}
+                        <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("B-spell")}</div>
+                      </div>
+                      {normalizeSpellStack(state.playerB.field).length > 1 ? (
+                        <button
+                          type="button"
+                          style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
+                          className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
+                          onClick={e => handleSpellStackShuffleClick(e, "B")}
+                        >
+                          {normalizeSpellStack(state.playerB.field).length}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div
@@ -20942,65 +20955,70 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   />
 
                   <div
-                    data-mobile-spell-row="A"
-                    className={mobileFieldRowOrderClass("A", "spell")}
-                    style={{
-                      width: MOBILE_UNIT_ROW_W,
-                      display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "flex-end",
-                      gap: 4,
-                      boxSizing: "border-box",
-                    }}
+                    className={`relative flex w-full flex-col items-center ${mobilePlayerFieldWrapOrderClass("A")}`}
+                    style={{ gap: MOBILE_FIELD_STACK_GAP, boxSizing: "border-box" }}
                   >
-                    {normalizeSpellStack(state.playerA.field).length > 1 ? (
-                      <button
-                        type="button"
-                        style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
-                        className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
-                        onClick={e => handleSpellStackShuffleClick(e, "A")}
-                      >
-                        {normalizeSpellStack(state.playerA.field).length}
-                      </button>
-                    ) : null}
+                    {renderTypeSetFieldOutline("A", state.playerA.field)}
                     <div
-                      className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
-                      style={MOBILE_SPELL_SLOT_BOX_STYLE}
-                      data-field-drop
-                      data-field-player="A"
-                      data-field-slot="spell"
-                      data-slot="spell"
-                      data-player="A"
-                      onDragOver={e => e.preventDefault()}
-                      onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
+                      data-mobile-spell-row="A"
+                      className={mobileFieldRowOrderClass("A", "spell")}
+                      style={{
+                        width: MOBILE_UNIT_ROW_W,
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: 4,
+                        boxSizing: "border-box",
+                      }}
                     >
-                      {renderFlashOverlay("A-spell", "rounded-[6px]")}
-                      {renderGonchungSpellStackFace("A", state.playerA.field, mobileFieldSpellFaceOpts)}
-                      {renderFieldSpellDurationBadge(state.playerA.field, "A")}
-                      {renderOpponentFocusOverlay("A", "spell")}
-                      {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
-                      <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
+                      {normalizeSpellStack(state.playerA.field).length > 1 ? (
+                        <button
+                          type="button"
+                          style={{ width: 28, height: 28, fontSize: 10, fontWeight: 900 }}
+                          className="rounded border-2 border-purple-400/70 bg-slate-950/90 text-purple-100"
+                          onClick={e => handleSpellStackShuffleClick(e, "A")}
+                        >
+                          {normalizeSpellStack(state.playerA.field).length}
+                        </button>
+                      ) : null}
+                      <div
+                        className={`${mobileSpellCardStyle} border-purple-500/30 bg-purple-950/20 ${getHandDragBangEomakSpellSlotPulseClass("A")}${getHandDragCheolbyeokSpellSlotPulseClass("A")}${getHandDragBusinessGangSpellSlotPulseClass("A")}${getHandDragBefpkkiriSpellSlotPulseClass("A")}${getHandDragBubbleStationSpellSlotPulseClass("A")}${getHandDragSpellSlotPlacementPulseClass("A")}${getGonchungHiddenPeekSpellSlotPulseClass("A")}${handDragSpellSlotHoverGlow("A")}`}
+                        style={MOBILE_SPELL_SLOT_BOX_STYLE}
+                        data-field-drop
+                        data-field-player="A"
+                        data-field-slot="spell"
+                        data-slot="spell"
+                        data-player="A"
+                        onDragOver={e => e.preventDefault()}
+                        onClick={e => handleFieldClick(e, "A", "spell", getTopSpellFromField(state.playerA.field))}
+                      >
+                        {renderFlashOverlay("A-spell", "rounded-[6px]")}
+                        {renderGonchungSpellStackFace("A", state.playerA.field, mobileFieldSpellFaceOpts)}
+                        {renderFieldSpellDurationBadge(state.playerA.field, "A")}
+                        {renderOpponentFocusOverlay("A", "spell")}
+                        {renderActionMenu("A", "spell", getTopSpellFromField(state.playerA.field))}
+                        <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-spell")}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div
-                    data-mobile-units-row="A"
-                    className={mobileFieldRowOrderClass("A", "units")}
-                    style={{
-                      position: "relative",
-                      width: MOBILE_UNIT_ROW_W,
-                      display: "flex",
-                      flexDirection: "row",
-                      gap: MOBILE_UNIT_SLOT_GAP,
-                      justifyContent: "center",
-                      paddingBottom: MOBILE_BOARD_EDGE_GAP,
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    {renderTypeSetUnitRowOutline("A", state.playerA.field, "mobile")}
-                    {renderMobileUnitSlot("A", "is", "Is", true)}
-                    {renderMobileUnitSlot("A", "m", "M", true)}
-                    {renderMobileUnitSlot("A", "os", "Os", true)}
+                    <div
+                      data-mobile-units-row="A"
+                      className={mobileFieldRowOrderClass("A", "units")}
+                      style={{
+                        position: "relative",
+                        width: MOBILE_UNIT_ROW_W,
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: MOBILE_UNIT_SLOT_GAP,
+                        justifyContent: "center",
+                        paddingBottom: MOBILE_BOARD_EDGE_GAP,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      {renderMobileUnitSlot("A", "is", "Is", true)}
+                      {renderMobileUnitSlot("A", "m", "M", true)}
+                      {renderMobileUnitSlot("A", "os", "Os", true)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -21674,8 +21692,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             
             {/* ⭐️ Player B 영역 (상단) */}
             <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-3" : "order-1"}`}>
+              <div className="relative flex w-full flex-col gap-2">
+                {renderTypeSetFieldOutline("B", state.playerB.field)}
               <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("B", "units")}`}>
-                 {renderTypeSetUnitRowOutline("B", state.playerB.field, "desktop")}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "is", state.playerB.field.is, fieldSlotIsPlayerA("B"))}</div>
@@ -21847,6 +21866,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : null}
                 </div>
               </div>
+              </div>
             </div>
 
             {/* 중앙선 */}
@@ -21854,6 +21874,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
             {/* ⭐️ Player A 영역 (하단) */}
             <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-1" : "order-3"}`}>
+              <div className="relative flex w-full flex-col gap-2">
+                {renderTypeSetFieldOutline("A", state.playerA.field)}
               <div
                 className={`flex w-full justify-end ${fieldUnitsBeforeSpell("A") ? "mt-2" : "mb-2"} ${desktopFieldBlockOrderClass("A", "spell")}`}
               >
@@ -21887,7 +21909,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 </div>
               </div>
               <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("A", "units")}`}>
-                 {renderTypeSetUnitRowOutline("A", state.playerA.field, "desktop")}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
@@ -22026,6 +22047,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className={fieldSlotCombatPopupOverlayClass}>{renderCombatPopups("A-os")}</div>
                    </div>
                  </div>
+              </div>
               </div>
             </div>
 
