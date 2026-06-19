@@ -81,6 +81,8 @@ export interface FieldCard extends CardRow {
 
   /** 곤충 전문가 — 액티브「A) 탐색」1회 사용 여부 */
   gonchungHiddenPeekConsumed?: boolean;
+  /** 곤충 전문가 「탐색」으로 이번 턴 공개된 히든 스펠 (턴 전환 시 해제, 양쪽 sync) */
+  gonchungRevealedThisTurn?: boolean;
 
   /** 스펠 No.43 개미지옥 — [제압] 남은 턴 넘김 횟수(4×턴=8) */
   suppressionEndTurnTicksRemaining?: number;

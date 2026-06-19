@@ -83,6 +83,8 @@ import {
   isHiddenSpellCard,
   GONCHUNG_JEONMOGA_ACTIVE,
   spellStackHasHiddenSpell,
+  applyGonchungRevealedThisTurnToField,
+  clearGonchungRevealedThisTurnFromStack,
   healUnitCurrentHp,
   applyFieldAllyHealToUnit,
   suppressionBlocksExternalBuffEffects,
@@ -654,8 +656,12 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
           : null,
       });
 
-      const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
-      const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
+      const ta = applyEndTurnToSpellStack(
+        clearGonchungRevealedThisTurnFromStack(normalizeSpellStack(prev.playerA.field))
+      );
+      const tb = applyEndTurnToSpellStack(
+        clearGonchungRevealedThisTurnFromStack(normalizeSpellStack(prev.playerB.field))
+      );
       let rewindCards = [...prev.rewindCards];
       if (ta.expiredBangEomakToRewind.length > 0) {
         rewindCards = [...rewindCards, ...ta.expiredBangEomakToRewind];
@@ -1383,15 +1389,6 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
         return;
       }
 
-      setGonchungHiddenReveal({ player, spellStatsInstanceId });
-      if (gonchungHiddenRevealTimerRef.current != null) {
-        window.clearTimeout(gonchungHiddenRevealTimerRef.current);
-      }
-      gonchungHiddenRevealTimerRef.current = window.setTimeout(() => {
-        gonchungHiddenRevealTimerRef.current = null;
-        setGonchungHiddenReveal(null);
-      }, GONCHUNG_JEONMOGA_ACTIVE.hiddenRevealMs);
-
       setState(prev => {
         if (!prev) return prev;
         const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
@@ -1410,6 +1407,25 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
           newPlayerB.field = {
             ...newPlayerB.field,
             [expertSlot]: { ...eu, gonchungHiddenPeekConsumed: true },
+          };
+        }
+        if (player === "A") {
+          const withReveal = applyGonchungRevealedThisTurnToField(
+            newPlayerA.field,
+            spellStatsInstanceId
+          );
+          newPlayerA.field = {
+            ...newPlayerA.field,
+            spellStack: normalizeSpellStack(withReveal),
+          };
+        } else {
+          const withReveal = applyGonchungRevealedThisTurnToField(
+            newPlayerB.field,
+            spellStatsInstanceId
+          );
+          newPlayerB.field = {
+            ...newPlayerB.field,
+            spellStack: normalizeSpellStack(withReveal),
           };
         }
         return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
@@ -2897,11 +2913,7 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
     ) => {
       if (!spell) return false;
       if (!isHiddenSpellCard(spell)) return true;
-      return (
-        gonchungHiddenReveal?.player === spellPlayer &&
-        !!spell.statsInstanceId &&
-        spell.statsInstanceId === gonchungHiddenReveal.spellStatsInstanceId
-      );
+      return !!spell.gonchungRevealedThisTurn;
     },
     getGonchungHiddenPeekSpellSlotPulseClass,
     attackOptionOverride, setAttackOptionOverride,

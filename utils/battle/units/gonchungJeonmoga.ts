@@ -1,8 +1,8 @@
 /**
  * 곤충 전문가(No.15) — 액티브「A) 탐색」(상대 스펠 칸 히든 스펠 1회 엿보기)
  */
-import type { CardRow, SimulationPlayerField } from "../../../types/game";
-import { normalizeSpellStack } from "../fieldSpellAccess";
+import type { CardRow, FieldCard, SimulationPlayerField } from "../../../types/game";
+import { normalizeSpellStack, type FieldSliceWithSpell } from "../fieldSpellAccess";
 import { isHiddenSpellCard } from "../spells/spellVisibility";
 import { UNIT } from "../unitIds";
 
@@ -34,4 +34,24 @@ export function getTopSpellIfHidden(
 ): CardRow | null {
   const top = normalizeSpellStack(field).at(-1) ?? null;
   return top && isHiddenSpellCard(top) ? top : null;
+}
+
+/** 곤충 전문가 탐색 — 상대 스펠 스택의 해당 히든 카드에 이번 턴 공개 플래그 설정 */
+export function applyGonchungRevealedThisTurnToField(
+  field: FieldSliceWithSpell,
+  spellStatsInstanceId: string
+): FieldSliceWithSpell {
+  const revealedStack = normalizeSpellStack(field).map(sp =>
+    sp.statsInstanceId === spellStatsInstanceId
+      ? { ...sp, gonchungRevealedThisTurn: true }
+      : sp
+  );
+  return { ...field, spellStack: revealedStack };
+}
+
+/** 턴 전환 시 곤충 전문가 공개 플래그 제거 */
+export function clearGonchungRevealedThisTurnFromStack(stack: FieldCard[]): FieldCard[] {
+  return stack.map(sp =>
+    sp.gonchungRevealedThisTurn ? { ...sp, gonchungRevealedThisTurn: false } : sp
+  );
 }

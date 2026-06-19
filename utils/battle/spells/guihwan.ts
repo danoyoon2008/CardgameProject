@@ -47,6 +47,7 @@ const SIMULATION_UNIT_FIELD_RUNTIME_KEYS = [
   "danhaMagicHookConsumed",
   "superGreenKingSpellBreakerConsumed",
   "gonchungHiddenPeekConsumed",
+  "gonchungRevealedThisTurn",
   "suppressionEndTurnTicksRemaining",
   "eondeokSilenceEndTurnTicksRemaining",
   "bangEomakDefenseEndTurnTicksRemaining",

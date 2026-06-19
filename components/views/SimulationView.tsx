@@ -280,6 +280,8 @@ import {
   GONCHUNG_JEONMOGA_ACTIVE,
   GONCHUNG_HIDDEN_PEEK_SKILL_LABEL,
   spellStackHasHiddenSpell,
+  applyGonchungRevealedThisTurnToField,
+  clearGonchungRevealedThisTurnFromStack,
   fieldHasActiveSimpanSpellDrawPassive,
   isGuihwanSpellCard,
   getGuihwanRevivableRewindIndices,
@@ -7521,8 +7523,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         };
       };
 
-      const ta = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerA.field));
-      const tb = applyEndTurnToSpellStack(normalizeSpellStack(prev.playerB.field));
+      const ta = applyEndTurnToSpellStack(
+        clearGonchungRevealedThisTurnFromStack(normalizeSpellStack(prev.playerA.field))
+      );
+      const tb = applyEndTurnToSpellStack(
+        clearGonchungRevealedThisTurnFromStack(normalizeSpellStack(prev.playerB.field))
+      );
       let rewindCards = [...prev.rewindCards];
       if (ta.expiredBangEomakToRewind.length > 0) {
         rewindCards = [...rewindCards, ...ta.expiredBangEomakToRewind];
@@ -12317,11 +12323,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (spellUsageTeslaFlipPlayer === spellPlayer) return true;
     if (!spell) return false;
     if (!isHiddenSpellCard(spell)) return true;
-    return (
-      gonchungHiddenReveal?.player === spellPlayer &&
-      !!spell.statsInstanceId &&
-      spell.statsInstanceId === gonchungHiddenReveal.spellStatsInstanceId
-    );
+    return !!spell.gonchungRevealedThisTurn;
   };
 
   const getGonchungHiddenPeekSpellSlotPulseClass = (player: "A" | "B"): string => {
@@ -12382,18 +12384,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return;
       if (slot === "spell" || player === pendingLegendarySwordStrike.ownerPlayer) {
         alert("전설의 검 연격 대상을 선택하세요.");
-        return;
-      }
-    }
-
-    if (slot === "spell" && gonchungHiddenReveal?.player === player) {
-      const oppFieldSnap = player === "A" ? state.playerA.field : state.playerB.field;
-      const topHidden = normalizeSpellStack(oppFieldSnap).at(-1);
-      if (
-        topHidden?.statsInstanceId &&
-        topHidden.statsInstanceId === gonchungHiddenReveal.spellStatsInstanceId
-      ) {
-        clearGonchungHiddenReveal();
         return;
       }
     }
@@ -12572,15 +12562,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const oppSpellKey = `${player}-spell`;
       triggerCardFlash(oppSpellKey, "gonchungHiddenPeek");
 
-      setGonchungHiddenReveal({ player, spellStatsInstanceId });
-      if (gonchungHiddenRevealTimerRef.current != null) {
-        window.clearTimeout(gonchungHiddenRevealTimerRef.current);
-      }
-      gonchungHiddenRevealTimerRef.current = window.setTimeout(() => {
-        gonchungHiddenRevealTimerRef.current = null;
-        setGonchungHiddenReveal(null);
-      }, GONCHUNG_JEONMOGA_ACTIVE.hiddenRevealMs);
-
       setState(prev => {
         if (!prev) return prev;
         const newPlayerA = { ...prev.playerA, field: { ...prev.playerA.field } };
@@ -12599,6 +12580,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           newPlayerB.field = {
             ...newPlayerB.field,
             [expertSlot]: { ...eu, gonchungHiddenPeekConsumed: true },
+          };
+        }
+        if (player === "A") {
+          const withReveal = applyGonchungRevealedThisTurnToField(
+            newPlayerA.field,
+            spellStatsInstanceId
+          );
+          newPlayerA.field = {
+            ...newPlayerA.field,
+            spellStack: normalizeSpellStack(withReveal),
+          };
+        } else {
+          const withReveal = applyGonchungRevealedThisTurnToField(
+            newPlayerB.field,
+            spellStatsInstanceId
+          );
+          newPlayerB.field = {
+            ...newPlayerB.field,
+            spellStack: normalizeSpellStack(withReveal),
           };
         }
         return { ...prev, playerA: newPlayerA, playerB: newPlayerB };
