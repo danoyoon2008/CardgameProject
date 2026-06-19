@@ -401,38 +401,33 @@
   mix-blend-mode: screen;
 }
 
-/* 타입 세트 발동 — 집중 사격 동형·저채도 무지개 섬광 */
+/* 타입 세트 발동 — 집중 사격 동형·저채도 무지개(다색 동시) 섬광 */
 .pp-combat-flash-layer--type-set-activate {
   animation: pp-combat-flash-pulse-ghostone 0.78s ease-out forwards;
-  background: radial-gradient(
-    ellipse 118% 105% at 50% 46%,
-    rgba(186, 168, 210, 0.72) 0%,
-    rgba(168, 198, 218, 0.48) 28%,
-    rgba(178, 212, 188, 0.32) 48%,
-    rgba(212, 198, 168, 0.18) 62%,
-    transparent 82%
-  );
+  background:
+    radial-gradient(ellipse 90% 80% at 22% 38%, hsl(290 48% 72% / 0.78), transparent 58%),
+    radial-gradient(ellipse 85% 75% at 78% 42%, hsl(215 50% 68% / 0.72), transparent 55%),
+    radial-gradient(ellipse 80% 70% at 48% 62%, hsl(150 45% 65% / 0.68), transparent 52%),
+    radial-gradient(ellipse 75% 65% at 62% 28%, hsl(38 48% 68% / 0.62), transparent 48%);
   box-shadow:
-    inset 0 0 0 4px rgba(210, 192, 228, 0.42),
-    inset 0 0 48px rgba(168, 198, 218, 0.38),
-    inset 0 0 100px rgba(198, 178, 208, 0.28);
+    inset 0 0 0 4px hsl(290 45% 75% / 0.38),
+    inset 0 0 0 4px hsl(215 45% 72% / 0.28),
+    inset 0 0 48px hsl(150 42% 68% / 0.32),
+    inset 0 0 72px hsl(38 45% 70% / 0.22);
 }
 
 .pp-combat-flash-layer--type-set-activate-aura {
   animation: pp-combat-flash-aura-ghostone 0.5s ease-out forwards;
-  background: radial-gradient(
-    ellipse 100% 95% at 50% 50%,
-    rgba(198, 182, 220, 0.38) 0%,
-    rgba(172, 202, 222, 0.24) 32%,
-    rgba(182, 216, 192, 0.16) 52%,
-    rgba(218, 204, 176, 0.1) 68%,
-    transparent 84%
-  );
+  background:
+    radial-gradient(ellipse 95% 90% at 25% 50%, hsl(290 46% 72% / 0.42), transparent 62%),
+    radial-gradient(ellipse 90% 85% at 75% 48%, hsl(215 48% 68% / 0.38), transparent 58%),
+    radial-gradient(ellipse 85% 80% at 50% 72%, hsl(150 44% 65% / 0.34), transparent 55%),
+    radial-gradient(ellipse 80% 75% at 55% 22%, hsl(12 44% 70% / 0.3), transparent 52%);
   box-shadow:
-    0 0 42px 22px rgba(192, 176, 214, 0.32),
-    0 0 72px 44px rgba(168, 198, 218, 0.22),
-    0 0 110px 64px rgba(178, 212, 188, 0.16),
-    0 0 0 1px rgba(228, 218, 238, 0.2);
+    0 0 36px 18px hsl(290 46% 72% / 0.28),
+    0 0 56px 32px hsl(215 48% 68% / 0.2),
+    0 0 80px 44px hsl(150 44% 65% / 0.14),
+    0 0 0 1px hsl(38 45% 75% / 0.22);
   filter: blur(0.8px);
   mix-blend-mode: screen;
 }
@@ -2794,50 +2789,53 @@
   animation: pp-mary-defense-field-glow 2.4s ease-in-out infinite;
 }
 
-@keyframes pp-type-set-row-outline-pulse {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1px rgba(198, 182, 220, 0.35),
-      0 0 12px rgba(168, 198, 218, 0.38),
-      inset 0 0 14px rgba(178, 212, 188, 0.18);
-    opacity: 0.88;
+@keyframes pp-type-set-rainbow-border-flow {
+  0% {
+    background-position: 0 0, 0% 0;
   }
-  50% {
-    box-shadow:
-      0 0 0 1px rgba(212, 198, 168, 0.42),
-      0 0 18px rgba(198, 178, 208, 0.45),
-      inset 0 0 18px rgba(172, 202, 222, 0.24);
-    opacity: 1;
+  100% {
+    background-position: 0 0, 400% 0;
   }
 }
 
-@keyframes pp-type-set-rainbow-border-shift {
-  0% {
-    border-color: rgba(186, 168, 210, 0.72);
-  }
-  20% {
-    border-color: rgba(168, 198, 218, 0.72);
-  }
-  40% {
-    border-color: rgba(178, 212, 188, 0.72);
-  }
-  60% {
-    border-color: rgba(212, 198, 168, 0.72);
-  }
-  80% {
-    border-color: rgba(208, 178, 192, 0.72);
-  }
+@keyframes pp-type-set-row-outline-glow {
+  0%,
   100% {
-    border-color: rgba(186, 168, 210, 0.72);
+    filter:
+      drop-shadow(0 0 5px hsl(290 50% 68% / 0.65))
+      drop-shadow(0 0 12px hsl(215 48% 65% / 0.4));
+  }
+  33% {
+    filter:
+      drop-shadow(0 0 5px hsl(150 46% 62% / 0.65))
+      drop-shadow(0 0 12px hsl(42 48% 65% / 0.4));
+  }
+  66% {
+    filter:
+      drop-shadow(0 0 5px hsl(12 46% 66% / 0.65))
+      drop-shadow(0 0 12px hsl(290 48% 68% / 0.4));
   }
 }
 
 .pp-type-set-field-row-outline {
-  border: 2px solid rgba(186, 168, 210, 0.72);
+  border: 2px solid transparent;
+  background:
+    linear-gradient(transparent, transparent) padding-box,
+    linear-gradient(
+      90deg,
+      hsl(290 50% 68%),
+      hsl(215 52% 65%),
+      hsl(150 48% 62%),
+      hsl(42 50% 65%),
+      hsl(12 48% 66%),
+      hsl(330 46% 68%),
+      hsl(290 50% 68%)
+    )
+    border-box;
+  background-size: 100% 100%, 400% 100%;
   animation:
-    pp-type-set-row-outline-pulse 2.2s ease-in-out infinite,
-    pp-type-set-rainbow-border-shift 6s ease-in-out infinite;
+    pp-type-set-rainbow-border-flow 5s linear infinite,
+    pp-type-set-row-outline-glow 3s ease-in-out infinite;
 }
 
 /* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
