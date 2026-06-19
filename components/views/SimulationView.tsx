@@ -16758,8 +16758,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const display = gonchungSpellSlotDisplayCard(player, field);
     if (!display) return null;
     if (isMultiplayOpponent(player)) {
-      // 히든 스펠만 뒷면, 일반 스펠은 앞면 표시
-      if (isHiddenSpellCard(display)) {
+      // 히든 스펠은 뒷면. 단, 곤충 전문가로 공개된 히든 스펠은 앞면으로 통과.
+      if (isHiddenSpellCard(display) && !display.gonchungRevealedThisTurn) {
         return (
           <div
             className={`pointer-events-none absolute inset-0 rounded-[6px] overflow-hidden ${opts?.mobileFieldLayout ? "" : "rounded-[8px]"}`}
@@ -16768,7 +16768,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           </div>
         );
       }
-      // 일반 스펠: 앞면 그대로 표시
+      // 공개된 히든 스펠 또는 일반 스펠: 아래 showFront 판정으로 진행
     }
     const showFront = isGonchungHiddenPeekShowingFront(player, display);
     const suppressed = !!state &&
