@@ -2817,12 +2817,13 @@
   }
 }
 
-/* 내부는 투명, 2px 테두리만 무지개 (mask로 중앙 구멍) */
-.pp-type-set-field-row-outline {
-  background: transparent;
+/* 타입 세트 — 필드 유닛 카드 무지개 윤곽 (mask로 2px 테두리만) */
+.pp-type-set-unit-card-border {
+  border-color: transparent !important;
+  overflow: visible;
 }
 
-.pp-type-set-field-row-outline::before {
+.pp-type-set-unit-card-border::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -2851,6 +2852,7 @@
     pp-type-set-rainbow-border-flow 5s linear infinite,
     pp-type-set-row-outline-glow 3s ease-in-out infinite;
   pointer-events: none;
+  z-index: 3;
 }
 
 /* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
