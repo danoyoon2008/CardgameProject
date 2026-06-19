@@ -8,6 +8,7 @@ import { applyDarkKnightYorinToAttackDamage } from "./darkKnight";
 import { applyMaxellandTenacityToAttackDamage } from "./maxelland";
 import { applyPyredAttackAuraToAttackDamage } from "./pyred";
 import { applyMorningMoodAttackAuraToAttackDamage } from "./morningMood";
+import { applyTypeSetToAttackDamage } from "../typeSet";
 import { applyStartingTreeAttackAuraToAttackDamage } from "./startingTree";
 import { applyGeomeunHwangjeAttackDamage } from "./geomeunHwangje";
 
@@ -190,6 +191,13 @@ export function applyAttackerOutgoingBuffDamageModsUnlessCallieBanned(
       s,
       opts,
       { allyPlayer: attackerPlayer, playerAField, playerBField }
+    ));
+    ({ primaryDamage: p, secondaryDamage: s } = applyTypeSetToAttackDamage(
+      attackerCard,
+      attackerField,
+      p,
+      s,
+      opts
     ));
   }
   ({ primaryDamage: p, secondaryDamage: s } = applyGeomeunHwangjeAttackDamage(

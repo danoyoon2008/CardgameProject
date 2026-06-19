@@ -23,6 +23,7 @@ import {
   fieldHasLivingIronKiwi,
 } from "./battle/units/ironKiwi";
 import { PYRED_ATTACK_AURA_BADGE, PYRED_ID, getPyredAttackAuraStatuses } from "./battle/units/pyred";
+import { getTypeSetBadge, unitReceivesTypeSetBuff } from "./battle/typeSet";
 import { getMorningMoodAttackAuraStatuses } from "./battle/units/morningMood";
 import { fieldHasLivingStartingTree, getStartingTreeAttackAuraStatuses } from "./battle/units/startingTree";
 import { getStatusNamesFromPhilipMatchup } from "./battle/units/philip";
@@ -250,6 +251,10 @@ export const getActiveStatuses = (
     statuses.push(...getPyredAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
     statuses.push(...getMorningMoodAttackAuraStatuses(myCard, myFieldSafe, pyredAuraCtx));
     statuses.push(...getStartingTreeAttackAuraStatuses(myCard, myFieldSafe, ironKiwiImmunityCtx));
+    const typeSetBadge = getTypeSetBadge(myFieldSafe);
+    if (typeSetBadge && unitReceivesTypeSetBuff(myCard, myFieldSafe) && !statuses.includes(typeSetBadge)) {
+      statuses.push(typeSetBadge);
+    }
   }
 
   /* 엘 윙 — 상시 [마법 면역](혼란·버프 금지 시 뱃지·효과 봉인) */

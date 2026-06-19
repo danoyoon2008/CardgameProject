@@ -11,6 +11,7 @@ import { STUN_STATUS } from "./units/elixir5";
 import { BANG_EOMAK_DEFENSE_BADGE } from "./spells/bangeomak";
 import { PYRED_ATTACK_AURA_BADGE } from "./units/pyred";
 import { EL_WING_MAGIC_IMMUNITY_BADGE } from "./units/elWing";
+import { isTypeSetStatusBadge } from "./typeSet";
 
 export type EffectSemanticKind = "buff" | "debuff" | "status";
 
@@ -43,5 +44,6 @@ const EFFECT_SEMANTIC: Partial<Record<string, EffectSemanticKind>> = {
 
 export function getEffectSemanticKind(displayName: string): EffectSemanticKind | undefined {
   if (isMaxellandTenacityStatusBadge(displayName)) return "buff";
+  if (isTypeSetStatusBadge(displayName)) return "buff";
   return EFFECT_SEMANTIC[displayName];
 }

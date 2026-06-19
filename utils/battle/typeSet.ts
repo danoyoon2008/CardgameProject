@@ -9,6 +9,8 @@ import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "./
 
 export const TYPE_SET_ATTACK_BONUS = 100 as const;
 
+const TYPE_SET_BADGE_RE = /^\[.+ 세트: 공격력 \+\d+\]$/;
+
 type FieldSlice = {
   is: FieldCard | null;
   m: FieldCard | null;
@@ -40,6 +42,20 @@ export function getFieldTypeSetType(field: FieldSlice | null | undefined): strin
 /** 타입 세트 발동 중인지 */
 export function hasActiveTypeSet(field: FieldSlice | null | undefined): boolean {
   return getFieldTypeSetType(field) != null;
+}
+
+/** 타입 세트 뱃지 문자열인지 (동적 타입명) */
+export function isTypeSetStatusBadge(status: string): boolean {
+  return TYPE_SET_BADGE_RE.test(status.trim());
+}
+
+/** 살아 있는 아군 유닛이 타입 세트 버프 대상인지 */
+export function unitReceivesTypeSetBuff(
+  card: FieldCard | null | undefined,
+  allyField: FieldSlice | null | undefined
+): boolean {
+  if (!card || (card.currentHp ?? 0) <= 0) return false;
+  return hasActiveTypeSet(allyField);
 }
 
 /** 타입 세트 뱃지 문자열 생성 (타입명 동적) */

@@ -79,6 +79,9 @@ import {
   hasPyredAttackAura,
   buildPyredAuraFieldContext,
   fieldHasActivePyredAuraSource,
+  getFieldTypeSetType,
+  hasActiveTypeSet,
+  isTypeSetStatusBadge,
   getStartingTreeAllyHealOnDamaged,
   isRyeomcho,
   isRyeomchoPassivesPausedByConfusion,
@@ -1163,6 +1166,7 @@ type FlashOverlayKind =
   | "eondeokSpell"
   | "spellBangEomakAllyPulse"
   | "spellJipjungAllyPulse"
+  | "typeSetActivate"
   | "spellCheolbyeokAllyPulse"
   | "spellHyugesojauiAnsikAllyPulse"
   | "orietShieldAllyPulse"
@@ -2502,6 +2506,7 @@ export default function SimulationView({
   const flashOverlaySeqRef = useRef(0);
   const flashClearTimeoutsRef = useRef<Record<string, number>>({});
   const maryDefenseBuffPrevBySlotRef = useRef<Record<string, boolean>>({});
+  const typeSetPrevByPlayerRef = useRef<{ A: string | null; B: string | null }>({ A: null, B: null });
   const prevCallieBuffBanBySlotRef = useRef<Record<string, boolean>>({});
   const prevIversonSummonWaitTicksBySlotRef = useRef<Record<string, number | undefined>>({});
   const lastDarkKnightSoulGaugeBySlotRef = useRef<Record<string, number>>({});
@@ -2672,6 +2677,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     eondeokSpell: 820,
     spellBangEomakAllyPulse: 820,
     spellJipjungAllyPulse: 820,
+    typeSetActivate: 820,
     spellCheolbyeokAllyPulse: 820,
     spellHyugesojauiAnsikAllyPulse: 820,
     orietShieldAllyPulse: 820,
@@ -3362,6 +3368,24 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         triggerCardFlash(key, "maryDefenseBuff");
       }
       prevMap[key] = now;
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    for (const player of ["A", "B"] as const) {
+      const field = player === "A" ? state.playerA.field : state.playerB.field;
+      const nowType = getFieldTypeSetType(field);
+      const prevType = typeSetPrevByPlayerRef.current[player];
+      if (nowType && !prevType) {
+        (["is", "m", "os"] as const).forEach(slot => {
+          const card = field[slot];
+          if (card && (card.currentHp ?? 0) > 0) {
+            triggerCardFlash(`${player}-${slot}`, "typeSetActivate");
+          }
+        });
+      }
+      typeSetPrevByPlayerRef.current[player] = nowType;
     }
   }, [state]);
 
@@ -5817,6 +5841,25 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           <div
             key={`${slotKey}-${snap.id}-jipjung-ally-inner`}
             className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--spell-jipjung-ally-pulse`}
+          />
+        </div>
+      );
+    }
+    /* 타입 세트 발동 — 집중 사격 동형·다홍색 섬광 */
+    if (snap.kind === "typeSetActivate") {
+      return (
+        <div
+          key={`${slotKey}-${snap.id}-type-set-wrap`}
+          className={`pointer-events-none absolute inset-0 z-[22] overflow-visible ${roundedClass}`}
+          aria-hidden
+        >
+          <div
+            key={`${slotKey}-${snap.id}-type-set-aura`}
+            className={`pp-combat-flash-layer--type-set-activate-aura pointer-events-none absolute -inset-12 z-[21] ${roundedClass}`}
+          />
+          <div
+            key={`${slotKey}-${snap.id}-type-set-inner`}
+            className={`pointer-events-none absolute inset-0 z-[22] ${roundedClass} pp-combat-flash-layer--type-set-activate`}
           />
         </div>
       );
@@ -15653,6 +15696,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       case "집중 사격":
         return "bg-red-700 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       default:
+        if (isTypeSetStatusBadge(status)) {
+          return "bg-gradient-to-br from-red-600 to-orange-500 border-orange-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)] text-orange-50";
+        }
         if (isMaxellandTenacityStatusBadge(status)) {
           return "bg-red-800 border-red-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
         }
@@ -15878,6 +15924,21 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       <div
         className="pointer-events-none absolute inset-0 z-[27] overflow-visible rounded-[8px] pp-mary-defense-field-ring-overlay"
         aria-hidden
+      />
+    );
+  };
+
+  /** 타입 세트 — 유닛 3칸(is/m/os) 전체를 감싸는 다홍색 윤곽 (진영별 1개) */
+  const renderTypeSetUnitRowOutline = (
+    player: "A" | "B",
+    field: PlayerState["field"] | null | undefined
+  ) => {
+    if (!field || !hasActiveTypeSet(field)) return null;
+    return (
+      <div
+        className="pp-type-set-field-row-outline pointer-events-none absolute inset-0 z-[26] overflow-visible rounded-[10px]"
+        aria-hidden
+        data-type-set-player={player}
       />
     );
   };
@@ -20805,6 +20866,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     data-mobile-units-row="B"
                     className={mobileFieldRowOrderClass("B", "units")}
                     style={{
+                      position: "relative",
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
                       flexDirection: "row",
@@ -20814,6 +20876,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       boxSizing: "border-box",
                     }}
                   >
+                    {renderTypeSetUnitRowOutline("B", state.playerB.field)}
                     {renderMobileUnitSlot("B", "is", "Is", false)}
                     {renderMobileUnitSlot("B", "m", "M", false)}
                     {renderMobileUnitSlot("B", "os", "Os", false)}
@@ -20916,6 +20979,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     data-mobile-units-row="A"
                     className={mobileFieldRowOrderClass("A", "units")}
                     style={{
+                      position: "relative",
                       width: MOBILE_UNIT_ROW_W,
                       display: "flex",
                       flexDirection: "row",
@@ -20925,6 +20989,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       boxSizing: "border-box",
                     }}
                   >
+                    {renderTypeSetUnitRowOutline("A", state.playerA.field)}
                     {renderMobileUnitSlot("A", "is", "Is", true)}
                     {renderMobileUnitSlot("A", "m", "M", true)}
                     {renderMobileUnitSlot("A", "os", "Os", true)}
@@ -21601,7 +21666,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             
             {/* ⭐️ Player B 영역 (상단) */}
             <div className={`flex flex-col gap-2 z-10 w-full ${multiplayFlipBoard ? "order-3" : "order-1"}`}>
-              <div className={`flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("B", "units")}`}>
+              <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("B", "units")}`}>
+                 {renderTypeSetUnitRowOutline("B", state.playerB.field)}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("B")}`}>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "is", state.playerB.field.is, fieldSlotIsPlayerA("B"))}</div>
@@ -21812,7 +21878,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   </div>
                 </div>
               </div>
-              <div className={`flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("A", "units")}`}>
+              <div className={`relative flex justify-between gap-4 w-full items-stretch ${desktopFieldBlockOrderClass("A", "units")}`}>
+                 {renderTypeSetUnitRowOutline("A", state.playerA.field)}
                  <div className="relative flex shrink-0 flex-col items-stretch self-stretch">
                    <div className={`relative flex min-h-0 flex-1 flex-col items-stretch gap-0.5 ${fieldUnitWidthClass}${fieldSlotColumnReverseClass("A")}`}>
                    <div className="flex min-h-0 flex-1 flex-col items-center justify-end overflow-visible">
