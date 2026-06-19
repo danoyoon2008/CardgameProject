@@ -135,7 +135,11 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
   globalTurnCount: number;
   /** true면 이미 [제압]인 유닛은 건너뜀(지속 동기화용) */
   skipAlreadySuppressed?: boolean;
-  /** true(기본)면 엘 윙 면역 시 신속 스택 충전. 지속 동기화에선 false로 재충전 방지. */
+  /**
+   * true(기본)면 엘 윙 면역 시 신속 스택 충전 + 면역 연출(녹색 섬광)을 1회 작동.
+   * 지속형 스펠의 매 턴 재동기화에선 false로 줘서 충전·연출 반복을 막는다.
+   * (스펠 최초 발동 1회만 신속 획득·녹색 섬광이 나야 하는 규칙)
+   */
   grantElWingSinseok?: boolean;
 }): AntHellSuppressionWaveResult {
   const enemyPlayer = args.casterPlayer === "A" ? "B" : "A";
@@ -159,8 +163,12 @@ export function applyAntHellSuppressionWaveToEnemies(args: {
         args.playerB.field as SimulationPlayerField
       )
     ) {
-      elWingImmunitySlotKeys.push(`${enemyPlayer}-${slotName}`);
+      // ── 엘 윙 [마법 면역] 처리 ──
+      // 신속 충전과 면역 연출(녹색 섬광)은 "스펠 최초 발동" 시에만 1회 작동해야 한다.
+      // 개미지옥처럼 지속되는 스펠은 매 턴 동기화(syncAntHellSuppressionForActiveCasters)로
+      // 이 wave가 재호출되는데, 그때(grantElWingSinseok=false)는 충전·연출을 모두 건너뛴다.
       if (args.grantElWingSinseok !== false) {
+        elWingImmunitySlotKeys.push(`${enemyPlayer}-${slotName}`);
         enemySide[slotName] = grantElWingSinseokGaugeFromMeteoSplash(unit);
       }
       continue;

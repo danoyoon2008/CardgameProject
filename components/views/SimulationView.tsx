@@ -1782,6 +1782,10 @@ export default function SimulationView({
   const [elWingSinseokSecondsLeft, setElWingSinseokSecondsLeft] = useState(0);
   /** 1 → 0 — 신속 선택 창 파란 카운트다운 게이지 */
   const [elWingSinseokTimeRatio, setElWingSinseokTimeRatio] = useState(0);
+  // 엘 윙 신속 결정 대기 중에는 양쪽 모두 다른 상호작용 차단.
+  const isElWingSinseokBlockingInput =
+    !!pendingElWingSinseokDefense ||
+    (!!state?.elWingSinseokPending && state.elWingSinseokPending.decision === null);
 
   const [pendingLegendarySwordStrike, setPendingLegendarySwordStrike] =
     useState<LegendarySwordPendingSave | null>(null);
@@ -7608,6 +7612,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handleEndTurn = (player: "A" | "B") => {
+    if (isElWingSinseokBlockingInput) return;
     if (pendingLegendarySwordStrike) {
       alert("전설의 검 연격이 끝날 때까지 턴을 넘길 수 없습니다.");
       return;
@@ -9739,7 +9744,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const canBeginHandDrag = (cardIndex: number, player: "A" | "B", card: CardRow): boolean => {
-    if (!state || winner || pendingSkill || pendingLegendarySwordStrike) return false;
+    if (!state || winner || pendingSkill || pendingLegendarySwordStrike || isElWingSinseokBlockingInput) return false;
     if (!canMultiplayHandDragPlayer(player)) return false;
 
     const muhyohwaCounterDrag =
@@ -10028,6 +10033,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     clientX: number,
     clientY: number
   ) => {
+    if (isElWingSinseokBlockingInput) return;
     const { cardIndex, player } = touchDragRef.current;
     if (cardIndex < 0 || !state) return;
     const hand = player === "A" ? state.playerA.hand : state.playerB.hand;
@@ -11304,6 +11310,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   };
 
   const handlePlayerAttack = (targetPlayer: "A" | "B") => {
+    if (isElWingSinseokBlockingInput) return;
     if (state?.guihwanPending) return;
     if (pendingLegendarySwordStrike) {
       if (multiplayMyTeam && multiplayMyTeam !== pendingLegendarySwordStrike.ownerPlayer) return;
@@ -12540,6 +12547,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const handleSpellStackShuffleClick = (e: React.MouseEvent, player: "A" | "B") => {
     e.preventDefault();
     e.stopPropagation();
+    if (isElWingSinseokBlockingInput) return;
     if (winner) return;
     setState(prev => {
       if (!prev) return prev;
@@ -12563,7 +12571,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     e.stopPropagation(); 
     if (winner) return;
     if (!state) return;
-    if (pendingElWingSinseokDefense) return;
+    if (isElWingSinseokBlockingInput) return;
 
     if (state.guihwanPending && slot !== "spell") {
       const gp = state.guihwanPending;
@@ -15340,7 +15348,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const eondeokDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || isElWingSinseokBlockingInput) return "off";
       if (state.bubbleStationPending) return "off";
       if (!isEnemyUnitDragTargetSpell(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
@@ -15372,7 +15380,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const orietDragMode = ((): "off" | "yes" | "no" => {
       if (!state || !handDrag || winner) return "off";
-      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || pendingElWingSinseokDefense) return "off";
+      if (pendingSkill || pendingSecondaryAttack || pendingLegendarySwordStrike || attackingSlot || pendingLibutyAllEnemiesAttack || isElWingSinseokBlockingInput) return "off";
       if (state.bubbleStationPending) return "off";
       if (!isSpellCardRow(handDrag.card) || !isOrietChosangSpellCard(handDrag.card)) return "off";
       if (state.currentTurn !== handDrag.player) return "off";
@@ -21395,7 +21403,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     ) : null}
                     <button
                       onClick={() => handleEndTurn(oppEndTurnPlayer)}
-                      disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing}
+                      disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing || isElWingSinseokBlockingInput}
                       style={{
                         width: 88,
                         height: 44,
@@ -21404,11 +21412,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                         fontSize: 9,
                         border: "2px solid",
                         borderColor:
-                          state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#fb923c" : "#334155",
+                          state.currentTurn === oppEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#fb923c" : "#334155",
                         background:
-                          state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#ea580c" : "#1e293b",
-                        color: state.currentTurn === oppEndTurnPlayer && !isInitializing ? "#fff" : "#64748b",
-                        opacity: state.currentTurn === oppEndTurnPlayer && !isInitializing ? 1 : 0.5,
+                          state.currentTurn === oppEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#ea580c" : "#1e293b",
+                        color: state.currentTurn === oppEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#fff" : "#64748b",
+                        opacity: state.currentTurn === oppEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? 1 : 0.5,
                       }}
                     >
                       상대 턴 종료
@@ -21444,7 +21452,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: MOBILE_RIGHT_W }}>
                   <button
                     onClick={() => handleEndTurn(myEndTurnPlayer)}
-                    disabled={state.currentTurn !== myEndTurnPlayer || isInitializing}
+                    disabled={state.currentTurn !== myEndTurnPlayer || isInitializing || isElWingSinseokBlockingInput}
                     style={{
                       width: 88,
                       height: 44,
@@ -21453,11 +21461,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       fontSize: 9,
                       border: "2px solid",
                       borderColor:
-                        state.currentTurn === myEndTurnPlayer && !isInitializing ? "#fb923c" : "#334155",
+                        state.currentTurn === myEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#fb923c" : "#334155",
                       background:
-                        state.currentTurn === myEndTurnPlayer && !isInitializing ? "#ea580c" : "#1e293b",
-                      color: state.currentTurn === myEndTurnPlayer && !isInitializing ? "#fff" : "#64748b",
-                      opacity: state.currentTurn === myEndTurnPlayer && !isInitializing ? 1 : 0.5,
+                        state.currentTurn === myEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#ea580c" : "#1e293b",
+                      color: state.currentTurn === myEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? "#fff" : "#64748b",
+                      opacity: state.currentTurn === myEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? 1 : 0.5,
                     }}
                   >
                     내 턴 종료
@@ -22595,12 +22603,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   ) : (
                     <span className="text-[10px] text-slate-600 font-bold tracking-widest">무제한</span>
                   )}
-                  <button onClick={() => handleEndTurn(oppEndTurnPlayer)} disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === oppEndTurnPlayer && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>상대 턴<br/>종료</button>
+                  <button onClick={() => handleEndTurn(oppEndTurnPlayer)} disabled={state.currentTurn !== oppEndTurnPlayer || isInitializing || isElWingSinseokBlockingInput} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === oppEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>상대 턴<br/>종료</button>
                 </div>
               ) : null}
 
               <div className="flex flex-col gap-1.5 items-center flex-1 w-full">
-                <button onClick={() => handleEndTurn(myEndTurnPlayer)} disabled={state.currentTurn !== myEndTurnPlayer || isInitializing} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === myEndTurnPlayer && !isInitializing ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>내 턴<br/>종료</button>
+                <button onClick={() => handleEndTurn(myEndTurnPlayer)} disabled={state.currentTurn !== myEndTurnPlayer || isInitializing || isElWingSinseokBlockingInput} className={`w-full h-full rounded-xl font-black text-sm border-2 transition-all ${state.currentTurn === myEndTurnPlayer && !isInitializing && !isElWingSinseokBlockingInput ? 'bg-orange-600 text-white border-orange-400 hover:bg-orange-500 shadow-[0_0_15px_rgba(234,88,12,0.4)]' : 'bg-slate-800 text-slate-500 border-slate-700 opacity-50'}`}>내 턴<br/>종료</button>
                 {state.settings.isTimeLimitEnabled ? (
                   <span className={`text-[11px] lg:text-xs font-mono font-black tracking-widest ${state.currentTurn === myEndTurnPlayer && state.turnTimeLeft <= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse scale-110 transition-all' : myEndTurnPlayer === 'A' ? 'text-sky-300' : 'text-rose-300'}`}>
                     {state.currentTurn === myEndTurnPlayer ? `00:${state.turnTimeLeft.toString().padStart(2, '0')}` : '00:60'}
