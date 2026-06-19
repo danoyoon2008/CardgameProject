@@ -1856,6 +1856,7 @@ export default function SimulationView({
     y: number;
     bgColor: string;
     textColor?: string;
+    surfaceClass?: string;
   } | null>(null);
   const activeHandDragRef = useRef<HandDragState | null>(null);
   const touchDragRef = useRef<{
@@ -15625,7 +15626,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const allyField = player === "A" ? state?.playerA.field : state?.playerB.field;
     if (card && state && unitReceivesTypeSetBuff(card, allyField)) {
       const hover = !attackingSlot ? " cursor-pointer hover:brightness-110" : "";
-      return `${cardStyle} pp-type-set-unit-card-border z-10${hover}${handDragSlotHoverGlow}`;
+      const typeSetRadiusClass = cardStyle.includes("rounded-[6px]")
+        ? "pp-type-set-unit-card-border--r6"
+        : "pp-type-set-unit-card-border--r8";
+      return `${cardStyle} pp-type-set-unit-card-border ${typeSetRadiusClass} z-10${hover}${handDragSlotHoverGlow}`;
     }
 
     if (player === "A") {
@@ -15703,7 +15707,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         return "bg-red-700 border-red-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
       default:
         if (isTypeSetStatusBadge(status)) {
-          return "bg-gradient-to-br from-red-600 to-orange-500 border-orange-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)] text-orange-50";
+          return "pp-type-set-status-badge border-white/35 text-slate-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)]";
         }
         if (isMaxellandTenacityStatusBadge(status)) {
           return "bg-red-800 border-red-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]";
@@ -16540,7 +16544,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                     e.stopPropagation();
                     const t = e.touches[0];
                     if (!t) return;
-                    const bgColor = window.getComputedStyle(e.currentTarget).backgroundColor;
+                    const bgColor = isTypeSetStatusBadge(status)
+                      ? ""
+                      : window.getComputedStyle(e.currentTarget).backgroundColor;
                     setSelectedBadge({
                       id: badgeId,
                       label: badgeLabel,
@@ -16548,7 +16554,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                       y: t.clientY,
                       bgColor,
                       textColor:
-                        status === MARY_DEFENSE_BUFF_BADGE ? "#0f172a" : undefined,
+                        status === MARY_DEFENSE_BUFF_BADGE || isTypeSetStatusBadge(status)
+                          ? "#0f172a"
+                          : undefined,
+                      surfaceClass: isTypeSetStatusBadge(status)
+                        ? "pp-type-set-mobile-badge-tooltip"
+                        : undefined,
                     });
                   }
                 : undefined
@@ -21141,18 +21152,22 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                   return luminance > 0.6 ? "#0f172a" : "#fff";
                 };
                 const tooltipTextColor =
-                  selectedBadge.textColor ?? pickTextColor(selectedBadge.bgColor);
+                  selectedBadge.textColor ??
+                  (selectedBadge.surfaceClass ? "#0f172a" : pickTextColor(selectedBadge.bgColor));
                 return (
                   <div
                     role="tooltip"
                     aria-label={selectedBadge.label}
+                    className={selectedBadge.surfaceClass}
                     style={{
                       position: "fixed",
                       left,
                       top,
                       transform: "translateX(-50%)",
                       zIndex: 9999,
-                      backgroundColor: selectedBadge.bgColor,
+                      ...(selectedBadge.surfaceClass
+                        ? {}
+                        : { backgroundColor: selectedBadge.bgColor }),
                       color: tooltipTextColor,
                       fontSize: 12,
                       padding: "6px 12px",

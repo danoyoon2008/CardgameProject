@@ -2817,18 +2817,17 @@
   }
 }
 
-/* 타입 세트 — 필드 유닛 카드 무지개 윤곽 (mask로 2px 테두리만) */
+/* 타입 세트 — 필드 유닛 카드 무지개 윤곽 (mask로 테두리만, 모서리 r6/r8) */
 .pp-type-set-unit-card-border {
   border-color: transparent !important;
-  overflow: visible;
+  isolation: isolate;
 }
 
 .pp-type-set-unit-card-border::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  padding: 2px;
+  padding: 3px;
   background: linear-gradient(
     90deg,
     hsl(290 50% 68%),
@@ -2843,16 +2842,65 @@
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
+  -webkit-mask-clip: content-box, border-box;
   -webkit-mask-composite: xor;
   mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
+  mask-clip: content-box, border-box;
   mask-composite: exclude;
   animation:
     pp-type-set-rainbow-border-flow 5s linear infinite,
     pp-type-set-row-outline-glow 3s ease-in-out infinite;
   pointer-events: none;
   z-index: 3;
+}
+
+.pp-type-set-unit-card-border--r6,
+.pp-type-set-unit-card-border--r6::before {
+  border-radius: 6px;
+}
+
+.pp-type-set-unit-card-border--r8,
+.pp-type-set-unit-card-border--r8::before {
+  border-radius: 8px;
+}
+
+/* 타입 세트 — 효과 뱃지 */
+.pp-type-set-status-badge {
+  background: linear-gradient(
+    90deg,
+    hsl(290 50% 68%),
+    hsl(215 52% 65%),
+    hsl(150 48% 62%),
+    hsl(42 50% 65%),
+    hsl(12 48% 66%),
+    hsl(330 46% 68%),
+    hsl(290 50% 68%)
+  );
+  background-size: 400% 100%;
+  animation: pp-type-set-rainbow-border-flow 5s linear infinite;
+}
+
+/* 타입 세트 — 모바일 터치 툴팁 */
+.pp-type-set-mobile-badge-tooltip {
+  border: 1px solid hsl(0 0% 100% / 0.35);
+  box-shadow:
+    0 4px 14px hsl(290 50% 20% / 0.35),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.28);
+  background: linear-gradient(
+    90deg,
+    hsl(290 50% 68%),
+    hsl(215 52% 65%),
+    hsl(150 48% 62%),
+    hsl(42 50% 65%),
+    hsl(12 48% 66%),
+    hsl(330 46% 68%),
+    hsl(290 50% 68%)
+  );
+  background-size: 400% 100%;
+  animation: pp-type-set-rainbow-border-flow 5s linear infinite;
+  font-weight: 700;
 }
 
 /* 패키 처치 — 필립 소환(능력 발동)과 동일 그라데이션·섀도 구조, 색만 노랑·주황 계열 */
