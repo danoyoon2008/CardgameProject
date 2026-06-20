@@ -260,8 +260,8 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 메인 전투 영역 — 위쪽 정렬, 하단 UI와 분리 */}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-5 pt-0 -mt-2 pb-6">
+        {/* 메인 전투 영역 — 위쪽 고정, 전체 평행 이동 */}
+        <div className="flex shrink-0 flex-col items-center gap-5 pt-1 -mt-4">
           <FiveSlotRow
             field={state.bossField}
             variant="enemy"
@@ -279,8 +279,11 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           <FiveSlotRow field={state.playerField} variant="ally" align="start" />
         </div>
 
+        {/* 스페이서 — 메인 필드와 하단 UI 사이 분리 */}
+        <div className="min-h-0 flex-1" />
+
         {/* 하단 UI — 보드 바닥 고정 */}
-        <div className="mt-auto shrink-0">
+        <div className="shrink-0">
         {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
         <div className="flex items-stretch justify-between gap-4 border-t border-white/10 pt-3">
           <button
