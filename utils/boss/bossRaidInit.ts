@@ -26,7 +26,10 @@ export function buildMvpTestHand(cards: CardRow[], count = 5): FieldCard[] {
 
 /** 보스 정의 → 보스 본체 FieldCard 생성 */
 function createBossFieldCard(boss: BossDefinition, cards: CardRow[]): FieldCard {
-  const baseCard = cards.find(c => c.name === boss.baseUnitId);
+  const baseUnitId = boss.baseUnitId?.trim();
+  const baseCard = baseUnitId
+    ? cards.find(c => c.name?.trim() === baseUnitId)
+    : undefined;
   return {
     ...(baseCard ?? {}),
     name: boss.name,

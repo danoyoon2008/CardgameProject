@@ -467,7 +467,7 @@ export function useGameLogic() {
   }, [profileLoaded, cards]);
 
   useEffect(() => {
-    if (!["codex", "shop", "deck", "simulation", "multiplay"].includes(mainView) || !user) return; 
+    if (!["codex", "shop", "deck", "simulation", "multiplay", "bossraid"].includes(mainView) || !user) return; 
     let cancelled = false;
 
     async function loadCardsAndInventory() {

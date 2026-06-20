@@ -58,6 +58,22 @@ export function resolveBossImageUrl(boss: BossDefinition, cards: CardRow[]): str
   const explicit = nonEmptyText(boss.imageUrl);
   if (explicit) return explicit;
   if (!boss.baseUnitId) return null;
-  const baseCard = cards.find((c) => c.name === boss.baseUnitId);
-  return nonEmptyText(baseCard?.image_url);
+  const baseUnitId = boss.baseUnitId.trim();
+  const baseCard = cards.find((c) => c.name?.trim() === baseUnitId);
+  if (!baseCard) {
+    console.log("[resolveBossImageUrl] base card not found", {
+      cardsLength: cards.length,
+      baseUnitId: boss.baseUnitId,
+    });
+    return null;
+  }
+  const url = nonEmptyText(baseCard.image_url);
+  if (!url) {
+    console.log("[resolveBossImageUrl] base card has no image_url", {
+      cardsLength: cards.length,
+      baseUnitId: boss.baseUnitId,
+      cardName: baseCard.name,
+    });
+  }
+  return url;
 }

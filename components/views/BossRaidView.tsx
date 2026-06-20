@@ -15,10 +15,10 @@ import {
 
 /** 시뮬 PC 필드 슬롯 (SimulationView ~18050) */
 const FIELD_CARD_STYLE =
-  "shrink-0 w-[85px] md:w-[100px] lg:w-[120px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[80px] md:w-[95px] lg:w-[110px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
-  "shrink-0 w-[120px] md:w-[145px] lg:w-[175px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[110px] md:w-[130px] lg:w-[155px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 시뮬 PC 스펠 슬롯 (~18051) */
 const SPELL_CARD_STYLE =
   "shrink-0 w-[130px] md:w-[155px] lg:w-[190px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
@@ -145,7 +145,7 @@ function FiveSlotRow({
 }) {
   return (
     <div
-      className="flex shrink-0 justify-center gap-3 md:gap-4"
+      className="flex shrink-0 justify-center gap-8 lg:gap-10"
       style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
     >
       {BOSS_RAID_SLOTS.map(slotKey => {
@@ -218,12 +218,12 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 상단 보스 정보바 */}
-        <div className="flex shrink-0 items-start justify-between gap-6 px-16 pt-1">
-          <div className="flex flex-col gap-1.5">
+        <div className="flex shrink-0 items-stretch justify-between gap-6 px-16 pt-1">
+          <div className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-3 shadow-md">
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
               보스 스킬
             </span>
-            <div className="flex gap-3">
+            <div className="mt-1.5 flex gap-3">
               {bossDef.skills.map(skill => (
                 <SkillCooldownGauge
                   key={skill.id}
@@ -235,7 +235,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             </div>
           </div>
 
-          <div className="w-[320px] shrink-0">
+          <div className="flex w-[320px] shrink-0 flex-col justify-center rounded-xl border border-rose-500/40 bg-slate-900/60 p-3 shadow-md">
             <div className="mb-1 flex items-center justify-between gap-2">
               <h2 className="truncate text-base font-black text-slate-200">{bossDef.name}</h2>
               <button

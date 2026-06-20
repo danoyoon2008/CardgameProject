@@ -556,6 +556,7 @@ export default function Home() {
               {game.mainView === "bossraid" && isDeveloper && !bossRaidInBattle && (
                 <BossSelectView
                   cards={game.cards}
+                  cardsLoading={game.cardsLoading}
                   onEnterBoss={() => setBossRaidInBattle(true)}
                 />
               )}
@@ -667,7 +668,11 @@ export default function Home() {
         />
       )}
       {game.mainView === "bossraid" && isDeveloper && !bossRaidInBattle && (
-        <BossSelectView cards={game.cards} onEnterBoss={() => setBossRaidInBattle(true)} />
+        <BossSelectView
+          cards={game.cards}
+          cardsLoading={game.cardsLoading}
+          onEnterBoss={() => setBossRaidInBattle(true)}
+        />
       )}
     </>
   );

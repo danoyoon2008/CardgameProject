@@ -6,12 +6,25 @@ import { BS_RYEOMHWA, resolveBossImageUrl } from "../../utils/boss/bossDefs";
 
 export default function BossSelectView({
   cards,
+  cardsLoading = false,
   onEnterBoss,
 }: {
   cards: CardRow[];
+  cardsLoading?: boolean;
   onEnterBoss: () => void;
 }) {
   const ryeomhwaImg = resolveBossImageUrl(BS_RYEOMHWA, cards);
+
+  if (cardsLoading) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center gap-4 p-8">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-rose-500 border-t-transparent" />
+        <p className="animate-pulse font-bold tracking-widest text-rose-400">
+          보스 카드 데이터를 불러오는 중...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center gap-6 p-8">
