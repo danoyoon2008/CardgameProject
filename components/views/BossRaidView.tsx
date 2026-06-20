@@ -5,6 +5,7 @@ import type { CardRow, FieldCard } from "../../types/game";
 import { MOBILE_CARD_TOUCH_BLOCK_STYLE } from "../ui/GuardedImg";
 import { CardPlaceholder } from "../ui/Card";
 import { IconHome } from "../ui/Icons";
+import { cardCategoryFlags } from "../../utils/cardUtils";
 import { BS_RYEOMHWA } from "../../utils/boss/bossDefs";
 import { buildMvpTestHand, initBossRaidState } from "../../utils/boss/bossRaidInit";
 import {
@@ -25,11 +26,6 @@ const SPELL_CARD_STYLE =
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
-const HAND_SLOT_OUTER = "shrink-0 w-[85px] md:w-[110px] lg:w-[135px] relative overflow-visible";
-const HAND_CARD_STYLE =
-  "w-full aspect-[1/1.58] rounded-[8px] border border-white/10 flex items-center justify-center transition-all shadow-md bg-black/30 relative overflow-visible";
-const HAND_CARD_FACE =
-  "absolute inset-0 z-[2] overflow-hidden rounded-[8px] flex items-center justify-center";
 
 const SLOT_LABEL: Record<BossRaidSlot, string> = {
   is2: "Is2",
@@ -188,6 +184,19 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
   const turnLabel = isPlayerTurn ? "내 턴" : "보스 턴";
   const turnColorClass = isPlayerTurn ? "text-sky-400" : "text-rose-400";
 
+  const ownedCards = useMemo(
+    () => cards.filter(c => c.isOwned !== false),
+    [cards]
+  );
+  const unitCards = useMemo(
+    () => ownedCards.filter(c => cardCategoryFlags(c).isUnit),
+    [ownedCards]
+  );
+  const spellCards = useMemo(
+    () => ownedCards.filter(c => cardCategoryFlags(c).isMagic),
+    [ownedCards]
+  );
+
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4">
       <div className="relative flex aspect-video h-full w-full min-h-[750px] min-w-[1300px] max-w-[1700px] flex-col overflow-hidden rounded-3xl border-2 border-slate-800 bg-gradient-to-b from-[#0a1628] to-[#050a14] p-6 text-white shadow-[0_0_50px_rgba(0,0,0,0.6)]">
@@ -261,7 +270,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 메인 전투 영역 — 위쪽 고정, 전체 평행 이동 */}
-        <div className="flex shrink-0 flex-col items-center gap-5 pt-1 -mt-4">
+        <div className="flex shrink-0 flex-col items-center gap-5 pt-1 -mt-6">
           <FiveSlotRow
             field={state.bossField}
             variant="enemy"
@@ -349,36 +358,51 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 카드 서랍 */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(v => !v)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-black/30 py-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800/40"
-          >
-            보유 카드 목록 열기 {drawerOpen ? "▲" : "▼"}
-            <span className="text-[10px] font-normal text-slate-500">({state.playerHand.length}장)</span>
-          </button>
-          {drawerOpen && (
-            <div
-              className={`mt-2 flex items-center justify-center gap-2 overflow-x-auto px-2 pb-1 ${
-                isPlayerTurn
-                  ? "rounded-2xl border border-sky-500/60 bg-sky-950/30 py-3 shadow-[inset_0_0_30px_rgba(14,165,233,0.15)]"
-                  : "rounded-2xl border border-slate-700/50 bg-black/20 py-3"
-              }`}
+        {/* 카드 서랍 토글 */}
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(v => !v)}
+          className="w-full rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
+        >
+          보유 카드 목록 {drawerOpen ? "닫기 ▼" : "열기 ▲"} ({ownedCards.length}장)
+        </button>
+        </div>
+
+        {/* 드로어 — 보드 기준 절반 높이, 아래서 위로 슬라이드 */}
+        <div
+          className={`absolute inset-x-0 bottom-0 z-50 overflow-hidden rounded-t-2xl border-t-2 border-slate-600 bg-slate-950/95 backdrop-blur-sm transition-transform duration-300 ease-out ${
+            drawerOpen ? "translate-y-0 pointer-events-auto" : "translate-y-full pointer-events-none"
+          }`}
+          style={{ height: "50%" }}
+        >
+          <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+            <span className="text-sm font-bold text-slate-200">보유 카드</span>
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="text-sm font-bold text-slate-400 hover:text-white"
             >
-              {state.playerHand.map((card, idx) => (
-                <div key={card.statsInstanceId ?? `${card.name}-${idx}`} className={HAND_SLOT_OUTER}>
-                  <div className={`${HAND_CARD_STYLE} border-sky-400/50`}>
-                    <div className={HAND_CARD_FACE}>
-                      <CardPlaceholder card={fieldCardAsRow(card)} />
-                    </div>
-                  </div>
-                </div>
+              닫기 ▼
+            </button>
+          </div>
+
+          <div className="boss-drawer-scroll h-[calc(100%-40px)] overflow-y-auto p-4">
+            <div className="mb-2 text-xs font-bold text-sky-300">유닛</div>
+            <div className="grid grid-cols-5 gap-3">
+              {unitCards.map((card, i) => (
+                <CardPlaceholder key={card.id ?? `u-${i}`} card={card} onOpenDetail={() => {}} />
               ))}
             </div>
-          )}
-        </div>
+
+            <div className="my-4 border-t border-slate-700" />
+
+            <div className="mb-2 text-xs font-bold text-fuchsia-300">스펠</div>
+            <div className="grid grid-cols-5 gap-3">
+              {spellCards.map((card, i) => (
+                <CardPlaceholder key={card.id ?? `s-${i}`} card={card} onOpenDetail={() => {}} />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
