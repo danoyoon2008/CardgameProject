@@ -15,13 +15,13 @@ import {
 
 /** 시뮬 PC 필드 슬롯 (SimulationView ~18050) */
 const FIELD_CARD_STYLE =
-  "shrink-0 w-[120px] md:w-[145px] lg:w-[170px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[100px] md:w-[118px] lg:w-[135px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
-  "shrink-0 w-[155px] md:w-[185px] lg:w-[220px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[140px] md:w-[165px] lg:w-[190px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 시뮬 PC 스펠 슬롯 (~18051) */
 const SPELL_CARD_STYLE =
-  "shrink-0 w-[150px] md:w-[180px] lg:w-[215px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[130px] md:w-[155px] lg:w-[180px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
@@ -145,7 +145,7 @@ function FiveSlotRow({
 }) {
   return (
     <div
-      className="flex shrink-0 justify-center gap-12 lg:gap-16"
+      className="flex shrink-0 justify-center gap-10 lg:gap-12"
       style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
     >
       {BOSS_RAID_SLOTS.map(slotKey => {
@@ -190,7 +190,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4">
-      <div className="relative flex aspect-video w-full min-h-[750px] min-w-[1300px] max-w-[1700px] flex-col gap-2 overflow-hidden rounded-3xl border-2 border-slate-800 bg-gradient-to-b from-[#0a1628] to-[#050a14] p-6 text-white shadow-[0_0_50px_rgba(0,0,0,0.6)]">
+      <div className="relative flex aspect-video h-full w-full min-h-[750px] min-w-[1300px] max-w-[1700px] flex-col overflow-hidden rounded-3xl border-2 border-slate-800 bg-gradient-to-b from-[#0a1628] to-[#050a14] p-6 text-white shadow-[0_0_50px_rgba(0,0,0,0.6)]">
         <div className="absolute left-4 top-4 z-40">
           <button
             type="button"
@@ -260,8 +260,8 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 메인 전투 영역 — 상대 / 스펠 / 아군 세로 분산 */}
-        <div className="flex min-h-0 flex-1 flex-col justify-evenly py-4">
+        {/* 메인 전투 영역 — 위쪽 정렬, 하단 UI와 분리 */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-6 pt-2 pb-6">
           <FiveSlotRow
             field={state.bossField}
             variant="enemy"
@@ -279,8 +279,10 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           <FiveSlotRow field={state.playerField} variant="ally" align="start" />
         </div>
 
+        {/* 하단 UI — 보드 바닥 고정 */}
+        <div className="mt-auto shrink-0">
         {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
-        <div className="flex shrink-0 items-stretch justify-between gap-4 border-t border-white/10 pt-3">
+        <div className="flex items-stretch justify-between gap-4 border-t border-white/10 pt-3">
           <button
             type="button"
             disabled
@@ -345,7 +347,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 카드 서랍 */}
-        <div className="shrink-0">
+        <div>
           <button
             type="button"
             onClick={() => setDrawerOpen(v => !v)}
@@ -373,6 +375,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
