@@ -15,6 +15,7 @@ type MobileLobbyDrawerProps = {
   setMainView: (view: MainView) => void;
   isDarkMode: boolean;
   newCardIdsSize: number;
+  isDeveloper?: boolean;
 };
 
 export default function MobileLobbyDrawer({
@@ -24,6 +25,7 @@ export default function MobileLobbyDrawer({
   setMainView,
   isDarkMode,
   newCardIdsSize,
+  isDeveloper = false,
 }: MobileLobbyDrawerProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -103,7 +105,9 @@ export default function MobileLobbyDrawer({
         >
           메뉴
         </h2>
-        {mobileNavItems.map(({ view, label, Icon }) => {
+        {mobileNavItems
+          .filter((item) => !item.developerOnly || isDeveloper)
+          .map(({ view, label, Icon }) => {
           const active = mainView === view;
           return (
             <button

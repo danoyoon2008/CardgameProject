@@ -22,7 +22,9 @@ import SettingsView from "../components/views/SettingsView";
 import BattleView from "../components/views/BattleView";
 import SimulationView from "../components/views/SimulationView";
 import MultiplayView from "../components/views/MultiplayView";
+import BossRaidView from "../components/views/BossRaidView";
 import { useActiveMultiplayRoom } from "../hooks/useActiveMultiplayRoom";
+import { isDeveloperAccount } from "../utils/developerAccounts";
 
 function LoginRequiredView({
   onLogin,
@@ -304,6 +306,7 @@ export default function Home() {
   const [battleLobbyResetSignal, setBattleLobbyResetSignal] = useState(0);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
+  const isDeveloper = isDeveloperAccount(game.user?.id);
   const isFullScreenGame = isSimulation || isMultiplay;
   const useMobileLobbyWrapper = isMobile && !isFullScreenGame;
 
@@ -317,6 +320,12 @@ export default function Home() {
   const deckIsValid =
     game.deck.length === 12 &&
     game.deck.filter((id) => id && id !== 0).length === 12;
+
+  useEffect(() => {
+    if (game.mainView === "bossraid" && !isDeveloper) {
+      game.setMainView("battle");
+    }
+  }, [game.mainView, isDeveloper, game.setMainView]);
 
   useEffect(() => {
     if (game.mainView === "battle" && game.user) {
@@ -494,7 +503,7 @@ export default function Home() {
 
       <div className="flex w-full min-h-0 flex-1 flex-col gap-6 pl-2 pr-4 pb-6 pt-4 sm:pl-3 sm:pr-6 sm:pb-8 sm:pt-5 lg:flex-row lg:gap-5 lg:pl-3 lg:pr-8">
         
-        <Sidebar mainView={game.mainView} setMainView={game.setMainView} isDarkMode={game.isDarkMode} newCardIdsSize={game.newCardIds.size} />
+        <Sidebar mainView={game.mainView} setMainView={game.setMainView} isDarkMode={game.isDarkMode} newCardIdsSize={game.newCardIds.size} isDeveloper={isDeveloper} />
 
         <main className={`order-1 flex min-h-full flex-1 flex-col lg:order-2 ${game.mainView === "battle" ? "justify-center" : "justify-start overflow-y-auto"}`}>
           {game.shouldShowLoginRequired ? (
@@ -537,6 +546,7 @@ export default function Home() {
               {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
               {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleSlotClear={game.handleSlotClear} handleClearAllDeck={game.handleClearAllDeck} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} decks={game.decks} activeDeckIndex={game.activeDeckIndex} handleSelectDeckSlot={game.handleSelectDeckSlot} />}
               {game.mainView === "settings" && <SettingsView isDarkMode={game.isDarkMode} setIsDarkMode={game.setIsDarkMode} volume={game.volume} setVolume={game.setVolume} user={game.user} handleLogout={game.handleLogout} handleResetData={game.handleResetData} />}
+              {game.mainView === "bossraid" && isDeveloper && <BossRaidView />}
             </>
           )}
         </main>
@@ -644,6 +654,7 @@ export default function Home() {
           handleResetData={game.handleResetData}
         />
       )}
+      {game.mainView === "bossraid" && isDeveloper && <BossRaidView />}
     </>
   );
 
@@ -657,6 +668,7 @@ export default function Home() {
         onExternalProfileHandled={() => setProfileViewTarget(null)}
         setMainView={game.setMainView}
         newCardIdsSize={game.newCardIds.size}
+        isDeveloper={isDeveloper}
         authReady={game.authReady}
         user={game.user}
         userAvatarUrl={game.userAvatarUrl}

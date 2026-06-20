@@ -99,6 +99,7 @@ interface HeaderProps {
   multiplayOpponentNickname?: string | null;
   setMainView?: (view: MainView) => void;
   newCardIdsSize?: number;
+  isDeveloper?: boolean;
   onSendFriendChallenge?: (friendId: string, friendNickname: string) => void;
   externalProfileTarget?: { userId: string; nickname: string | null; avatarUrl: string | null } | null;
   onExternalProfileHandled?: () => void;
@@ -115,6 +116,7 @@ export default function Header({
   multiplayOpponentNickname = null,
   setMainView,
   newCardIdsSize = 0,
+  isDeveloper = false,
   onSendFriendChallenge,
   externalProfileTarget = null,
   onExternalProfileHandled,
@@ -1983,6 +1985,7 @@ export default function Header({
             setMainView={setMainView}
             isDarkMode={isDarkMode}
             newCardIdsSize={newCardIdsSize}
+            isDeveloper={isDeveloper}
           />
         ) : null}
       </>
