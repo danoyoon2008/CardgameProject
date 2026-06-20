@@ -29,6 +29,13 @@ export interface BossRaidState {
   result: BossRaidResult;
   /** 유저 핸드 (MVP: 테스트용 카드 또는 보유 카드) */
   playerHand: FieldCard[];
+  /** 플레이어 HP (시뮬 Player A와 동일 기본 2000) */
+  playerHp: number;
+  playerMaxHp: number;
+  /** 토큰 (0–10, 시뮬과 동일) */
+  playerTokens: number;
+  /** 턴 제한 타이머 (초) */
+  turnTimeLeft: number;
 }
 
 /** 빈 5칸 필드 */

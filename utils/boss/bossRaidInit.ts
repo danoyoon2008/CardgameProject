@@ -68,5 +68,9 @@ export function initBossRaidState(
     phase: "player",
     result: "ongoing",
     playerHand,
+    playerHp: 2000,
+    playerMaxHp: 2000,
+    playerTokens: 0,
+    turnTimeLeft: 60,
   };
 }
