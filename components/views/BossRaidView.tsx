@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import type { CardRow, FieldCard } from "../../types/game";
 import { MOBILE_CARD_TOUCH_BLOCK_STYLE } from "../ui/GuardedImg";
 import { CardPlaceholder } from "../ui/Card";
-import { BS_RYEOMHWA, resolveBossImageUrl } from "../../utils/boss/bossDefs";
+import { IconHome } from "../ui/Icons";
+import { BS_RYEOMHWA } from "../../utils/boss/bossDefs";
 import { buildMvpTestHand, initBossRaidState } from "../../utils/boss/bossRaidInit";
 import {
   BOSS_RAID_SLOTS,
@@ -171,6 +172,7 @@ function formatTurnTime(seconds: number) {
 
 export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const state = useMemo(
     () => initBossRaidState(BS_RYEOMHWA, cards, buildMvpTestHand(cards)),
@@ -189,14 +191,31 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4">
       <div className="relative flex aspect-video w-full min-h-[750px] min-w-[1300px] max-w-[1700px] flex-col gap-2 overflow-hidden rounded-3xl border-2 border-slate-800 bg-gradient-to-b from-[#0a1628] to-[#050a14] p-6 text-white shadow-[0_0_50px_rgba(0,0,0,0.6)]">
-        <button
-          type="button"
-          onClick={() => onBackToLobby?.()}
-          className="absolute left-4 top-4 z-30 flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-slate-700 bg-slate-900/60 text-xs font-bold text-slate-200 shadow-lg transition hover:bg-slate-800/50"
-          title="로비로"
-        >
-          메뉴
-        </button>
+        <div className="absolute left-4 top-4 z-40">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(v => !v)}
+            className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-slate-700 bg-slate-900/60 text-lg font-bold text-slate-200 shadow-lg transition hover:bg-slate-800/50"
+            aria-label="메뉴"
+          >
+            ☰
+          </button>
+          {menuOpen && (
+            <div className="absolute left-0 top-14 w-48 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onBackToLobby?.();
+                }}
+                className="flex w-full items-center gap-2 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+              >
+                <IconHome className="h-5 w-5 shrink-0" />
+                로비로 돌아가기
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* 상단 보스 정보바 */}
         <div className="flex shrink-0 items-start justify-between gap-6 px-16 pt-1">

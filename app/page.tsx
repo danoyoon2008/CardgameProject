@@ -23,6 +23,7 @@ import BattleView from "../components/views/BattleView";
 import SimulationView from "../components/views/SimulationView";
 import MultiplayView from "../components/views/MultiplayView";
 import BossRaidView from "../components/views/BossRaidView";
+import BossSelectView from "../components/views/BossSelectView";
 import { useActiveMultiplayRoom } from "../hooks/useActiveMultiplayRoom";
 import { isDeveloperAccount } from "../utils/developerAccounts";
 
@@ -304,10 +305,12 @@ export default function Home() {
     });
   const [showNicknameEdit, setShowNicknameEdit] = useState(false);
   const [battleLobbyResetSignal, setBattleLobbyResetSignal] = useState(0);
+  const [bossRaidInBattle, setBossRaidInBattle] = useState(false);
   const isSimulation = game.mainView === "simulation";
   const isMultiplay = game.mainView === "multiplay";
   const isDeveloper = isDeveloperAccount(game.user?.id);
-  const isFullScreenGame = isSimulation || isMultiplay;
+  const isBossRaidBattle = game.mainView === "bossraid" && bossRaidInBattle;
+  const isFullScreenGame = isSimulation || isMultiplay || isBossRaidBattle;
   const useMobileLobbyWrapper = isMobile && !isFullScreenGame;
 
   const { activeRoom: activeMultiplayRoom, refreshActiveMultiplayRoom } = useActiveMultiplayRoom(
@@ -326,6 +329,10 @@ export default function Home() {
       game.setMainView("battle");
     }
   }, [game.mainView, isDeveloper, game.setMainView]);
+
+  useEffect(() => {
+    if (game.mainView !== "bossraid") setBossRaidInBattle(false);
+  }, [game.mainView]);
 
   useEffect(() => {
     if (game.mainView === "battle" && game.user) {
@@ -546,10 +553,10 @@ export default function Home() {
               {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
               {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleSlotClear={game.handleSlotClear} handleClearAllDeck={game.handleClearAllDeck} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} decks={game.decks} activeDeckIndex={game.activeDeckIndex} handleSelectDeckSlot={game.handleSelectDeckSlot} />}
               {game.mainView === "settings" && <SettingsView isDarkMode={game.isDarkMode} setIsDarkMode={game.setIsDarkMode} volume={game.volume} setVolume={game.setVolume} user={game.user} handleLogout={game.handleLogout} handleResetData={game.handleResetData} />}
-              {game.mainView === "bossraid" && isDeveloper && (
-                <BossRaidView
+              {game.mainView === "bossraid" && isDeveloper && !bossRaidInBattle && (
+                <BossSelectView
                   cards={game.cards}
-                  onBackToLobby={() => game.setMainView("battle")}
+                  onEnterBoss={() => setBossRaidInBattle(true)}
                 />
               )}
             </>
@@ -659,8 +666,8 @@ export default function Home() {
           handleResetData={game.handleResetData}
         />
       )}
-      {game.mainView === "bossraid" && isDeveloper && (
-        <BossRaidView cards={game.cards} onBackToLobby={() => game.setMainView("battle")} />
+      {game.mainView === "bossraid" && isDeveloper && !bossRaidInBattle && (
+        <BossSelectView cards={game.cards} onEnterBoss={() => setBossRaidInBattle(true)} />
       )}
     </>
   );
@@ -849,6 +856,14 @@ export default function Home() {
                 }}
               />
             ) : null
+          ) : isBossRaidBattle && isDeveloper ? (
+            <BossRaidView
+              cards={game.cards}
+              onBackToLobby={() => {
+                setBossRaidInBattle(false);
+                game.setMainView("battle");
+              }}
+            />
           ) : (
             <SimulationView
               isDarkMode={game.isDarkMode}
