@@ -151,6 +151,9 @@ export type SimulationPlayerField = {
   is: FieldCard | null;
   m: FieldCard | null;
   os: FieldCard | null;
+  /** 보스 토벌전 전용 확장 슬롯 (PvP/시뮬에서는 사용하지 않음, 항상 null) */
+  is2?: FieldCard | null;
+  os2?: FieldCard | null;
   spellStack: FieldCard[];
 };
 
