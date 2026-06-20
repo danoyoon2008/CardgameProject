@@ -15,7 +15,7 @@ import {
 
 /** 시뮬 PC 필드 슬롯 (SimulationView ~18050) */
 const FIELD_CARD_STYLE =
-  "shrink-0 w-[100px] md:w-[118px] lg:w-[135px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[108px] md:w-[128px] lg:w-[148px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
   "shrink-0 w-[140px] md:w-[165px] lg:w-[190px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
@@ -261,7 +261,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 메인 전투 영역 — 위쪽 정렬, 하단 UI와 분리 */}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-6 pt-2 pb-6">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-5 pt-0 -mt-2 pb-6">
           <FiveSlotRow
             field={state.bossField}
             variant="enemy"
