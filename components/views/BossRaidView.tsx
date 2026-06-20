@@ -15,13 +15,13 @@ import {
 
 /** 시뮬 PC 필드 슬롯 (SimulationView ~18050) */
 const FIELD_CARD_STYLE =
-  "shrink-0 w-[80px] md:w-[95px] lg:w-[110px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[120px] md:w-[145px] lg:w-[170px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
-  "shrink-0 w-[110px] md:w-[130px] lg:w-[155px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[155px] md:w-[185px] lg:w-[220px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 시뮬 PC 스펠 슬롯 (~18051) */
 const SPELL_CARD_STYLE =
-  "shrink-0 w-[130px] md:w-[155px] lg:w-[190px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[150px] md:w-[180px] lg:w-[215px] aspect-[1.58/1] rounded-[8px] border border-white/20 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
@@ -145,7 +145,7 @@ function FiveSlotRow({
 }) {
   return (
     <div
-      className="flex shrink-0 justify-center gap-8 lg:gap-10"
+      className="flex shrink-0 justify-center gap-12 lg:gap-16"
       style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
     >
       {BOSS_RAID_SLOTS.map(slotKey => {
@@ -260,8 +260,8 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 상대 진영 5칸 */}
-        <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
+        {/* 메인 전투 영역 — 상대 / 스펠 / 아군 세로 분산 */}
+        <div className="flex min-h-0 flex-1 flex-col justify-evenly py-4">
           <FiveSlotRow
             field={state.bossField}
             variant="enemy"
@@ -269,22 +269,18 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             bossStatOverrides={{ hp: bossDef.hp, atk: bossDef.atk }}
             align="end"
           />
-        </div>
 
-        {/* 중앙 스펠 슬롯 */}
-        <div className="flex shrink-0 flex-col items-center gap-1">
-          <div className={`${SPELL_CARD_STYLE} border-dashed border-slate-600/60`}>
-            <span className="text-[10px] font-bold text-slate-500">Spell</span>
+          <div className="flex justify-center">
+            <div className={`${SPELL_CARD_STYLE} border-dashed border-slate-600/60`}>
+              <span className="text-[10px] font-bold text-slate-500">Spell</span>
+            </div>
           </div>
-        </div>
 
-        {/* 아군 진영 5칸 */}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-2">
           <FiveSlotRow field={state.playerField} variant="ally" align="start" />
         </div>
 
         {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
-        <div className="mt-auto flex shrink-0 items-stretch justify-between gap-4 border-t border-white/10 pt-3">
+        <div className="flex shrink-0 items-stretch justify-between gap-4 border-t border-white/10 pt-3">
           <button
             type="button"
             disabled
