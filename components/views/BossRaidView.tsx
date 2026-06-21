@@ -21,8 +21,8 @@ const FIELD_CARD_STYLE =
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
   "shrink-0 w-[140px] md:w-[165px] lg:w-[190px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[20] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
-/** 면적 2배 = 선형 스케일 √2 (그리드·다른 슬롯 위치 불변) */
-const BOSS_SLOT_AREA_SCALE = 1.4142135623730951;
+/** 면적 확대 스케일 (그리드·다른 슬롯 위치 불변, center 기준) */
+const BOSS_SLOT_AREA_SCALE = 1.35;
 /** 스펠 슬롯 — 유닛 슬롯과 동일 면적, 90° 회전(높이=유닛 너비, aspect 1.58/1) */
 const SPELL_CARD_HORIZONTAL_STYLE =
   "shrink-0 h-[108px] md:h-[128px] lg:h-[148px] aspect-[1.58/1] rounded-[8px] border border-dashed border-slate-600/60 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
@@ -315,7 +315,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
 
         {/* 메인 전투 영역 — 상대 진영만 (위쪽) */}
         <div className="flex min-h-0 flex-1 flex-col py-2">
-          <div className="mx-auto w-fit shrink-0" style={{ marginTop: "-48px" }}>
+          <div className="mx-auto w-fit shrink-0" style={{ marginTop: "-36px" }}>
             <FiveSlotRow
               field={state.bossField}
               variant="enemy"
