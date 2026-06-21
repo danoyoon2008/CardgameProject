@@ -131,7 +131,7 @@ function SkillCooldownGauge({
 }) {
   const ratio = max > 0 ? Math.max(0, Math.min(1, remaining / max)) : 0;
   return (
-    <div className="min-w-[160px] flex-1 shrink-0">
+    <div className="w-[140px] shrink-0">
       <div className="mb-0.5 flex items-center justify-between gap-1">
         <span className="truncate text-[10px] font-bold text-slate-300">{name}</span>
         <span className="shrink-0 font-mono text-[9px] text-slate-500">
@@ -159,12 +159,14 @@ function FiveSlotRow({
   variant: "enemy" | "ally";
   bossStatOverrides?: { hp?: number; atk?: number };
   bossSlotLarge?: boolean;
-  align?: "start" | "end";
+  align?: "start" | "end" | "center";
 }) {
+  const rowAlign =
+    align === "end" ? "flex-end" : align === "center" ? "center" : "flex-start";
   return (
     <div
       className={FIELD_GRID_COLS}
-      style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
+      style={{ alignItems: rowAlign }}
     >
       {BOSS_RAID_SLOTS.map(slotKey => {
         const card = getFiveSlotUnit(field, slotKey);
@@ -180,16 +182,6 @@ function FiveSlotRow({
             statOverrides={isBossCenter ? bossStatOverrides : undefined}
           />
         );
-        if (isBossCenter) {
-          return (
-            <div
-              key={`${variant}-${slotKey}-boss-wrap`}
-              className="flex h-[170.64px] items-center justify-center md:h-[202.24px] lg:h-[233.84px]"
-            >
-              {slot}
-            </div>
-          );
-        }
         if (centerAllySlot) {
           return (
             <div key={`${variant}-${slotKey}-wrap`} className="flex items-end justify-center">
@@ -279,12 +271,12 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 상단 보스 정보바 */}
-        <div className="flex shrink-0 items-stretch gap-6 px-16 pt-1">
-          <div className="min-w-0 flex-1 rounded-xl border border-slate-600/50 bg-slate-900/60 p-3 shadow-md">
+        <div className="flex shrink-0 items-stretch justify-between gap-6 px-16 pt-1">
+          <div className="rounded-xl border border-slate-600/50 bg-slate-900/60 p-3 shadow-md">
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
               보스 스킬
             </span>
-            <div className="mt-1.5 flex w-full gap-4">
+            <div className="mt-1.5 flex gap-3">
               {bossDef.skills.map(skill => (
                 <SkillCooldownGauge
                   key={skill.id}
@@ -296,7 +288,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-col justify-center rounded-xl border border-rose-500/40 bg-slate-900/60 p-3 shadow-md">
+          <div className="flex w-[320px] shrink-0 flex-col justify-center rounded-xl border border-rose-500/40 bg-slate-900/60 p-3 shadow-md">
             <div className="mb-1 flex items-center justify-between gap-2">
               <h2 className="truncate text-base font-black text-slate-200">{bossDef.name}</h2>
               <button
@@ -329,7 +321,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
               variant="enemy"
               bossSlotLarge
               bossStatOverrides={{ hp: bossDef.hp, atk: bossDef.atk }}
-              align="end"
+              align="center"
             />
           </div>
         </div>
