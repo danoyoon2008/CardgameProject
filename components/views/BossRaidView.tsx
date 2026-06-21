@@ -301,8 +301,8 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 메인 전투 영역 — 상대(위) / 아군+스펠(아래) 분산 */}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-between py-2">
+        {/* 메인 전투 영역 — 상대(위) / 여백 */}
+        <div className="flex min-h-0 flex-1 flex-col items-center py-2">
           <div className="mx-auto w-fit" style={{ marginTop: "-48px" }}>
             <FiveSlotRow
               field={state.bossField}
@@ -312,35 +312,32 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
               align="end"
             />
           </div>
+        </div>
 
-          <div className="relative mx-auto w-fit" style={{ marginBottom: "16px" }}>
-            <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
-              <div className={SPELL_CARD_HORIZONTAL_STYLE}>
-                <span className="text-[10px] font-bold text-slate-500">Spell</span>
-              </div>
+        {/* 아군 진영 + 스펠 — 드로어 바로 위 */}
+        <div className="relative mx-auto mb-2 w-fit shrink-0">
+          <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
+            <div className={SPELL_CARD_HORIZONTAL_STYLE}>
+              <span className="text-[10px] font-bold text-slate-500">Spell</span>
             </div>
-            <FiveSlotRow field={state.playerField} variant="ally" align="end" />
           </div>
+          <FiveSlotRow field={state.playerField} variant="ally" align="end" />
         </div>
 
         {/* 하단 UI — 보드 바닥 고정 */}
         <div className="shrink-0 pb-2">
-        {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
-        <div className="flex items-stretch justify-between gap-4 pt-3">
-          <button
-            type="button"
-            disabled
-            className="h-[130px] w-[130px] shrink-0 rounded-xl border-2 border-slate-700 bg-slate-800 px-4 text-sm font-black text-slate-500 opacity-50 transition-all"
-          >
-            내 턴
-            <br />
-            종료
-          </button>
+        {/* 하단: 턴 종료 / 타이머·턴 / HP·토큰 */}
+        <div className="flex items-stretch justify-end gap-4 pt-3">
+          <div className="flex shrink-0 flex-col gap-2">
+            <button
+              type="button"
+              disabled
+              className="min-w-[280px] shrink-0 rounded-xl border-2 border-slate-700 bg-slate-800 px-4 py-3 text-sm font-black text-slate-500 opacity-50 transition-all"
+            >
+              내 턴 종료
+            </button>
 
-          <div className="flex flex-row items-stretch justify-end gap-4">
-            {/* 타이머 + 턴 (통합) → 토큰 박스 위 */}
-            <div className="flex shrink-0 flex-col gap-2">
-              <div className="flex min-w-[280px] items-center justify-around rounded-xl border-2 border-slate-700 bg-black/60 px-4 py-2.5 shadow-inner">
+            <div className="flex min-w-[280px] items-center justify-around rounded-xl border-2 border-slate-700 bg-black/60 px-4 py-2.5 shadow-inner">
                 <div className="flex flex-col items-center">
                   <span className="mb-0.5 text-[10px] font-black tracking-widest text-slate-400">TIME</span>
                   <span className="font-mono text-lg font-black tracking-widest text-sky-300">
@@ -387,7 +384,6 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
                       }`}
                     />
                   ))}
-                </div>
               </div>
             </div>
           </div>
