@@ -24,6 +24,8 @@ const BOSS_FIELD_CARD_STYLE =
 /** 스펠 슬롯 — 유닛 슬롯과 동일 면적, 90° 회전(높이=유닛 너비, aspect 1.58/1) */
 const SPELL_CARD_HORIZONTAL_STYLE =
   "shrink-0 h-[108px] md:h-[128px] lg:h-[148px] aspect-[1.58/1] rounded-[8px] border border-dashed border-slate-600/60 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+const FIELD_GRID_COLS =
+  "grid shrink-0 grid-cols-[108px_108px_140px_108px_108px] md:grid-cols-[128px_128px_165px_128px_128px] lg:grid-cols-[148px_148px_190px_148px_148px] gap-x-10 lg:gap-x-12";
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
@@ -151,13 +153,14 @@ function FiveSlotRow({
 }) {
   return (
     <div
-      className="flex shrink-0 justify-center gap-10 lg:gap-12"
+      className={FIELD_GRID_COLS}
       style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
     >
       {BOSS_RAID_SLOTS.map(slotKey => {
         const card = getFiveSlotUnit(field, slotKey);
         const isBossCenter = bossSlotLarge && slotKey === "m";
-        return (
+        const centerAllySlot = !bossSlotLarge && slotKey === "m";
+        const slot = (
           <FieldSlot
             key={`${variant}-${slotKey}`}
             label={SLOT_LABEL[slotKey]}
@@ -167,6 +170,14 @@ function FiveSlotRow({
             statOverrides={isBossCenter ? bossStatOverrides : undefined}
           />
         );
+        if (centerAllySlot) {
+          return (
+            <div key={`${variant}-${slotKey}-wrap`} className="flex items-end justify-center">
+              {slot}
+            </div>
+          );
+        }
+        return slot;
       })}
     </div>
   );
@@ -292,7 +303,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
 
         {/* 메인 전투 영역 — 상대(위) / 아군+스펠(아래) 분산 */}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-between py-2">
-          <div style={{ marginTop: "-48px" }}>
+          <div className="mx-auto w-fit" style={{ marginTop: "-48px" }}>
             <FiveSlotRow
               field={state.bossField}
               variant="enemy"
@@ -327,53 +338,56 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </button>
 
           <div className="flex flex-row items-stretch justify-end gap-4">
-            {/* 타이머 박스 (토큰 왼쪽) */}
-            <div className="flex w-[100px] shrink-0 flex-col items-center justify-center rounded-xl border-2 border-slate-700 bg-black/60 p-3 shadow-inner">
-              <span className="mb-1 text-[10px] font-black tracking-widest text-slate-400">TIME</span>
-              <span className="font-mono text-lg font-black tracking-widest text-sky-300">
-                {formatTurnTime(state.turnTimeLeft)}
-              </span>
-            </div>
-
-            {/* 턴 박스 */}
-            <div className="flex w-[130px] shrink-0 flex-col items-center justify-center rounded-xl border-2 border-slate-700 bg-black/60 p-3 shadow-inner">
-              <span className="mb-1 text-xs font-black tracking-widest text-slate-400">
-                TURN {state.turnCount}
-              </span>
-              <span className={`text-xl font-black leading-tight ${turnColorClass}`}>{turnLabel}</span>
-            </div>
-
-            {/* 플레이어 HP + 토큰 (시뮬 Player A 패널) */}
-            <div
-              className={`relative flex min-w-[280px] flex-col justify-center overflow-visible rounded-xl border-2 py-3 transition-colors ${
-                isPlayerTurn
-                  ? "border-sky-500 bg-black/30 shadow-[0_0_15px_rgba(14,165,233,0.15)]"
-                  : "border-slate-700 bg-black/30"
-              }`}
-            >
-              <div className="pointer-events-none mb-1 flex items-center justify-between px-4">
-                <span className="text-sm font-bold text-slate-400">Player</span>
-                <span className="text-base font-black text-sky-500">{state.playerHp}</span>
-              </div>
-              <div className="pointer-events-none mb-2 px-4">
-                <div className="h-2.5 w-full overflow-hidden rounded-full border border-slate-700 bg-slate-900 shadow-inner">
-                  <div
-                    className="h-full bg-gradient-to-r from-sky-600 to-blue-400 transition-all duration-500"
-                    style={{ width: `${playerHpRatio * 100}%` }}
-                  />
+            {/* 타이머 + 턴 (통합) → 토큰 박스 위 */}
+            <div className="flex shrink-0 flex-col gap-2">
+              <div className="flex min-w-[280px] items-center justify-around rounded-xl border-2 border-slate-700 bg-black/60 px-4 py-2.5 shadow-inner">
+                <div className="flex flex-col items-center">
+                  <span className="mb-0.5 text-[10px] font-black tracking-widest text-slate-400">TIME</span>
+                  <span className="font-mono text-lg font-black tracking-widest text-sky-300">
+                    {formatTurnTime(state.turnTimeLeft)}
+                  </span>
+                </div>
+                <div className="h-10 w-px bg-slate-600" />
+                <div className="flex flex-col items-center">
+                  <span className="mb-0.5 text-xs font-black tracking-widest text-slate-400">
+                    TURN {state.turnCount}
+                  </span>
+                  <span className={`text-xl font-black leading-tight ${turnColorClass}`}>{turnLabel}</span>
                 </div>
               </div>
-              <div className="pointer-events-none grid grid-cols-5 gap-1.5 px-4">
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`h-3.5 rounded-[3px] border transition-all duration-300 ${
-                      i < state.playerTokens
-                        ? "border-orange-300 bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.6)]"
-                        : "border-slate-700 bg-slate-800"
-                    }`}
-                  />
-                ))}
+
+              {/* 플레이어 HP + 토큰 (시뮬 Player A 패널) */}
+              <div
+                className={`relative flex min-w-[280px] flex-col justify-center overflow-visible rounded-xl border-2 py-3 transition-colors ${
+                  isPlayerTurn
+                    ? "border-sky-500 bg-black/30 shadow-[0_0_15px_rgba(14,165,233,0.15)]"
+                    : "border-slate-700 bg-black/30"
+                }`}
+              >
+                <div className="pointer-events-none mb-1 flex items-center justify-between px-4">
+                  <span className="text-sm font-bold text-slate-400">Player</span>
+                  <span className="text-base font-black text-sky-500">{state.playerHp}</span>
+                </div>
+                <div className="pointer-events-none mb-2 px-4">
+                  <div className="h-2.5 w-full overflow-hidden rounded-full border border-slate-700 bg-slate-900 shadow-inner">
+                    <div
+                      className="h-full bg-gradient-to-r from-sky-600 to-blue-400 transition-all duration-500"
+                      style={{ width: `${playerHpRatio * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="pointer-events-none grid grid-cols-5 gap-1.5 px-4">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`h-3.5 rounded-[3px] border transition-all duration-300 ${
+                        i < state.playerTokens
+                          ? "border-orange-300 bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.6)]"
+                          : "border-slate-700 bg-slate-800"
+                      }`}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
