@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import type { CardRow, FieldCard } from "../../types/game";
 import { MOBILE_CARD_TOUCH_BLOCK_STYLE } from "../ui/GuardedImg";
 import { CardPlaceholder } from "../ui/Card";
+import { CardDetailModal } from "../ui/CardModals";
 import { IconHome } from "../ui/Icons";
-import { cardCategoryFlags } from "../../utils/cardUtils";
+import { cardCategoryFlags, sortCodexCards } from "../../utils/cardUtils";
 import { BS_RYEOMHWA } from "../../utils/boss/bossDefs";
 import { buildMvpTestHand, initBossRaidState } from "../../utils/boss/bossRaidInit";
 import {
@@ -34,6 +35,15 @@ const SLOT_LABEL: Record<BossRaidSlot, string> = {
   os: "Os",
   os2: "Os2",
 };
+
+const CODEX_SORT_OPTIONS = [
+  { value: "number_asc", label: "번호 오름차순" },
+  { value: "number_desc", label: "번호 내림차순" },
+  { value: "rarity_asc", label: "등급 오름차순" },
+  { value: "rarity_desc", label: "등급 내림차순" },
+  { value: "cost_asc", label: "코스트 오름차순" },
+  { value: "cost_desc", label: "코스트 내림차순" },
+] as const;
 
 type BossRaidViewProps = {
   cards: CardRow[];
@@ -169,6 +179,9 @@ function formatTurnTime(seconds: number) {
 export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unitSort, setUnitSort] = useState("number_asc");
+  const [spellSort, setSpellSort] = useState("number_asc");
+  const [detailCard, setDetailCard] = useState<CardRow | null>(null);
 
   const state = useMemo(
     () => initBossRaidState(BS_RYEOMHWA, cards, buildMvpTestHand(cards)),
@@ -195,6 +208,14 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
   const spellCards = useMemo(
     () => ownedCards.filter(c => cardCategoryFlags(c).isMagic),
     [ownedCards]
+  );
+  const sortedUnits = useMemo(
+    () => sortCodexCards(unitCards, unitSort, false, false),
+    [unitCards, unitSort]
+  );
+  const sortedSpells = useMemo(
+    () => sortCodexCards(spellCards, spellSort, false, false),
+    [spellCards, spellSort]
   );
 
   return (
@@ -270,14 +291,16 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         </div>
 
         {/* 메인 전투 영역 — 위쪽 고정, 전체 평행 이동 */}
-        <div className="flex shrink-0 flex-col items-center gap-5 pt-1 -mt-6">
-          <FiveSlotRow
-            field={state.bossField}
-            variant="enemy"
-            bossSlotLarge
-            bossStatOverrides={{ hp: bossDef.hp, atk: bossDef.atk }}
-            align="end"
-          />
+        <div className="flex shrink-0 flex-col items-center gap-5 pt-1">
+          <div className="-mt-4">
+            <FiveSlotRow
+              field={state.bossField}
+              variant="enemy"
+              bossSlotLarge
+              bossStatOverrides={{ hp: bossDef.hp, atk: bossDef.atk }}
+              align="end"
+            />
+          </div>
 
           <div className="flex justify-center">
             <div className={`${SPELL_CARD_STYLE} border-dashed border-slate-600/60`}>
@@ -294,7 +317,7 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
         {/* 하단 UI — 보드 바닥 고정 */}
         <div className="shrink-0">
         {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
-        <div className="flex items-stretch justify-between gap-4 border-t border-white/10 pt-3">
+        <div className="flex items-stretch justify-between gap-4 pt-3">
           <button
             type="button"
             disabled
@@ -392,27 +415,55 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
 
           <div className="boss-drawer-scroll h-[calc(100%-40px)] overflow-y-auto p-4">
-            <div className="mb-2 text-xs font-bold text-sky-300">유닛</div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-sky-300">유닛</span>
+              <select
+                value={unitSort}
+                onChange={e => setUnitSort(e.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none"
+              >
+                {CODEX_SORT_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="mx-auto grid max-w-[85%] grid-cols-6 gap-5">
-              {unitCards.map((card, i) => (
+              {sortedUnits.map((card, i) => (
                 <div key={card.id ?? `u-${i}`}>
-                  <CardPlaceholder card={card} onOpenDetail={() => {}} />
+                  <CardPlaceholder card={card} onOpenDetail={c => setDetailCard(c)} />
                 </div>
               ))}
             </div>
 
             <div className="my-4 border-t border-slate-700" />
 
-            <div className="mb-2 text-xs font-bold text-fuchsia-300">스펠</div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-fuchsia-300">스펠</span>
+              <select
+                value={spellSort}
+                onChange={e => setSpellSort(e.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none"
+              >
+                {CODEX_SORT_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="mx-auto grid max-w-[85%] grid-cols-6 gap-5">
-              {spellCards.map((card, i) => (
+              {sortedSpells.map((card, i) => (
                 <div key={card.id ?? `s-${i}`}>
-                  <CardPlaceholder card={card} onOpenDetail={() => {}} />
+                  <CardPlaceholder card={card} onOpenDetail={c => setDetailCard(c)} />
                 </div>
               ))}
             </div>
           </div>
         </div>
+
+        <CardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />
       </div>
     </div>
   );
