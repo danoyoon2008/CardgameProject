@@ -290,9 +290,9 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 메인 전투 영역 — 위쪽 고정, 전체 평행 이동 */}
-        <div className="flex shrink-0 flex-col items-center gap-5 pt-1">
-          <div className="-mt-4">
+        {/* 메인 전투 영역 — 상대(위) / 스펠(중앙) / 아군(아래) 분산 */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-between py-2">
+          <div style={{ marginTop: "-24px" }}>
             <FiveSlotRow
               field={state.bossField}
               variant="enemy"
@@ -311,11 +311,8 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           <FiveSlotRow field={state.playerField} variant="ally" align="start" />
         </div>
 
-        {/* 스페이서 — 메인 필드와 하단 UI 사이 분리 */}
-        <div className="min-h-0 flex-1" />
-
         {/* 하단 UI — 보드 바닥 고정 */}
-        <div className="shrink-0">
+        <div className="shrink-0 pb-2">
         {/* 하단: 턴 넘기기 / 타이머 / HP·토큰 (시뮬 PC 컨트롤 패널 패턴) */}
         <div className="flex items-stretch justify-between gap-4 pt-3">
           <button
@@ -381,11 +378,11 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 카드 서랍 토글 */}
+        {/* 카드 서랍 토글 — 보드 하단 패딩 안쪽 */}
         <button
           type="button"
           onClick={() => setDrawerOpen(v => !v)}
-          className="w-full rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
+          className="mt-2 mb-1 w-full shrink-0 rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
         >
           보유 카드 목록 {drawerOpen ? "닫기 ▼" : "열기 ▲"} ({ownedCards.length}장)
         </button>
