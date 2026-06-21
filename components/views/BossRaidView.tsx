@@ -301,9 +301,9 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 메인 전투 영역 — 상대(위) / 여백 */}
-        <div className="flex min-h-0 flex-1 flex-col items-center py-2">
-          <div className="mx-auto w-fit" style={{ marginTop: "-48px" }}>
+        {/* 메인 전투 영역 — 상대 진영만 (위쪽) */}
+        <div className="flex min-h-0 flex-1 flex-col py-2">
+          <div className="mx-auto w-fit shrink-0" style={{ marginTop: "-48px" }}>
             <FiveSlotRow
               field={state.bossField}
               variant="enemy"
@@ -312,16 +312,6 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
               align="end"
             />
           </div>
-        </div>
-
-        {/* 아군 진영 + 스펠 — 드로어 바로 위 */}
-        <div className="relative mx-auto mb-2 w-fit shrink-0">
-          <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
-            <div className={SPELL_CARD_HORIZONTAL_STYLE}>
-              <span className="text-[10px] font-bold text-slate-500">Spell</span>
-            </div>
-          </div>
-          <FiveSlotRow field={state.playerField} variant="ally" align="end" />
         </div>
 
         {/* 하단 UI — 보드 바닥 고정 */}
@@ -389,11 +379,21 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
+        {/* 아군 진영 + 스펠 — 드로어 바로 위 */}
+        <div className="relative mx-auto mb-1 w-fit shrink-0">
+          <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
+            <div className={SPELL_CARD_HORIZONTAL_STYLE}>
+              <span className="text-[10px] font-bold text-slate-500">Spell</span>
+            </div>
+          </div>
+          <FiveSlotRow field={state.playerField} variant="ally" align="end" />
+        </div>
+
         {/* 카드 서랍 토글 — 보드 하단 패딩 안쪽 */}
         <button
           type="button"
           onClick={() => setDrawerOpen(v => !v)}
-          className="mt-2 mb-1 w-full shrink-0 rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
+          className="mt-1 mb-1 w-full shrink-0 rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
         >
           보유 카드 목록 {drawerOpen ? "닫기 ▼" : "열기 ▲"} ({ownedCards.length}장)
         </button>
