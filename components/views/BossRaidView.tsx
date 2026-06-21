@@ -18,14 +18,14 @@ import {
 /** 시뮬 PC 필드 슬롯 (SimulationView ~18050) */
 const FIELD_CARD_STYLE =
   "shrink-0 w-[108px] md:w-[128px] lg:w-[148px] aspect-[1/1.58] rounded-[8px] border border-white/20 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
-/** 보스 중앙 슬롯 — 일반 슬롯 대비 2배 */
+/** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
-  "shrink-0 w-[280px] md:w-[330px] lg:w-[380px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 w-[140px] md:w-[165px] lg:w-[190px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 /** 스펠 슬롯 — 유닛 슬롯과 동일 면적, 90° 회전(높이=유닛 너비, aspect 1.58/1) */
 const SPELL_CARD_HORIZONTAL_STYLE =
   "shrink-0 h-[108px] md:h-[128px] lg:h-[148px] aspect-[1.58/1] rounded-[8px] border border-dashed border-slate-600/60 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 const FIELD_GRID_COLS =
-  "grid shrink-0 grid-cols-[108px_108px_280px_108px_108px] md:grid-cols-[128px_128px_330px_128px_128px] lg:grid-cols-[148px_148px_380px_148px_148px] gap-x-10 lg:gap-x-12";
+  "grid shrink-0 grid-cols-[108px_108px_140px_108px_108px] md:grid-cols-[128px_128px_165px_128px_128px] lg:grid-cols-[148px_148px_190px_148px_148px] gap-x-10 lg:gap-x-12";
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
@@ -314,21 +314,23 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
         </div>
 
-        {/* 하단 UI — 보드 바닥 고정 */}
-        <div className="mt-auto flex shrink-0 flex-col pb-2">
-          {/* 아군 진영 + 스펠 — 드로어 위, 조금 위로 */}
-          <div className="relative mx-auto -mt-3 mb-2 w-fit shrink-0">
-            <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
-              <div className={SPELL_CARD_HORIZONTAL_STYLE}>
-                <span className="text-[10px] font-bold text-slate-500">Spell</span>
+        {/* 하단 UI — 아군(중앙) + 컨트롤(우측) 한 줄, 드로어 위 */}
+        <div className="shrink-0 pb-2">
+          <div className="relative flex min-h-[200px] items-end justify-end pb-1 pt-2">
+            {/* 아군 진영 + 스펠 — 중앙 (드로어 위, 약간 여유) */}
+            <div className="absolute left-1/2 w-fit -translate-x-1/2" style={{ bottom: "22px" }}>
+              <div className="relative">
+                <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
+                  <div className={SPELL_CARD_HORIZONTAL_STYLE}>
+                    <span className="text-[10px] font-bold text-slate-500">Spell</span>
+                  </div>
+                </div>
+                <FiveSlotRow field={state.playerField} variant="ally" align="end" />
               </div>
             </div>
-            <FiveSlotRow field={state.playerField} variant="ally" align="end" />
-          </div>
 
-          {/* 턴 종료 / 타이머·턴 / HP·토큰 — 우측 하단 */}
-          <div className="flex justify-end pt-1">
-            <div className="flex shrink-0 flex-col gap-2">
+            {/* 턴 종료 / 타이머·턴 / HP·토큰 — 우측 하단 */}
+            <div className="relative z-10 flex shrink-0 flex-col gap-2">
               <button
                 type="button"
                 disabled
@@ -389,13 +391,13 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           </div>
 
           {/* 카드 서랍 토글 — 보드 하단 패딩 안쪽 */}
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(v => !v)}
-            className="mt-1 mb-1 w-full shrink-0 rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
-          >
-            보유 카드 목록 {drawerOpen ? "닫기 ▼" : "열기 ▲"} ({ownedCards.length}장)
-          </button>
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(v => !v)}
+          className="mt-1 mb-1 w-full shrink-0 rounded-xl border border-slate-600 bg-slate-800/60 py-3 text-sm font-bold text-slate-200 transition-colors hover:bg-slate-700/60"
+        >
+          보유 카드 목록 {drawerOpen ? "닫기 ▼" : "열기 ▲"} ({ownedCards.length}장)
+        </button>
         </div>
 
         {/* 드로어 — 보드 기준 절반 높이, 아래서 위로 슬라이드 */}
