@@ -375,31 +375,40 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
           }`}
           style={{ height: "50%" }}
         >
-          <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setDrawerOpen(false)}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setDrawerOpen(false);
+              }
+            }}
+            className="flex cursor-pointer items-center justify-between border-b border-slate-700 px-4 py-2 transition-colors hover:bg-slate-800/50"
+          >
             <span className="text-sm font-bold text-slate-200">보유 카드</span>
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(false)}
-              className="text-sm font-bold text-slate-400 hover:text-white"
-            >
-              닫기 ▼
-            </button>
+            <span className="text-sm font-bold text-slate-400">닫기 ▼</span>
           </div>
 
           <div className="boss-drawer-scroll h-[calc(100%-40px)] overflow-y-auto p-4">
             <div className="mb-2 text-xs font-bold text-sky-300">유닛</div>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="mx-auto grid max-w-[85%] grid-cols-6 gap-5">
               {unitCards.map((card, i) => (
-                <CardPlaceholder key={card.id ?? `u-${i}`} card={card} onOpenDetail={() => {}} />
+                <div key={card.id ?? `u-${i}`}>
+                  <CardPlaceholder card={card} onOpenDetail={() => {}} />
+                </div>
               ))}
             </div>
 
             <div className="my-4 border-t border-slate-700" />
 
             <div className="mb-2 text-xs font-bold text-fuchsia-300">스펠</div>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="mx-auto grid max-w-[85%] grid-cols-6 gap-5">
               {spellCards.map((card, i) => (
-                <CardPlaceholder key={card.id ?? `s-${i}`} card={card} onOpenDetail={() => {}} />
+                <div key={card.id ?? `s-${i}`}>
+                  <CardPlaceholder card={card} onOpenDetail={() => {}} />
+                </div>
               ))}
             </div>
           </div>

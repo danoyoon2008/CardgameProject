@@ -5,7 +5,11 @@ import type { User } from "@supabase/supabase-js";
 export function cardCategoryFlags(card: CardRow) {
   const category = card.category?.trim() ?? "";
   const categoryLower = category.toLowerCase();
-  return { category, isUnit: categoryLower === "unit" || category === "유닛", isMagic: category === "마법" || categoryLower === "magic" };
+  return {
+    category,
+    isUnit: categoryLower === "unit" || category === "유닛",
+    isMagic: category === "마법" || categoryLower === "magic" || categoryLower === "spell",
+  };
 }
 
 export function nonEmptyText(value: string | null | undefined): string | null {
