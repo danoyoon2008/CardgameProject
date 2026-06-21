@@ -21,9 +21,9 @@ const FIELD_CARD_STYLE =
 /** 보스 중앙 슬롯 — 동일 비율, 크기만 확대 */
 const BOSS_FIELD_CARD_STYLE =
   "shrink-0 w-[140px] md:w-[165px] lg:w-[190px] aspect-[1/1.58] rounded-[8px] border-2 border-rose-500/60 relative z-[10] flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
-/** 스펠 슬롯 — 유닛 슬롯과 같은 너비, 가로로 눕힘 */
+/** 스펠 슬롯 — 유닛 슬롯과 동일 면적, 90° 회전(높이=유닛 너비, aspect 1.58/1) */
 const SPELL_CARD_HORIZONTAL_STYLE =
-  "shrink-0 w-[108px] md:w-[128px] lg:w-[148px] aspect-[1.58/1] rounded-[8px] border border-dashed border-slate-600/60 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
+  "shrink-0 h-[108px] md:h-[128px] lg:h-[148px] aspect-[1.58/1] rounded-[8px] border border-dashed border-slate-600/60 relative flex items-center justify-center shadow-lg bg-black/40 overflow-hidden transition-colors";
 const UNIT_SLOT_OUTER = "relative z-0 isolate shrink-0 overflow-visible rounded-[8px]";
 /** 카드가 든 슬롯 내부 (~17129) */
 const CARD_INNER = "relative w-full aspect-[1/1.58] rounded-[6px] overflow-hidden bg-slate-900 pointer-events-auto";
@@ -142,40 +142,32 @@ function FiveSlotRow({
   bossStatOverrides,
   bossSlotLarge = false,
   align = "end",
-  inline = false,
 }: {
   field: FiveSlotField;
   variant: "enemy" | "ally";
   bossStatOverrides?: { hp?: number; atk?: number };
   bossSlotLarge?: boolean;
   align?: "start" | "end";
-  inline?: boolean;
 }) {
-  const slots = BOSS_RAID_SLOTS.map(slotKey => {
-    const card = getFiveSlotUnit(field, slotKey);
-    const isBossCenter = bossSlotLarge && slotKey === "m";
-    return (
-      <FieldSlot
-        key={`${variant}-${slotKey}`}
-        label={SLOT_LABEL[slotKey]}
-        card={card}
-        large={isBossCenter}
-        variant={variant}
-        statOverrides={isBossCenter ? bossStatOverrides : undefined}
-      />
-    );
-  });
-
-  if (inline) {
-    return <>{slots}</>;
-  }
-
   return (
     <div
       className="flex shrink-0 justify-center gap-10 lg:gap-12"
       style={{ alignItems: align === "end" ? "flex-end" : "flex-start" }}
     >
-      {slots}
+      {BOSS_RAID_SLOTS.map(slotKey => {
+        const card = getFiveSlotUnit(field, slotKey);
+        const isBossCenter = bossSlotLarge && slotKey === "m";
+        return (
+          <FieldSlot
+            key={`${variant}-${slotKey}`}
+            label={SLOT_LABEL[slotKey]}
+            card={card}
+            large={isBossCenter}
+            variant={variant}
+            statOverrides={isBossCenter ? bossStatOverrides : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -310,14 +302,13 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             />
           </div>
 
-          <div
-            className="flex items-end justify-center gap-10 lg:gap-12"
-            style={{ marginBottom: "16px" }}
-          >
-            <div className={SPELL_CARD_HORIZONTAL_STYLE}>
-              <span className="text-[10px] font-bold text-slate-500">Spell</span>
+          <div className="relative mx-auto w-fit" style={{ marginBottom: "16px" }}>
+            <div className="absolute bottom-0 right-full mr-10 lg:mr-12">
+              <div className={SPELL_CARD_HORIZONTAL_STYLE}>
+                <span className="text-[10px] font-bold text-slate-500">Spell</span>
+              </div>
             </div>
-            <FiveSlotRow field={state.playerField} variant="ally" align="end" inline />
+            <FiveSlotRow field={state.playerField} variant="ally" align="end" />
           </div>
         </div>
 
