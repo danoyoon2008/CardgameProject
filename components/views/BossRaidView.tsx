@@ -76,12 +76,18 @@ function FieldSlot({
   large = false,
   variant,
   statOverrides,
+  onPlace,
+  onRemove,
+  placeable,
 }: {
   label: string;
   card: FieldCard | null;
   large?: boolean;
   variant: "enemy" | "ally";
   statOverrides?: { hp?: number; atk?: number };
+  onPlace?: () => void;
+  onRemove?: () => void;
+  placeable?: boolean;
 }) {
   const shellClass = large ? BOSS_FIELD_CARD_STYLE : FIELD_CARD_STYLE;
   const filledBorderClass = card
@@ -92,10 +98,26 @@ function FieldSlot({
         : "border-sky-500/30 bg-sky-950/20"
     : "";
 
+  const isEmptyPlaceable = !card && !!onPlace;
+  const isFilledRemovable = !!card && !!onRemove;
+  const handleSlotClick = isEmptyPlaceable ? onPlace : isFilledRemovable ? onRemove : undefined;
+  const placeableRing =
+    isEmptyPlaceable && placeable
+      ? " ring-2 ring-amber-400/70 animate-pulse cursor-pointer"
+      : isEmptyPlaceable
+        ? " cursor-pointer"
+        : isFilledRemovable
+          ? " cursor-pointer"
+          : "";
+
   return (
-    <div className={UNIT_SLOT_OUTER}>
+    <div
+      className={UNIT_SLOT_OUTER}
+      onClick={handleSlotClick}
+      role={handleSlotClick ? "button" : undefined}
+    >
       <div
-        className={`${shellClass} ${filledBorderClass}`}
+        className={`${shellClass} ${filledBorderClass}${placeableRing}`}
         style={
           large
             ? {
@@ -154,12 +176,18 @@ function FiveSlotRow({
   bossStatOverrides,
   bossSlotLarge = false,
   align = "end",
+  placeable,
+  onPlaceSlot,
+  onRemoveSlot,
 }: {
   field: FiveSlotField;
   variant: "enemy" | "ally";
   bossStatOverrides?: { hp?: number; atk?: number };
   bossSlotLarge?: boolean;
   align?: "start" | "end" | "center";
+  placeable?: boolean;
+  onPlaceSlot?: (slot: BossRaidSlot) => void;
+  onRemoveSlot?: (slot: BossRaidSlot) => void;
 }) {
   const rowAlign =
     align === "end" ? "flex-end" : align === "center" ? "center" : "flex-start";
@@ -180,6 +208,9 @@ function FiveSlotRow({
             large={isBossCenter}
             variant={variant}
             statOverrides={isBossCenter ? bossStatOverrides : undefined}
+            onPlace={onPlaceSlot ? () => onPlaceSlot(slotKey) : undefined}
+            onRemove={onRemoveSlot ? () => onRemoveSlot(slotKey) : undefined}
+            placeable={placeable}
           />
         );
         if (centerAllySlot) {
@@ -205,10 +236,10 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
   const [unitSort, setUnitSort] = useState("number_asc");
   const [spellSort, setSpellSort] = useState("number_asc");
   const [detailCard, setDetailCard] = useState<CardRow | null>(null);
+  const [selectedHandCard, setSelectedHandCard] = useState<CardRow | null>(null);
 
-  const state = useMemo(
-    () => initBossRaidState(BS_RYEOMHWA, cards, buildMvpTestHand(cards)),
-    [cards]
+  const [state, setState] = useState(() =>
+    initBossRaidState(BS_RYEOMHWA, cards, buildMvpTestHand(cards))
   );
 
   const bossDef = BS_RYEOMHWA;
@@ -241,6 +272,31 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
     [spellCards, spellSort]
   );
 
+  // 드로어에서 선택한 유닛을 빈 아군 칸에 배치 (토큰 게이팅은 후속 단계)
+  const placeUnitInSlot = (slot: BossRaidSlot) => {
+    if (!selectedHandCard) return;
+    if (!cardCategoryFlags(selectedHandCard).isUnit) return; // 유닛만 허용
+    setState(prev => {
+      if (prev.playerField[slot]) return prev; // 이미 찬 칸이면 무시
+      // TODO(토큰단계): 여기서 tokens >= Number(selectedHandCard.cost) 검사 후 토큰 차감
+      const placed: FieldCard = {
+        ...selectedHandCard,
+        statsInstanceId: `bossraid-place-${slot}-${Date.now()}`,
+        currentHp: Number(selectedHandCard.hp) || 0,
+        hasAttacked: false,
+        hasBeenAttackedThisTurn: false,
+        summonedTurn: `${prev.turnCount}-player`,
+      };
+      return { ...prev, playerField: { ...prev.playerField, [slot]: placed } };
+    });
+    setSelectedHandCard(null);
+  };
+
+  // 채워진 아군 칸 클릭 시 제거 (테스트 편의)
+  const removeUnitFromSlot = (slot: BossRaidSlot) => {
+    setState(prev => ({ ...prev, playerField: { ...prev.playerField, [slot]: null } }));
+  };
+
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 p-4">
       <div className="relative flex aspect-video h-full w-full min-h-[750px] min-w-[1300px] max-w-[1700px] flex-col overflow-hidden rounded-3xl border-2 border-slate-800 bg-gradient-to-b from-[#0a1628] to-[#050a14] p-6 text-white shadow-[0_0_50px_rgba(0,0,0,0.6)]">
@@ -269,6 +325,21 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             </div>
           )}
         </div>
+
+        {selectedHandCard && (
+          <div className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-amber-400/60 bg-slate-900/90 px-5 py-2 shadow-lg">
+            <span className="text-sm font-bold text-amber-300">
+              「{selectedHandCard.name}」 배치할 칸을 선택하세요
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedHandCard(null)}
+              className="rounded-full border border-slate-600 px-3 py-0.5 text-xs font-bold text-slate-300 hover:bg-slate-800"
+            >
+              취소
+            </button>
+          </div>
+        )}
 
         {/* 상단 보스 정보바 */}
         <div className="flex shrink-0 items-stretch justify-between gap-6 px-16 pt-1">
@@ -337,7 +408,14 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
                     <span className="text-[10px] font-bold text-slate-500">Spell</span>
                   </div>
                 </div>
-                <FiveSlotRow field={state.playerField} variant="ally" align="end" />
+                <FiveSlotRow
+                  field={state.playerField}
+                  variant="ally"
+                  align="end"
+                  placeable={!!selectedHandCard && cardCategoryFlags(selectedHandCard).isUnit}
+                  onPlaceSlot={placeUnitInSlot}
+                  onRemoveSlot={removeUnitFromSlot}
+                />
               </div>
             </div>
 
@@ -453,7 +531,14 @@ export default function BossRaidView({ cards, onBackToLobby }: BossRaidViewProps
             <div className="mx-auto grid max-w-[85%] grid-cols-6 gap-5">
               {sortedUnits.map((card, i) => (
                 <div key={card.id ?? `u-${i}`}>
-                  <CardPlaceholder card={card} onOpenDetail={c => setDetailCard(c)} />
+                  <CardPlaceholder
+                    card={card}
+                    onSelectForDeck={c => {
+                      setSelectedHandCard(c);
+                      setDrawerOpen(false);
+                    }}
+                    onOpenDetail={c => setDetailCard(c)}
+                  />
                 </div>
               ))}
             </div>
