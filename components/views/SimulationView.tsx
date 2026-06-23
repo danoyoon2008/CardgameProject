@@ -209,6 +209,7 @@ import {
   BAEKSEU_INVULN_BADGE,
   applyBaekseuInvulnThresholdExecutePass,
   cleanupSimulationUnitDeath,
+  sanitizeUnitForFreshSummon,
   suppressActiveSkillLinksForConfusion,
   isBaekseuLastStandExecuteAuraActiveOnUnit,
   isBaekseuPassivesPausedByConfusion,
@@ -4337,6 +4338,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 });
                 updatedTarget = wMeteo.updatedHost;
                 if (wMeteo.deadRider) {
+                  cleanupSimulationUnitDeath(
+                    wMeteo.deadRider,
+                    { field: newPlayerA.field },
+                    { field: newPlayerB.field },
+                    prev.globalTurnCount
+                  );
                   riderRewindEntry = stripAebeolaekingRiderMeta(wMeteo.deadRider);
                 }
               }
@@ -7907,10 +7914,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
           /* (5) 사망 처리. */
           if (isDestroyed) {
+            const cleanupPA = side === "A" ? next : oppField;
+            const cleanupPB = side === "B" ? next : oppField;
             cleanupSimulationUnitDeath(
               updatedHost,
-              { field: fieldA },
-              { field: fieldB },
+              { field: cleanupPA },
+              { field: cleanupPB },
               prev.globalTurnCount
             );
             rewindCards = appendDeadHostWithRiderToRewindCards(rewindCards, updatedHost);
@@ -7924,6 +7933,14 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           } else {
             if (riderKilledByReflect && updatedRider) {
               const deadRider = updatedRider;
+              const cleanupPA = side === "A" ? next : oppField;
+              const cleanupPB = side === "B" ? next : oppField;
+              cleanupSimulationUnitDeath(
+                deadRider,
+                { field: cleanupPA },
+                { field: cleanupPB },
+                prev.globalTurnCount
+              );
               updatedHost = { ...updatedHost, parasiteRider: null };
               rewindCards = [...rewindCards, stripAebeolaekingRiderMeta(deadRider)];
             } else if (updatedRider) {
@@ -8840,8 +8857,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const statsInstanceId = createSimulationStatsInstanceId();
     const handCardForField = stripPpSimHandNewGlow(handCard);
+    const cleanHandCard =
+      slot === "spell" ? handCardForField : sanitizeUnitForFreshSummon(handCardForField as FieldCard);
     const card: FieldCard = {
-      ...handCardForField,
+      ...cleanHandCard,
       statsInstanceId,
       currentHp: Number(handCard.hp) || 0,
       hasAttacked: false,
@@ -9008,6 +9027,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                 });
                 updatedTarget = wMeteo.updatedHost;
                 if (wMeteo.deadRider) {
+                  cleanupSimulationUnitDeath(
+                    wMeteo.deadRider,
+                    { field: newPlayerA.field },
+                    { field: newPlayerB.field },
+                    prev.globalTurnCount
+                  );
                   riderRewindEntry = stripAebeolaekingRiderMeta(wMeteo.deadRider);
                 }
               }
@@ -11188,6 +11213,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       } else {
         hostSide.field[hostSlot] = finalHost;
         if (result.deadRider) {
+          cleanupSimulationUnitDeath(
+            result.deadRider,
+            newPlayerA,
+            newPlayerB,
+            prev.globalTurnCount
+          );
           newRewindCards = [...newRewindCards, stripAebeolaekingRiderMeta(result.deadRider)];
         }
       }
@@ -12242,7 +12273,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           }
         } else if (aebDeadRiderByRow[r.slot]) {
           /* host 생존 + W만 사망 — W를 별개 카드로 rewind. */
-          rc = [...rc, stripAebeolaekingRiderMeta(aebDeadRiderByRow[r.slot]!)];
+          const deadRider = aebDeadRiderByRow[r.slot]!;
+          cleanupSimulationUnitDeath(deadRider, newPlayerA, newPlayerB, prev.globalTurnCount);
+          rc = [...rc, stripAebeolaekingRiderMeta(deadRider)];
         }
       }
 
@@ -15034,6 +15067,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
               /* host 사망 시 부착된 W도 함께 리와인드(별개 카드로 push). */
               newRewindCards = appendDeadHostWithRiderToRewindCards(newRewindCards, card);
             } else if (aebDeadRiderPrimary) {
+              cleanupSkillLinksOnDeath(aebDeadRiderPrimary, newPlayerA, newPlayerB, prev.globalTurnCount);
               newRewindCards = [...newRewindCards, stripAebeolaekingRiderMeta(aebDeadRiderPrimary)];
             }
             if (attackerDestroyedByLibutyReflect) {

@@ -82,6 +82,21 @@ function clearLinkedCasterSkillState(
 
 
 
+/**
+ * 손패→필드 일반 소환 시 — 이전 소환/덱 사이클의 링크형 액티브·버프 잔재 제거.
+ * (귀환 부활은 `buildGuihwanRevivedFieldCard` 등 별도 경로.)
+ */
+export function sanitizeUnitForFreshSummon(card: FieldCard): FieldCard {
+  const next: FieldCard = { ...card };
+  delete (next as { isSkillActive?: boolean }).isSkillActive;
+  delete (next as { linkedTarget?: string | null }).linkedTarget;
+  delete (next as { linkedSource?: string | null }).linkedSource;
+  delete (next as { hasBanjitgori?: boolean }).hasBanjitgori;
+  delete (next as { hasLimeBubbleShieldBuff?: boolean }).hasLimeBubbleShieldBuff;
+  delete (next as { hpBarrierAbsorptionRemaining?: number }).hpBarrierAbsorptionRemaining;
+  return next;
+}
+
 export function cleanupSimulationUnitDeath(
 
   deadCard: FieldCard,
