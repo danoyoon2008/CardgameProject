@@ -29,7 +29,7 @@ export function getHpBarrierRemaining(card: FieldCard | null | undefined): numbe
 /**
  * 방어 패시브·반짓고리 등 적용된 피해(무적이면 0)에 대해 체력 보호막이 먼저 흡수하고,
  * 남은 양만 `currentHp`에 반영한다.
- * `bypassAbsorption`: 시작의 망령 기본 공격 등 — 보호막을 깎지 않고 전부 체력에 반영.
+ * `bypassAbsorption`: (특수 케이스 전용) 보호막을 건너뛰고 전부 체력에 반영. 시작의 망령 트루딜은 사용하지 않음.
  */
 export function splitDamageThroughHpBarrier(
   card: FieldCard,

@@ -13452,10 +13452,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
         const cardForCombatSecondary = normalizeUnitHpSurvivalOnesForCombat(card);
         const barrierSplitSecondary = splitDamageThroughHpBarrier(
           cardForCombatSecondary,
-          actualDamage,
-          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
-            ? { bypassAbsorption: true }
-            : undefined
+          actualDamage
         );
         const hpAfterRaw = cardForCombatSecondary.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
@@ -14683,10 +14680,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           const cardForCombatPrimary = normalizeUnitHpSurvivalOnesForCombat(card);
           const barrierSplitPrimary = splitDamageThroughHpBarrier(
             cardForCombatPrimary,
-            actualPrimaryDamage,
-            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
-              ? { bypassAbsorption: true }
-              : undefined
+            actualPrimaryDamage
           );
           const hpAfterRawPrimary = cardForCombatPrimary.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(

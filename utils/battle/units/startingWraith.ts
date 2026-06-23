@@ -1,7 +1,7 @@
 /**
- * 시작의 망령(No.44) — 패시브: 기본 공격이 적의 방어력·피해감소(반짓고리·방어막·철기병·라임·메리 등)와
- * 체력 보호막 흡수를 무시하고 항상 트루 딜. [무적]·백스 패시브 등은 기존과 동일.
- * 적 처치 시 같은 공격권으로 즉시 추가 타격.
+ * 시작의 망령(No.44) — 패시브: 기본 공격이 적의 방어력·피해감소(반짓고리·방어막·철기병·라임·메리 등)를
+ * 무시하는 트루 딜. 단, 체력 보호막(오리에트)은 정상 흡수한다(보호막 먼저, 남은 데미지만 체력).
+ * [무적]·백스 패시브 등은 기존과 동일. 적 처치 시 같은 공격권으로 즉시 추가 타격.
  * [혼란] 시 트루 딜·처치 연쇄 추가 공격권 일시 봉인.
  */
 import type { FieldCard } from "../../../types/game";
@@ -28,7 +28,7 @@ export function isStartingWraithPassivesPausedByConfusion(
   return hasConfusionStatus(card, facingOppCard);
 }
 
-/** 혼란 아닐 때만 기본 공격 트루 딜(방어·보호막 흡수 무시) */
+/** 혼란 아닐 때만 기본 공격 트루 딜(방어·피해감소 무시, 체력 보호막은 정상 흡수) */
 export function isStartingWraithTrueStrikeBasicAttacker(
   card: FieldCard | null | undefined,
   facingOppCard: FieldCard | null = null

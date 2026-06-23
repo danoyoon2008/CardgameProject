@@ -1666,10 +1666,7 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
         const cardForCombatSecondary = normalizeUnitHpSurvivalOnesForCombat(card);
         const barrierSplitSecondary = splitDamageThroughHpBarrier(
           cardForCombatSecondary,
-          actualDamage,
-          isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppSecondary)
-            ? { bypassAbsorption: true }
-            : undefined
+          actualDamage
         );
         const hpAfterRaw = cardForCombatSecondary.currentHp - barrierSplitSecondary.damageToCurrentHp;
         const resolvedSecondary = resolveBaekseuFatalDamage(
@@ -2371,10 +2368,7 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
           const cardForCombatPrimary = normalizeUnitHpSurvivalOnesForCombat(card);
           const barrierSplitPrimary = splitDamageThroughHpBarrier(
             cardForCombatPrimary,
-            actualPrimaryDamage,
-            isStartingWraithTrueStrikeBasicAttacker(attackerCard, attackerFacingOppPrimary)
-              ? { bypassAbsorption: true }
-              : undefined
+            actualPrimaryDamage
           );
           const hpAfterRawPrimary = cardForCombatPrimary.currentHp - barrierSplitPrimary.damageToCurrentHp;
           const resolvedPrimary = resolveBaekseuFatalDamage(
