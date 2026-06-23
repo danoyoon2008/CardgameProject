@@ -28,6 +28,7 @@ type MobileTouchCardCellProps = {
   showOutline?: boolean;
   inDeck?: boolean;
   banned?: boolean;
+  isDeveloper?: boolean;
 };
 
 export default function MobileTouchCardCell({
@@ -43,6 +44,7 @@ export default function MobileTouchCardCell({
   showOutline = false,
   inDeck = false,
   banned = false,
+  isDeveloper = false,
 }: MobileTouchCardCellProps) {
   const isSelected = selectedCardIndex === index;
   const isOwned = card.isOwned !== false;
@@ -60,7 +62,7 @@ export default function MobileTouchCardCell({
 
   const handleSelectForDeck = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (banned) return;
+    if (banned && !isDeveloper) return;
     onSelectForDeck?.(card);
     onClearSelection();
   };
@@ -139,6 +141,15 @@ export default function MobileTouchCardCell({
           {onSelectForDeck && isOwned && !banned ? (
             <button type="button" className={SELECT_BTN_CLASS} onClick={handleSelectForDeck}>
               선택
+            </button>
+          ) : null}
+          {onSelectForDeck && isOwned && banned && isDeveloper ? (
+            <button
+              type="button"
+              className="pointer-events-auto z-20 rounded-lg border-2 border-amber-300 bg-amber-500 px-3 py-2 text-xs font-black tracking-wide text-[#0a1628] shadow-[0_4px_15px_rgba(251,191,36,0.5)] active:scale-95 w-32"
+              onClick={handleSelectForDeck}
+            >
+              개발자 권한으로 선택
             </button>
           ) : null}
           {onOpenDetail ? (

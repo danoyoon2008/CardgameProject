@@ -551,7 +551,7 @@ export default function Home() {
               
               {game.mainView === "shop" && <ShopView gold={game.gold} cardsLoading={game.cardsLoading} isDarkMode={game.isDarkMode} handleGacha={game.handleGacha} setShowProbModal={game.setShowProbModal} setIsShardShopOpen={game.setIsShardShopOpen} />}
               {game.mainView === "codex" && <CodexView cards={game.cards} loading={game.cardsLoading} sortOption={game.sortOption} setSortOption={game.setSortOption} filterOwnedFirst={game.filterOwnedFirst} setFilterOwnedFirst={game.setFilterOwnedFirst} showOutline={game.showOutline} setShowOutline={game.setShowOutline} newCardIds={game.newCardIds} onOpenDetail={game.handleOpenCardDetail} />}
-              {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleSlotClear={game.handleSlotClear} handleClearAllDeck={game.handleClearAllDeck} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} decks={game.decks} activeDeckIndex={game.activeDeckIndex} handleSelectDeckSlot={game.handleSelectDeckSlot} />}
+              {game.mainView === "deck" && <DeckView deck={game.deck} cards={game.cards} deckAvailableCards={game.deckAvailableCards} deckContainerRef={game.deckContainerRef} selectedForDeck={game.selectedForDeck} setSelectedForDeck={game.setSelectedForDeck} handleSlotReplace={game.handleSlotReplace} handleSlotClear={game.handleSlotClear} handleClearAllDeck={game.handleClearAllDeck} handleOpenCardDetail={game.handleOpenCardDetail} handleSelectForDeck={game.handleSelectForDeck} showOutline={game.showOutline} setShowOutline={game.setShowOutline} sortOption={game.sortOption} setSortOption={game.setSortOption} cardsLoading={game.cardsLoading} decks={game.decks} activeDeckIndex={game.activeDeckIndex} handleSelectDeckSlot={game.handleSelectDeckSlot} isDeveloper={isDeveloper} />}
               {game.mainView === "settings" && <SettingsView isDarkMode={game.isDarkMode} setIsDarkMode={game.setIsDarkMode} volume={game.volume} setVolume={game.setVolume} user={game.user} handleLogout={game.handleLogout} handleResetData={game.handleResetData} />}
               {game.mainView === "bossraid" && isDeveloper && !bossRaidInBattle && (
                 <BossSelectView
@@ -653,6 +653,7 @@ export default function Home() {
           decks={game.decks}
           activeDeckIndex={game.activeDeckIndex}
           handleSelectDeckSlot={game.handleSelectDeckSlot}
+          isDeveloper={isDeveloper}
         />
       )}
       {game.mainView === "settings" && (

@@ -33,6 +33,7 @@ interface DeckViewProps {
   decks?: number[][];
   activeDeckIndex?: number;
   handleSelectDeckSlot?: (slotIndex: number) => void;
+  isDeveloper?: boolean;
 }
 
 export default function DeckView({
@@ -45,6 +46,7 @@ export default function DeckView({
   decks = [[], [], [], [], []],
   activeDeckIndex = 0,
   handleSelectDeckSlot,
+  isDeveloper = false,
 }: DeckViewProps) {
   const [selectedDeckSlotIndex, setSelectedDeckSlotIndex] = useState<number | null>(null);
   const [selectedOwnedCardIndex, setSelectedOwnedCardIndex] = useState<number | null>(null);
@@ -303,10 +305,11 @@ export default function DeckView({
                   }}
                   onClearSelection={() => setSelectedOwnedCardIndex(null)}
                   onOpenDetail={handleOpenCardDetail}
-                  onSelectForDeck={isCardBanned(card) ? undefined : handleSelectForDeck}
+                  onSelectForDeck={isCardBanned(card) && !isDeveloper ? undefined : handleSelectForDeck}
                   showOutline={showOutline}
                   inDeck={deck.includes(Number(card.id))}
                   banned={isCardBanned(card)}
+                  isDeveloper={isDeveloper}
                 />
               ))}
             </div>
@@ -465,10 +468,11 @@ export default function DeckView({
                 key={card.id ?? `deck-card-${index}`} 
                 card={card} 
                 onOpenDetail={handleOpenCardDetail}
-                onSelectForDeck={isCardBanned(card) ? undefined : handleSelectForDeck}
+                onSelectForDeck={isCardBanned(card) && !isDeveloper ? undefined : handleSelectForDeck}
                 showOutline={showOutline} 
                 inDeck={deck.includes(Number(card.id))}
                 banned={isCardBanned(card)}
+                isDeveloper={isDeveloper}
               />
             ))}
           </div>

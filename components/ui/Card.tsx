@@ -55,6 +55,7 @@ export function CardPlaceholder({
   isShopView = false,
   inDeck = false,
   banned = false,
+  isDeveloper = false,
 }: { 
   card: CardRow; 
   onOpenDetail?: (card: CardRow) => void; 
@@ -67,6 +68,7 @@ export function CardPlaceholder({
   isShopView?: boolean;
   inDeck?: boolean;
   banned?: boolean;
+  isDeveloper?: boolean;
 }) {
   const { category, isUnit, isMagic } = cardCategoryFlags(card);
   const imageUrl = nonEmptyText(card.image_url);
@@ -208,6 +210,15 @@ export function CardPlaceholder({
               className="pointer-events-auto scale-95 rounded-lg bg-amber-400 px-6 py-2 text-sm font-black text-[#0a1628] opacity-0 shadow-[0_4px_15px_rgba(251,191,36,0.5)] transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-amber-300 hover:scale-105 active:scale-95 tracking-widest w-28"
             >
               선택
+            </button>
+          ) : null}
+          {onSelectForDeck && banned && isDeveloper ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onSelectForDeck(card); }}
+              className="pointer-events-auto z-20 scale-95 rounded-lg bg-amber-500 px-3 py-2 text-xs font-black text-[#0a1628] opacity-0 shadow-[0_4px_15px_rgba(251,191,36,0.5)] transition-all duration-300 ease-out group-hover:scale-100 group-hover:opacity-100 hover:bg-amber-400 hover:scale-105 active:scale-95 tracking-wide w-32 border-2 border-amber-300"
+            >
+              개발자 권한으로 선택
             </button>
           ) : null}
           {onOpenDetail ? (

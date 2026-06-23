@@ -7,6 +7,7 @@ import { createClient } from "@/utils/supabase/client";
 import { MainView, CardRow, PullResult } from "../types/game";
 import { displayNameFromUser, profileImageUrl, getRarityWeight, getShardRewardValue, getShardShopPrice } from "../utils/cardUtils";
 import { isCardNameBanned } from "../utils/globalBan";
+import { isDeveloperAccount } from "../utils/developerAccounts";
 
 const TUTORIAL_CARD_IDS = [21, 25, 30, 35, 36, 38, 39, 46, 58, 59, 62, 64];
 
@@ -432,9 +433,10 @@ export function useGameLogic() {
     }));
   }, [isDarkMode, volume, newCardIds, sortOption, filterOwnedFirst, showOutline, user, settingsLoaded]);
 
-  // cards 로드 후 글로벌 밴 카드를 모든 덱 슬롯에서 제거
+  // cards 로드 후 글로벌 밴 카드를 모든 덱 슬롯에서 제거 (개발자 계정은 버그 테스트용 예외)
   useEffect(() => {
     if (!profileLoaded || cards.length === 0) return;
+    if (isDeveloperAccount(user?.id)) return;
     const bannedIds = new Set(
       cards.filter((c) => isCardNameBanned(c.name)).map((c) => Number(c.id))
     );
@@ -464,7 +466,7 @@ export function useGameLogic() {
       });
       return changed ? next : prev;
     });
-  }, [profileLoaded, cards]);
+  }, [profileLoaded, cards, user?.id]);
 
   useEffect(() => {
     if (!["codex", "shop", "deck", "simulation", "multiplay", "bossraid"].includes(mainView) || !user) return; 
