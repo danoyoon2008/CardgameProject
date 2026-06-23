@@ -1,6 +1,6 @@
 import type { FieldCard } from "../../../types/game";
 import type { PostAttackFn } from "../effectTypes";
-import { applyFlatAttackModifierByPattern, type AttackModifierOptions } from "../attackModifier";
+import { applyFlatAttackModifierByPattern, floorToNearest50Unit, type AttackModifierOptions } from "../attackModifier";
 import { hasConfusionStatus } from "./dinner";
 import { UNIT } from "../unitIds";
 import { healUnitCurrentHp } from "../hpSurvivalOnes";
@@ -74,11 +74,11 @@ export function applyDarkKnightYorinToAttackDamage(
   return applyFlatAttackModifierByPattern(primaryDamage, secondaryDamage, b, options);
 }
 
-/** 처치 시 회복: 상대 최대 체력의 25%, 최소 600 */
+/** 처치 시 회복: 상대 최대 체력의 25%(50단위 버림), 최소 600 */
 export function darkKnightHealOnKillFromVictimMaxHp(maxHp: number): number {
   const mh = Number(maxHp);
   if (!Number.isFinite(mh) || mh <= 0) return 600;
-  return Math.max(600, Math.floor(mh * 0.25));
+  return Math.max(600, floorToNearest50Unit(mh * 0.25));
 }
 
 export const postAttackDarkKnight: PostAttackFn = (card, ctx) => {

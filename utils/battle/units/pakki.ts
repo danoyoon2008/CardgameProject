@@ -12,6 +12,7 @@ import {
   type IronKiwiDebuffImmunityFieldContext,
 } from "./ironKiwi";
 import { fieldHasLivingStartingTree } from "./startingTree";
+import { floorToNearest50Unit } from "../attackModifier";
 import { UNIT } from "../unitIds";
 
 export const PAKKI_ID = UNIT.PAKKI;
@@ -66,7 +67,7 @@ export function scalePakkiOutgoingHit(
 ): number {
   if (!attacker?.hasPakiAttackHalveDebuff || damage <= 0) return damage;
   if (unitAllyFieldHasDebuffImmunityAura(attackerAllyField, ironKiwiCtx)) return damage;
-  return Math.max(0, Math.floor(damage * 0.5));
+  return Math.max(0, floorToNearest50Unit(Math.floor(damage * 0.5)));
 }
 
 /** 아이언 키위·시작의 나무 등으로 면역 권역이 생기면 패키 디버프 플래그 제거(호출부에서 필드는 이미 복제본이어야 함) */

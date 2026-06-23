@@ -3,6 +3,7 @@ import {
   isHealBlockedBySuppression,
   type HealSupportSource,
 } from "./debuffs/suppression";
+import { floorToNearest50Unit } from "./attackModifier";
 
 /**
  * 체력 1 생존 표기(백스 패시브·번개·귀환 부활 등) — 「0이 아님」을 나타내는 일의자리 1.
@@ -61,8 +62,10 @@ export function healUnitCurrentHp(
   ) {
     return card;
   }
+  const heal = floorToNearest50Unit(Math.max(0, healAmount));
+  if (heal <= 0) return card;
   const maxHp = opts?.maxHpOverride ?? (Number(card.hp) || 0);
-  const raw = Math.min(maxHp > 0 ? maxHp : (card.currentHp ?? 0) + healAmount, (card.currentHp ?? 0) + healAmount);
+  const raw = Math.min(maxHp > 0 ? maxHp : (card.currentHp ?? 0) + heal, (card.currentHp ?? 0) + heal);
   return finalizeUnitHpAfterHeal(card, raw);
 }
 
