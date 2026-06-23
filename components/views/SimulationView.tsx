@@ -2049,7 +2049,7 @@ export default function SimulationView({
   const spellUsageFinishingRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
-  const playMuhyohwaCounterResolveSequenceRef = useRef<(() => void) | null>(null);
+  const playMuhyohwaCounterResolveSequenceRef = useRef<((pending?: SpellUsagePending | null) => void) | null>(null);
   const spellUsageTeslaCounterTimerRef = useRef<number | null>(null);
   const spellUsageTeslaBlackoutTimerRef = useRef<number | null>(null);
   const spellUsageCardMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -2152,8 +2152,8 @@ export default function SimulationView({
     });
   }, []);
 
-  const runMuhyohwaCounterCommit = useCallback(() => {
-    const pending = spellUsagePendingRef.current;
+  const runMuhyohwaCounterCommit = useCallback((pendingOverride?: SpellUsagePending | null) => {
+    const pending = pendingOverride ?? spellUsagePendingRef.current;
     if (!pending?.muhyohwaCounter) return;
     const { counterPlayer, handIndex, tokenCost } = pending.muhyohwaCounter;
     const previewCard = pending.previewCard;
@@ -2193,8 +2193,8 @@ export default function SimulationView({
     setSpellUsageTeslaFieldCard(null);
   }, []);
 
-  const runSuperTeslaCounterCommit = useCallback(() => {
-    const pending = spellUsagePendingRef.current;
+  const runSuperTeslaCounterCommit = useCallback((pendingOverride?: SpellUsagePending | null) => {
+    const pending = pendingOverride ?? spellUsagePendingRef.current;
     if (!pending?.superTeslaCounter) return;
     const { counterPlayer, teslaStackIndex } = pending.superTeslaCounter;
     const previewCard = pending.previewCard;
@@ -2232,16 +2232,17 @@ export default function SimulationView({
   const finishSpellUsageSequence = useCallback(() => {
     spellUsageFinishingRef.current = true;
     try {
+    const visualOnly = multiplayOpponentSpellVisualOnlyRef.current;
+    const pending = spellUsagePendingRef.current;
+    spellUsagePendingRef.current = null;
+    multiplayOpponentSpellVisualOnlyRef.current = false;
+
     console.log("[BEFP-FINISH] finishSpellUsageSequence 호출", {
-      hasPending: !!spellUsagePendingRef.current,
-      previewCard: spellUsagePendingRef.current?.previewCard?.name,
+      hasPending: !!pending,
+      previewCard: pending?.previewCard?.name,
       motionActive: spellUsageMotionActiveRef.current,
       stack: new Error().stack?.split("\n").slice(1, 4).join(" | "),
     });
-    const visualOnly = multiplayOpponentSpellVisualOnlyRef.current;
-    multiplayOpponentSpellVisualOnlyRef.current = false;
-
-    const pending = spellUsagePendingRef.current;
 
     if (!pending) {
       spellUsageMotionActiveRef.current = false;
@@ -2252,25 +2253,22 @@ export default function SimulationView({
     }
     if (pending.muhyohwaCounter) {
       if (visualOnly) {
-        spellUsagePendingRef.current = null;
         spellUsageMotionActiveRef.current = false;
         clearSpellUsageVisualState();
         controlledSimulation?.onRequestStateSync?.();
         return;
       }
-      playMuhyohwaCounterResolveSequenceRef.current?.();
+      playMuhyohwaCounterResolveSequenceRef.current?.(pending);
       return;
     }
     if (pending.superTeslaCounter) {
       if (visualOnly) {
-        spellUsagePendingRef.current = null;
         spellUsageMotionActiveRef.current = false;
         clearSpellUsageVisualState();
         controlledSimulation?.onRequestStateSync?.();
         return;
       }
-      runSuperTeslaCounterCommit();
-      spellUsagePendingRef.current = null;
+      runSuperTeslaCounterCommit(pending);
       spellUsageMotionActiveRef.current = false;
       applySpellUsagePending(null);
       clearSpellUsageVisualState();
@@ -3837,8 +3835,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     }, durationMs);
   };
 
-  const playMuhyohwaCounterResolveSequence = useCallback(() => {
-    runMuhyohwaCounterCommit();
+  const playMuhyohwaCounterResolveSequence = useCallback((pendingOverride?: SpellUsagePending | null) => {
+    runMuhyohwaCounterCommit(pendingOverride);
     setSpellUsageMuhyohwaCounterResolve(true);
     triggerCardFlash(SPELL_USAGE_CENTER_KEY, "muhyohwaCounterResolve");
     pushInfoFloat(SPELL_USAGE_CENTER_KEY, "[무효화]", INFO_FLOAT_MS);
