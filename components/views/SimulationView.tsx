@@ -2228,6 +2228,12 @@ export default function SimulationView({
   }, []);
 
   const finishSpellUsageSequence = useCallback(() => {
+    console.log("[BEFP-FINISH] finishSpellUsageSequence 호출", {
+      hasPending: !!spellUsagePendingRef.current,
+      previewCard: spellUsagePendingRef.current?.previewCard?.name,
+      motionActive: spellUsageMotionActiveRef.current,
+      stack: new Error().stack?.split("\n").slice(1, 4).join(" | "),
+    });
     const visualOnly = multiplayOpponentSpellVisualOnlyRef.current;
     multiplayOpponentSpellVisualOnlyRef.current = false;
 
@@ -2276,6 +2282,13 @@ export default function SimulationView({
       flushSync(() => {
         setState(prev => {
           if (!prev) return prev;
+          console.log("[BEFP-COMMIT] pending.commit 실행", {
+            mode: pending.mode,
+            caster: pending.casterPlayer,
+            previewCard: pending.previewCard?.name,
+            motionActive: spellUsageMotionActiveRef.current,
+            stack: new Error().stack?.split("\n").slice(1, 5).join(" | "),
+          });
           return pending.commit(prev);
         });
       });
@@ -8599,6 +8612,11 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   const resumeSpellUsageSequence = useCallback(
     (save: SpellUsagePendingSave) => {
+      console.log("[BEFP-RESUME] resumeSpellUsageSequence", {
+        previewCard: save?.previewCard?.name,
+        motionActive: spellUsageMotionActiveRef.current,
+        restoreDone: spellUsageRestoreOnMountDoneRef.current,
+      });
       if (spellUsageMotionActiveRef.current) {
         return;
       }

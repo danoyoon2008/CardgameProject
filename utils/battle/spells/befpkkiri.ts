@@ -56,6 +56,11 @@ export function applyBefpkkiriSpellCommit<T extends BefpkkiriCommitSlice>(
   spellCard: CardRow,
   markHandGlow: (card: CardRow) => CardRow
 ): T {
+  console.log("[BEFP-APPLY] applyBefpkkiriSpellCommit 실행", {
+    caster,
+    handLen: (caster === "A" ? prev.playerA : prev.playerB).hand.length,
+    rewindLen: prev.rewindCards?.length,
+  });
   const isNormal = prev.gameMode === "normal";
   // 일반전: caster 자신의 덱에서 드로우 / 덱 비었으면 자신 리와인드 복원(오래된 것 먼저)
   let sourceDeck: CardRow[];
