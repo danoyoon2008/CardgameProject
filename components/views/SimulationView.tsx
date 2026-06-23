@@ -2078,14 +2078,10 @@ export default function SimulationView({
     prev: SimulationState,
     player: "A" | "B",
     pendingCard: CardRow,
-    expectedPeekTick?: number
+    expectedPeekTick: number
   ): SimulationState | null => {
     if (!prev.simpanPeekReveal) return null;
-    // peekTick이 다르면 다음 스텝의 reveal이므로 건드리지 않음
-    if (
-      expectedPeekTick !== undefined &&
-      (prev.simpanPeekTick ?? 0) !== expectedPeekTick
-    ) {
+    if ((prev.simpanPeekTick ?? 0) !== expectedPeekTick) {
       return null;
     }
     if (
@@ -6629,6 +6625,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
   useEffect(() => {
     if (!state?.simpanPeekReveal) {
+      simpanPeekRevealTransitionStartedRef.current = false;
       simpanPeekSkipToFlyRef.current = null;
       return;
     }
@@ -6662,16 +6659,23 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       const tr = toEl?.getBoundingClientRect();
 
       if (!fr || !tr || fr.width < 2 || tr.width < 2) {
+        const capturedPeekTick = snap.simpanPeekTick ?? 0;
         setState(prev => {
           if (!prev?.simpanPeekReveal) {
             simpanPeekRevealTransitionStartedRef.current = false;
             return prev;
           }
-          const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard);
+          const merged = completeSimpanPeekRevealToHand(
+            prev,
+            player,
+            pendingCard,
+            capturedPeekTick
+          );
           if (!merged) {
             simpanPeekRevealTransitionStartedRef.current = false;
             return prev;
           }
+          simpanPeekRevealTransitionStartedRef.current = false;
           if (witchTarotSequenceActiveRef.current) {
             simulationStateRef.current = merged;
           }
@@ -6786,12 +6790,20 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     const tid = window.setTimeout(() => {
       setSimpanPeekFly(null);
       setState(prev => {
-        if (!prev?.simpanPeekReveal) return prev;
+        if (!prev?.simpanPeekReveal) {
+          simpanPeekRevealTransitionStartedRef.current = false;
+          return prev;
+        }
         const merged = completeSimpanPeekRevealToHand(prev, player, pendingCard, peekTick);
-        if (merged && witchTarotSequenceActiveRef.current) {
+        if (!merged) {
+          simpanPeekRevealTransitionStartedRef.current = false;
+          return prev;
+        }
+        simpanPeekRevealTransitionStartedRef.current = false;
+        if (witchTarotSequenceActiveRef.current) {
           simulationStateRef.current = merged;
         }
-        return merged ?? prev;
+        return merged;
       });
       if (witchTarotSequenceActiveRef.current) {
         window.setTimeout(() => runWitchTarotAdvanceRef.current(), 0);
