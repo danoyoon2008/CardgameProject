@@ -17922,7 +17922,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     isPlayerA: boolean = false,
     layout: "overlay" | "inline" = "overlay",
     fieldSlot?: "is" | "m" | "os",
-    mobileFieldDims?: { width: number; height: number }
+    mobileFieldDims?: { width: number; height: number },
+    ownerPlayer?: "A" | "B"
   ) => {
     if (!card || !card.hp || Number(card.hp) <= 0) return null;
     
@@ -18014,11 +18015,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
       </>
     );
 
-    const baekseuExecuteAuraOwner = isPlayerA ? "B" : "A";
+    const actualOwner: "A" | "B" = ownerPlayer ?? (isPlayerA ? "A" : "B");
+    const baekseuExecuteAuraOwner: "A" | "B" = actualOwner === "A" ? "B" : "A";
     const showBaekseuExecuteHpDecor =
       !!state &&
       fieldHasBaekseuLastStandExecuteAura(
-        isPlayerA ? state.playerB.field : state.playerA.field,
+        actualOwner === "A" ? state.playerB.field : state.playerA.field,
         baekseuExecuteAuraOwner,
         state
           ? { playerAField: state.playerA.field, playerBField: state.playerB.field }
@@ -18246,8 +18248,9 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
   const renderMobileFieldHpBar = (
     card: FieldCard | null,
     isPlayerA: boolean,
-    slot: "is" | "m" | "os"
-  ) => renderHpBar(card, isPlayerA, "inline", slot, mobileFieldUnitHpDims);
+    slot: "is" | "m" | "os",
+    ownerPlayer: "A" | "B"
+  ) => renderHpBar(card, isPlayerA, "inline", slot, mobileFieldUnitHpDims, ownerPlayer);
 
   const renderMobileHpRowWithOptionalDKGauge = (
     card: FieldCard | null,
@@ -18257,7 +18260,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     ownerPlayer: "A" | "B"
   ) => {
     const hpInner =
-      renderMobileFieldHpBar(card, isPlayerA, slot) ?? (
+      renderMobileFieldHpBar(card, isPlayerA, slot, ownerPlayer) ?? (
         <div style={{ width: MOBILE_UNIT_W, height: MOBILE_FIELD_UNIT_HP_H }} aria-hidden />
       );
     const hasActiveGauge = (() => {
@@ -22075,7 +22078,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.is, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "is", state.playerB.field.is, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.is,
-                     renderHpBar(state.playerB.field.is, fieldSlotIsPlayerA("B"), "inline", "is") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerB.field.is, fieldSlotIsPlayerA("B"), "inline", "is", undefined, "B") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("B"),
                      "B-is"
                    )}
@@ -22122,7 +22125,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.m, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "m", state.playerB.field.m, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.m,
-                     renderHpBar(state.playerB.field.m, fieldSlotIsPlayerA("B"), "inline", "m") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerB.field.m, fieldSlotIsPlayerA("B"), "inline", "m", undefined, "B") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("B"),
                      "B-m"
                    )}
@@ -22169,7 +22172,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    <div className={fieldSlotBadgeZoneClassWithCard(state.playerB.field.os, fieldSlotIsPlayerA("B"))}>{renderStatusBadges("B", "os", state.playerB.field.os, fieldSlotIsPlayerA("B"))}</div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerB.field.os,
-                     renderHpBar(state.playerB.field.os, fieldSlotIsPlayerA("B"), "inline", "os") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerB.field.os, fieldSlotIsPlayerA("B"), "inline", "os", undefined, "B") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("B"),
                      "B-os"
                    )}
@@ -22323,7 +22326,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.is,
-                     renderHpBar(state.playerA.field.is, fieldSlotIsPlayerA("A"), "inline", "is") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerA.field.is, fieldSlotIsPlayerA("A"), "inline", "is", undefined, "A") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("A"),
                      "A-is"
                    )}
@@ -22370,7 +22373,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.m,
-                     renderHpBar(state.playerA.field.m, fieldSlotIsPlayerA("A"), "inline", "m") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerA.field.m, fieldSlotIsPlayerA("A"), "inline", "m", undefined, "A") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("A"),
                      "A-m"
                    )}
@@ -22417,7 +22420,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
                    </div>
                    {renderHpRowWithOptionalDKGauge(
                      state.playerA.field.os,
-                     renderHpBar(state.playerA.field.os, fieldSlotIsPlayerA("A"), "inline", "os") ?? fieldSlotHpPlaceholder,
+                     renderHpBar(state.playerA.field.os, fieldSlotIsPlayerA("A"), "inline", "os", undefined, "A") ?? fieldSlotHpPlaceholder,
                      fieldSlotIsPlayerA("A"),
                      "A-os"
                    )}
