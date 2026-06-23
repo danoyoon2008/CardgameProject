@@ -12045,6 +12045,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           Object.keys(r.baekseuPatchPrimary).length > 0
             ? stripBaekseuHarmfulEffectsForInvuln(r.card)
             : r.card;
+        // 리부티 '모든 적 공격'은 공격권만 소모하고, 공격한 적에게 다굴 금지 마킹을 남기지 않는다.
+        // (리부티가 먼저 전체 공격해도 다른 아군이 그 적들을 공격할 수 있도록.)
         const updatedTarget: FieldCard = {
           ...baseTargetPrimary,
           ...elixir5StunTargetPatch(
@@ -12056,7 +12058,6 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           ...r.baekseuPatchPrimary,
           ...hpBarrierPatchFromRemaining(r.barrierNextRemaining),
           currentHp: r.newHp,
-          hasBeenAttackedThisTurn: true,
         };
 
         let finalTarget: FieldCard = updatedTarget;
