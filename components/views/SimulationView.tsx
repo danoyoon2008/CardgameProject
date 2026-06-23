@@ -2045,6 +2045,8 @@ export default function SimulationView({
   ]);
 
   const spellUsageMotionActiveRef = useRef(false);
+  /** finishSpellUsageSequence commit 처리 중 mount resume 재진입 차단 */
+  const spellUsageFinishingRef = useRef(false);
   const spellUsageRevealTimerRef = useRef<number | null>(null);
   const spellUsageMuhyohwaResolveTimerRef = useRef<number | null>(null);
   const playMuhyohwaCounterResolveSequenceRef = useRef<(() => void) | null>(null);
@@ -2228,6 +2230,8 @@ export default function SimulationView({
   }, []);
 
   const finishSpellUsageSequence = useCallback(() => {
+    spellUsageFinishingRef.current = true;
+    try {
     console.log("[BEFP-FINISH] finishSpellUsageSequence 호출", {
       hasPending: !!spellUsagePendingRef.current,
       previewCard: spellUsagePendingRef.current?.previewCard?.name,
@@ -2289,7 +2293,8 @@ export default function SimulationView({
             motionActive: spellUsageMotionActiveRef.current,
             stack: new Error().stack?.split("\n").slice(1, 5).join(" | "),
           });
-          return pending.commit(prev);
+          const committed = pending.commit(prev);
+          return patchSpellUsagePending(committed, null);
         });
       });
       pending.afterCommitVfx?.();
@@ -2301,6 +2306,9 @@ export default function SimulationView({
     } else {
       // 시전자에게 최신 상태 재전송 요청 — 슬롯 배치 즉시 반영
       controlledSimulation?.onRequestStateSync?.();
+    }
+    } finally {
+      spellUsageFinishingRef.current = false;
     }
   }, [runSuperTeslaCounterCommit, applySpellUsagePending, clearSpellUsageVisualState, controlledSimulation]);
 
@@ -8764,6 +8772,7 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
     if (spellUsageRestoreOnMountDoneRef.current) {
       return;
     }
+    if (spellUsageFinishingRef.current) return;
     if (spellUsageMotionActiveRef.current) return;
     if (spellUsageReveal || spellUsageFly) return;
 
