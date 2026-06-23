@@ -1,11 +1,12 @@
 /**
  * 리부티 (No.10) — 기본 공격 전체 적 300 / 기본 피격 시 반사 고정 피해(캘리 고정과 동일 계열).
  */
-import type { FieldCard } from "../../../types/game";
+import type { FieldCard, SimulationPlayerField } from "../../../types/game";
 import {
   hpBarrierPatchFromRemaining,
   splitDamageThroughHpBarrier,
 } from "../spells/orietChosang";
+import { isInvulnerableFromBaekseuOrCheolbyeok } from "../spells/cheolbyeok";
 import { UNIT } from "../unitIds";
 import {
   isBaekseuInvulnerable,
@@ -62,10 +63,16 @@ export type LibutyReflectPureResult = {
 export function computeLibutyReflectPureDamageOnAggressor(
   aggressor: FieldCard,
   pureAmount: number = LIBUTY_REFLECT_PURE_DAMAGE,
-  facingOppCard: FieldCard | null = null
+  facingOppCard: FieldCard | null = null,
+  aggressorField?: SimulationPlayerField
 ): LibutyReflectPureResult | null {
   if (!aggressor || (aggressor.currentHp ?? 0) <= 0 || pureAmount <= 0) return null;
-  if (isBaekseuInvulnerable(aggressor)) {
+
+  const invuln = aggressorField
+    ? isInvulnerableFromBaekseuOrCheolbyeok(aggressor, aggressorField)
+    : isBaekseuInvulnerable(aggressor);
+
+  if (invuln) {
     return {
       finalHp: aggressor.currentHp,
       hpLoss: 0,

@@ -7891,10 +7891,12 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
           let riderKilledByReflect = false;
           let reflectDmgShown = 0;
           if (shouldApplyLibutyBasicAttackReflect(host, facingOpp, hpLoss)) {
+            const riderAggressorField = riderTrueOwner === "A" ? playerAField : playerBField;
             const reflectRes = computeLibutyReflectPureDamageOnAggressor(
               updatedRider,
               undefined,
-              facingOpp
+              facingOpp,
+              riderAggressorField
             );
             if (reflectRes && reflectRes.hpLoss > 0) {
               updatedRider = applyLibutyReflectPatchToAggressorCard(updatedRider, reflectRes);
@@ -13589,7 +13591,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             computeLibutyReflectPureDamageOnAggressor(
               mergedForReflectSec,
               undefined,
-              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+              attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field
             );
           if (reflectLibutySecondaryAgg && reflectLibutySecondaryAgg.hpLoss > 0) {
             if (attackerCard.statsInstanceId) {
@@ -14813,7 +14816,8 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
             reflectLibutyOnAggressorResult = computeLibutyReflectPureDamageOnAggressor(
               mergedForReflect,
               undefined,
-              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName)
+              facingOppUnitAtSlot(state!, attackerPlayer, attackerSlotName),
+              attackerPlayer === "A" ? state!.playerA.field : state!.playerB.field
             );
             if (reflectLibutyOnAggressorResult && reflectLibutyOnAggressorResult.hpLoss > 0) {
               if (attackerCard.statsInstanceId) {
