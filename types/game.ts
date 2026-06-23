@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────
 // DB에서 가져온 카드 원본 데이터
 // ─────────────────────────────────────────
+/** CardRow 명시 필드 변경 시 `PRESERVED_CARD_ROW_KEYS`(simulationDeathCleanup.ts)와 동기화 필요 */
 export interface CardRow {
   id?: number;
   number?: number;           // 도감 번호

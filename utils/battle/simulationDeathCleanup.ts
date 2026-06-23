@@ -6,7 +6,7 @@
 
  */
 
-import type { FieldCard } from "../../types/game";
+import type { CardRow, FieldCard } from "../../types/game";
 
 import { incrementDarkKnightGaugesOnUnitDeath } from "./units/darkKnight";
 
@@ -83,18 +83,40 @@ function clearLinkedCasterSkillState(
 
 
 /**
- * 손패→필드 일반 소환 시 — 이전 소환/덱 사이클의 링크형 액티브·버프 잔재 제거.
- * (귀환 부활은 `buildGuihwanRevivedFieldCard` 등 별도 경로.)
+ * 재소환 시 CardRow 원본만 보존 — FieldCard 런타임 상태는 전부 제거.
+ * @see CardRow — 필드 추가 시 이 목록도 갱신
  */
-export function sanitizeUnitForFreshSummon(card: FieldCard): FieldCard {
-  const next: FieldCard = { ...card };
-  delete (next as { isSkillActive?: boolean }).isSkillActive;
-  delete (next as { linkedTarget?: string | null }).linkedTarget;
-  delete (next as { linkedSource?: string | null }).linkedSource;
-  delete (next as { hasBanjitgori?: boolean }).hasBanjitgori;
-  delete (next as { hasLimeBubbleShieldBuff?: boolean }).hasLimeBubbleShieldBuff;
-  delete (next as { hpBarrierAbsorptionRemaining?: number }).hpBarrierAbsorptionRemaining;
-  return next;
+export const PRESERVED_CARD_ROW_KEYS = [
+  "id",
+  "number",
+  "name",
+  "category",
+  "type",
+  "rarity",
+  "cost",
+  "hp",
+  "atk",
+  "duration",
+  "passive_name",
+  "passive_detail",
+  "active_name",
+  "active_detail",
+  "description_detail",
+  "image_url",
+  "_deckInstanceId",
+  "_ownerTeam",
+] as const;
+
+/**
+ * 일반전 덱 사이클 재소환 시 — 카드를 원본 CardRow 데이터로 완전 환원한다.
+ * (귀환 부활·필드 유지 등 의도적 상태 보존 경로에는 적용하지 않음.)
+ */
+export function resetCardToOriginalForResummon(card: CardRow | FieldCard): CardRow {
+  const fresh: Record<string, unknown> = {};
+  for (const key of PRESERVED_CARD_ROW_KEYS) {
+    if (card[key] !== undefined) fresh[key] = card[key];
+  }
+  return fresh as CardRow;
 }
 
 export function cleanupSimulationUnitDeath(

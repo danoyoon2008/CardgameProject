@@ -79,7 +79,7 @@ import {
   stripBaekseuHarmfulEffectsForInvuln,
   applyBaekseuInvulnThresholdExecutePass,
   cleanupSimulationUnitDeath,
-  sanitizeUnitForFreshSummon,
+  resetCardToOriginalForResummon,
   suppressActiveSkillLinksForConfusion,
   isHiddenSpellCard,
   GONCHUNG_JEONMOGA_ACTIVE,
@@ -895,10 +895,10 @@ export function useSimulationLogic(cards: CardRow[], options?: SimulationLogicOp
     const handCard = hand.slice(cardIndex, cardIndex + 1).pop();
     if (!handCard) return;
 
-    const cleanHandCard =
-      slot === "spell" ? handCard : sanitizeUnitForFreshSummon(handCard as FieldCard);
+    const original =
+      slot === "spell" ? handCard : resetCardToOriginalForResummon(handCard);
     const card: FieldCard = {
-      ...cleanHandCard,
+      ...original,
       currentHp: Number(handCard.hp) || 0,
       hasAttacked: false,
       hasBeenAttackedThisTurn: false,

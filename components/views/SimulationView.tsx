@@ -209,7 +209,7 @@ import {
   BAEKSEU_INVULN_BADGE,
   applyBaekseuInvulnThresholdExecutePass,
   cleanupSimulationUnitDeath,
-  sanitizeUnitForFreshSummon,
+  resetCardToOriginalForResummon,
   suppressActiveSkillLinksForConfusion,
   isBaekseuLastStandExecuteAuraActiveOnUnit,
   isBaekseuPassivesPausedByConfusion,
@@ -8857,10 +8857,10 @@ const isAttackDisabledUnit = (card: FieldCard | null | undefined): boolean =>
 
     const statsInstanceId = createSimulationStatsInstanceId();
     const handCardForField = stripPpSimHandNewGlow(handCard);
-    const cleanHandCard =
-      slot === "spell" ? handCardForField : sanitizeUnitForFreshSummon(handCardForField as FieldCard);
+    const original =
+      slot === "spell" ? handCardForField : resetCardToOriginalForResummon(handCardForField);
     const card: FieldCard = {
-      ...cleanHandCard,
+      ...original,
       statsInstanceId,
       currentHp: Number(handCard.hp) || 0,
       hasAttacked: false,
